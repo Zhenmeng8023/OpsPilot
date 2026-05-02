@@ -1,0 +1,45 @@
+name: opspilot
+
+services:
+  mysql:
+    image: mysql:8.0.39
+    container_name: opspilot-mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+      - --innodb_flush_log_at_trx_commit=1
+      - --binlog_expire_logs_seconds=604800
+    environment:
+      MYSQL_DATABASE: opspilot
+      MYSQL_USER: opspilot
+      MYSQL_PASSWORD: opspilot
+      MYSQL_ROOT_PASSWORD: opspilot_root
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - opspilot-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uopspilot -popspilot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: opspilot-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - opspilot-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  opspilot-mysql-data:
+  opspilot-redis-data:

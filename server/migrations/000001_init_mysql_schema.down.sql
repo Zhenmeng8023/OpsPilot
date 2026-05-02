@@ -1,0 +1,56 @@
+-- Rollback OpsPilot initial schema for MySQL 8.0.39.
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS outbox_events;
+DROP TABLE IF EXISTS idempotency_keys;
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS webhook_event_matches;
+DROP TABLE IF EXISTS webhook_events;
+DROP TABLE IF EXISTS webhook_rules;
+DROP TABLE IF EXISTS webhook_sources;
+DROP TABLE IF EXISTS notification_deliveries;
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS notification_channels;
+DROP TABLE IF EXISTS alert_events;
+DROP TABLE IF EXISTS alerts;
+DROP TABLE IF EXISTS alert_rules;
+DROP TABLE IF EXISTS service_check_results;
+DROP TABLE IF EXISTS service_checks;
+DROP TABLE IF EXISTS host_metrics;
+DROP TABLE IF EXISTS metric_definitions;
+DROP TABLE IF EXISTS schedule_triggers;
+DROP TABLE IF EXISTS schedules;
+DROP TABLE IF EXISTS task_run_artifacts;
+DROP TABLE IF EXISTS task_run_events;
+DROP TABLE IF EXISTS task_run_logs;
+DROP TABLE IF EXISTS task_run_attempts;
+DROP TABLE IF EXISTS task_run_targets;
+DROP TABLE IF EXISTS task_runs;
+DROP TABLE IF EXISTS task_targets;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS script_approvals;
+DROP TABLE IF EXISTS script_versions;
+DROP TABLE IF EXISTS script_templates;
+DROP TABLE IF EXISTS agent_commands;
+DROP TABLE IF EXISTS agent_heartbeats;
+DROP TABLE IF EXISTS agent_tokens;
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS host_group_members;
+DROP TABLE IF EXISTS hosts;
+DROP TABLE IF EXISTS host_groups;
+DROP TABLE IF EXISTS resource_tags;
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS system_settings;
+DROP TABLE IF EXISTS login_logs;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS user_roles;
+DROP TABLE IF EXISTS role_permissions;
+DROP TABLE IF EXISTS roles;
+DROP TABLE IF EXISTS permissions;
+DROP TABLE IF EXISTS workspace_members;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS workspaces;
+
+SET FOREIGN_KEY_CHECKS = 1;

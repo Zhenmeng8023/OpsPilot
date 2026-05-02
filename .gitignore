@@ -1,0 +1,36 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Go
+server/bin/
+server/coverage.out
+server/*.test
+
+# Node
+web/node_modules/
+web/dist/
+web/.vite/
+web/path/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+web/pnpm-debug.log*
+
+# Local npm cache override
+.npm-cache/
+
+# Runtime data
+data/
+logs/

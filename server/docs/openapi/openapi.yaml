@@ -1,0 +1,42 @@
+openapi: 3.1.0
+info:
+  title: OpsPilot API
+  version: 0.1.0
+  description: OpsPilot T0 scaffold API contract. Business APIs will be added from T1.
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: Service health status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data, traceId]
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  message:
+                    type: string
+                    example: success
+                  traceId:
+                    type: string
+                    example: trc_0123456789abcdef
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+                      service:
+                        type: string
+                        example: OpsPilot
+                      version:
+                        type: string
+                        example: dev
+                      env:
+                        type: string
+                        example: local
