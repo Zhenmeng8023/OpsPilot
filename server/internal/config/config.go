@@ -68,7 +68,7 @@ func Load() (Config, error) {
 			AllowOrigin: getEnv("HTTP_ALLOW_ORIGIN", "http://localhost:5173"),
 		},
 		Database: DatabaseConfig{
-			Driver: getEnv("DATABASE_DRIVER", "postgres"),
+			Driver: getEnv("DATABASE_DRIVER", "mysql"),
 			DSN:    getEnv("DATABASE_DSN", ""),
 		},
 		Redis: RedisConfig{

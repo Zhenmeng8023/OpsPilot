@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS roles (
   deleted_at DATETIME(3) NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uk_roles_uid (uid),
-  UNIQUE KEY uk_roles_workspace_code (workspace_id, code),
+  UNIQUE KEY uk_roles_scope_code ((IFNULL(workspace_id, 0)), code),
   KEY idx_roles_workspace_status (workspace_id, status),
   KEY idx_roles_created_by (created_by),
   CONSTRAINT fk_roles_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -176,7 +176,8 @@ CREATE TABLE IF NOT EXISTS system_settings (
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_system_settings_key (workspace_id, setting_key),
+  UNIQUE KEY uk_system_settings_scope_key ((IFNULL(workspace_id, 0)), setting_key),
+  KEY idx_system_settings_workspace (workspace_id),
   CONSTRAINT fk_system_settings_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 
@@ -809,6 +810,12 @@ CREATE TABLE IF NOT EXISTS alerts (
   severity VARCHAR(32) NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'firing',
   fingerprint CHAR(64) NOT NULL,
+  open_fingerprint CHAR(64) GENERATED ALWAYS AS (
+    CASE
+      WHEN status IN ('firing', 'acknowledged', 'silenced') THEN fingerprint
+      ELSE NULL
+    END
+  ) STORED,
   first_seen_at DATETIME(3) NOT NULL,
   last_seen_at DATETIME(3) NOT NULL,
   resolved_at DATETIME(3) NULL,
@@ -818,7 +825,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   PRIMARY KEY (id),
   UNIQUE KEY uk_alerts_uid (uid),
-  UNIQUE KEY uk_alerts_fingerprint_status (workspace_id, fingerprint, status),
+  UNIQUE KEY uk_alerts_open_fingerprint (workspace_id, open_fingerprint),
   KEY idx_alerts_workspace_status_severity (workspace_id, status, severity),
   KEY idx_alerts_rule (alert_rule_id),
   KEY idx_alerts_resource (workspace_id, resource_type, resource_id),
