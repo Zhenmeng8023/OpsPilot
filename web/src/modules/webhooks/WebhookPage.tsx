@@ -38,7 +38,7 @@ export function WebhookPage() {
   });
   const [matcherDrafts, setMatcherDrafts] = useState<MatcherDraft[]>([]);
   const [matcherError, setMatcherError] = useState("");
-  const [eventFilters, setEventFilters] = useState({ sourceId: "", status: "", deliveryId: "", page: 1 });
+  const [eventFilters, setEventFilters] = useState({ sourceId: "", status: "", deliveryId: "", receivedFrom: "", receivedTo: "", page: 1 });
   const [selectedEventID, setSelectedEventID] = useState<string | undefined>();
   const [editingRuleID, setEditingRuleID] = useState<string | undefined>();
   const [issuedToken, setIssuedToken] = useState("");
@@ -135,6 +135,7 @@ export function WebhookPage() {
             ...patch,
             ...(patch.type === "header_equals" ? { path: "" } : {}),
             ...(patch.type === "payload_equals" || patch.type === "payload_contains" ? { key: "" } : {}),
+            ...(patch.type === "event_type_equals" || patch.type === "ref_equals" || patch.type === "branch_equals" ? { key: "", path: "" } : {}),
             ...(patch.type === "" ? { key: "", path: "", value: "" } : {})
           }
         : item
@@ -200,6 +201,15 @@ export function WebhookPage() {
     }
     if (value.startsWith("payload_contains_mismatch:")) {
       return t("webhooks.reasonPayloadContainsMismatch").replace("{value}", value.slice("payload_contains_mismatch:".length));
+    }
+    if (value === "event_type_condition_mismatch") {
+      return t("webhooks.reasonEventTypeConditionMismatch");
+    }
+    if (value === "ref_mismatch") {
+      return t("webhooks.reasonRefMismatch");
+    }
+    if (value === "branch_mismatch") {
+      return t("webhooks.reasonBranchMismatch");
     }
     return value;
   };
@@ -347,6 +357,9 @@ export function WebhookPage() {
                       <option value="header_equals">header_equals</option>
                       <option value="payload_equals">payload_equals</option>
                       <option value="payload_contains">payload_contains</option>
+                      <option value="event_type_equals">event_type_equals</option>
+                      <option value="ref_equals">ref_equals</option>
+                      <option value="branch_equals">branch_equals</option>
                     </select>
                   </label>
                   {draft.type === "header_equals" ? (
@@ -365,7 +378,7 @@ export function WebhookPage() {
                     <label>{t("webhooks.matcherValue")}<input value={draft.value} onChange={(event) => {
                       setMatcherError("");
                       updateMatcherDraft(index, { value: event.target.value });
-                    }} placeholder="main" /></label>
+                    }} placeholder={matcherValuePlaceholder(draft.type)} /></label>
                   ) : null}
                   <button type="button" className="danger-button" onClick={() => removeMatcherDraft(index)}>{t("webhooks.removeMatcherCondition")}</button>
                 </div>
@@ -430,6 +443,20 @@ export function WebhookPage() {
             placeholder={t("webhooks.deliveryId")}
             value={eventFilters.deliveryId}
             onChange={(event) => setEventFilters((current) => ({ ...current, deliveryId: event.target.value, page: 1 }))}
+          />
+          <input
+            aria-label={t("webhooks.receivedFrom")}
+            title={t("webhooks.receivedFrom")}
+            type="datetime-local"
+            value={eventFilters.receivedFrom}
+            onChange={(event) => setEventFilters((current) => ({ ...current, receivedFrom: event.target.value, page: 1 }))}
+          />
+          <input
+            aria-label={t("webhooks.receivedTo")}
+            title={t("webhooks.receivedTo")}
+            type="datetime-local"
+            value={eventFilters.receivedTo}
+            onChange={(event) => setEventFilters((current) => ({ ...current, receivedTo: event.target.value, page: 1 }))}
           />
           <button type="button" onClick={() => eventsQuery.refetch()}>{t("common.refresh")}</button>
         </div>
@@ -536,6 +563,10 @@ function buildRuleMatcher(drafts: MatcherDraft[]): { ok: true; matcher?: { condi
       conditions.push({ type, key, value });
       continue;
     }
+    if (type === "event_type_equals" || type === "ref_equals" || type === "branch_equals") {
+      conditions.push({ type, value });
+      continue;
+    }
     if (!path) {
       return { ok: false };
     }
@@ -565,6 +596,19 @@ function formatMatcher(matcher?: { conditions: Array<{ type: string; key?: strin
     if (condition.type === "header_equals") {
       return `${condition.type}:${condition.key}=${condition.value}`;
     }
+    if (condition.type === "event_type_equals" || condition.type === "ref_equals" || condition.type === "branch_equals") {
+      return `${condition.type}=${condition.value}`;
+    }
     return `${condition.type}:${condition.path}=${condition.value}`;
   }).join(" AND ");
+}
+
+function matcherValuePlaceholder(type: MatcherDraft["type"]) {
+  if (type === "event_type_equals") {
+    return "push";
+  }
+  if (type === "ref_equals") {
+    return "refs/heads/main";
+  }
+  return "main";
 }

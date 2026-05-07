@@ -19,7 +19,7 @@ func TestListEventsPassesFilters(t *testing.T) {
 	router := gin.New()
 	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughWebhookAuth, passThroughWebhookPermission)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/webhook-events?sourceId=src-1&status=rejected&deliveryId=del-1&page=2&pageSize=25", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/webhook-events?sourceId=src-1&status=rejected&deliveryId=del-1&receivedFrom=2026-05-01T00:00:00&receivedTo=2026-05-08T23:59:59&page=2&pageSize=25", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -28,6 +28,9 @@ func TestListEventsPassesFilters(t *testing.T) {
 	}
 	if service.input.SourceID != "src-1" || service.input.Status != "rejected" || service.input.DeliveryID != "del-1" {
 		t.Fatalf("unexpected filters: %#v", service.input)
+	}
+	if service.input.ReceivedFrom != "2026-05-01T00:00:00" || service.input.ReceivedTo != "2026-05-08T23:59:59" {
+		t.Fatalf("unexpected time filters: %#v", service.input)
 	}
 	if service.input.Page != 2 || service.input.PageSize != 25 {
 		t.Fatalf("unexpected page args: %#v", service.input)

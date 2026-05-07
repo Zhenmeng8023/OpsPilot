@@ -199,12 +199,12 @@ duration: 60
 6. 进入 Notifications 页面，确认生成站内通知和 delivery。
 7. 点击 Resolve，确认告警可手动恢复。
 
-当前 V0.7 待补项：
+扩展验收点：
 
-- Email/SMTP sender 尚未实现。
-- Alert ack/silence/cooldown/恢复通知尚未闭环。
-- OS CPU/内存/磁盘/网络指标尚未采集。
-- Webhook timestamp/nonce 和失败事件检索页尚未闭环。
+- Email/SMTP sender 可通过 `NOTIFICATION_SMTP_*` 环境变量配置，授权码只放入本地 `.env`，不要提交到仓库。
+- Alert ack/silence/cooldown/恢复通知已接入，可在 Metrics 页面继续验证状态流转。
+- Agent OS CPU/内存/磁盘/网络指标已采集，可在 Metrics 页面查看趋势。
+- Webhook timestamp/nonce、失败事件、matcher 结果和时间范围检索已接入 Webhooks 页面。
 
 ## 10. 必跑验证命令
 
@@ -236,8 +236,8 @@ cd D:\+\1108026_rust_go\OpsPilot
 
 ### Webhook 签名失败
 
-当前版本 HMAC key 仍使用 source token。V0.7 后续会拆分 trigger token 和 signing secret。
+V0.7 已拆分 trigger token 与 signing secret。触发 URL 中的 token 只用于定位 source，HMAC key 使用创建 source 时一次性展示的 signing secret。
 
 ### 没有通知
 
-当前只有站内通知和 webhook 类 channel 可用，Email channel 会投递失败，这是 V0.7 后续任务。
+确认 channel 状态为 active，dispatcher 正在运行。Email channel 还需要在 API 环境中配置 `NOTIFICATION_SMTP_HOST`、`NOTIFICATION_SMTP_PORT`、`NOTIFICATION_SMTP_USERNAME`、`NOTIFICATION_SMTP_PASSWORD`、`NOTIFICATION_SMTP_FROM` 等变量。

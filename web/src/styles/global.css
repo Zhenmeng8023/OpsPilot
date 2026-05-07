@@ -1019,6 +1019,340 @@ a {
   word-break: break-word;
 }
 
+.inline-detail {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.detail-item {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+
+.detail-item strong,
+.detail-item small {
+  display: block;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 1.25rem;
+}
+
+.template-card {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  padding: 0.95rem 1rem;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.template-card strong,
+.template-card span {
+  display: block;
+}
+
+.template-card span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.overview-card {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  padding: 1rem;
+  background: var(--surface);
+}
+
+.overview-card-header,
+.overview-stat-top,
+.overview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.overview-card-header strong,
+.overview-card-header small {
+  display: block;
+}
+
+.overview-card-header small {
+  margin-top: 0.2rem;
+  color: var(--muted);
+}
+
+.overview-card-header button,
+.overview-actions button,
+.metric-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.5rem 0.8rem;
+  color: var(--brand-strong);
+  background: rgb(23 79 104 / 7%);
+  font-weight: 800;
+}
+
+.overview-stat-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.overview-stat {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.overview-stat-top span,
+.overview-stat small,
+.trend-stat small {
+  color: var(--muted);
+}
+
+.meter {
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(23 79 104 / 10%);
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1f8a70 0%, #d89216 65%, #c94f3a 100%);
+}
+
+.overview-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.summary-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--surface);
+}
+
+.summary-card span,
+.summary-card small {
+  color: var(--muted);
+}
+
+.summary-card strong {
+  font-size: 1.4rem;
+  line-height: 1.1;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.metric-chip.active,
+.overview-card-header button:hover,
+.overview-actions button:hover,
+.metric-chip:hover,
+.template-card:hover {
+  border-color: rgb(23 79 104 / 35%);
+  background: rgb(23 79 104 / 10%);
+}
+
+.compact-toolbar {
+  margin-top: 0;
+}
+
+.trend-layout {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.34fr) minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.trend-series-list {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.trend-series-button {
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  padding: 0.9rem 1rem;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.trend-series-button strong,
+.trend-series-button span,
+.trend-series-button small {
+  display: block;
+}
+
+.trend-series-button span,
+.trend-series-button small {
+  color: var(--muted);
+}
+
+.trend-series-button.active {
+  border-color: rgb(23 79 104 / 35%);
+  color: var(--brand-strong);
+  background: rgb(23 79 104 / 8%);
+}
+
+.trend-view {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.trend-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.trend-header h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.trend-header p,
+.trend-header small {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+}
+
+.trend-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.trend-stat {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--surface);
+}
+
+.trend-stat span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.trend-stat strong {
+  font-size: 1.2rem;
+  line-height: 1.15;
+}
+
+.trend-stat small {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.trend-chart-shell {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  padding: 0.75rem;
+  color: var(--brand-strong);
+  background: linear-gradient(180deg, rgb(23 79 104 / 4%), rgb(23 79 104 / 1%));
+}
+
+.trend-chart {
+  display: block;
+  width: 100%;
+  min-width: 36rem;
+  height: auto;
+}
+
+.alert-history-shell {
+  margin-top: 1rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  padding: 0.85rem;
+  background: linear-gradient(180deg, rgb(23 79 104 / 3%), rgb(23 79 104 / 1%));
+}
+
+.alert-history-chart {
+  display: block;
+  width: 100%;
+  min-width: 40rem;
+  height: auto;
+}
+
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-bottom: 0.8rem;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.legend-swatch {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 999px;
+}
+
+.trend-axis {
+  stroke: rgb(100 120 131 / 28%);
+  stroke-width: 1;
+}
+
+.trend-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
 @media (max-width: 900px) {
   .auth-shell,
   .app-shell,
@@ -1036,8 +1370,17 @@ a {
   .hero-grid,
   .permission-checks,
   .matcher-row,
-  .event-detail-grid {
+  .template-grid,
+  .overview-grid,
+  .summary-grid,
+  .event-detail-grid,
+  .trend-layout,
+  .trend-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trend-layout {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1054,7 +1397,19 @@ a {
   .matcher-row,
   .form-grid,
   .target-picker,
-  .event-detail-grid {
+  .template-grid,
+  .overview-grid,
+  .summary-grid,
+  .event-detail-grid,
+  .trend-stats {
     grid-template-columns: 1fr;
+  }
+
+  .trend-chart {
+    min-width: 28rem;
+  }
+
+  .alert-history-chart {
+    min-width: 28rem;
   }
 }

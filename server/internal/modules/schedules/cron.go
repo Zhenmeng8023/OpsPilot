@@ -33,6 +33,23 @@ func nextCronTime(expr string, loc *time.Location, after time.Time) (time.Time, 
 	return time.Time{}, errors.New("cron expression has no fire time within one year")
 }
 
+func nextCronTimes(expr string, loc *time.Location, after time.Time, count int) ([]time.Time, error) {
+	if count <= 0 {
+		return nil, nil
+	}
+	out := make([]time.Time, 0, count)
+	cursor := after
+	for len(out) < count {
+		next, err := nextCronTime(expr, loc, cursor)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, next)
+		cursor = next
+	}
+	return out, nil
+}
+
 func parseCron(expr string) (cronSpec, error) {
 	fields := strings.Fields(strings.TrimSpace(expr))
 	if len(fields) != 5 {

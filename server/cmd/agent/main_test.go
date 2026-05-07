@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"opspilot/server/internal/config"
 )
 
 func TestRunCommandSuccess(t *testing.T) {
@@ -70,23 +73,26 @@ func TestRunCommandCanceled(t *testing.T) {
 
 func TestRunCommandUsesIndependentTaskWorkDir(t *testing.T) {
 	baseDir := t.TempDir()
-	command := "pwd"
+	command := "pwd > cwd.txt"
+	expectedOutputFile := "cwd.txt"
 	if isWindows() {
-		command = "cd"
+		command = "cd > cwd.txt"
 	}
 	task := agentTask{TargetID: "target/with unsafe chars", ScriptType: "shell", Command: command, TimeoutSeconds: 5}
-	var logs []string
 
-	result := runCommand(context.Background(), task, baseDir, func(stream, chunk string) {
-		logs = append(logs, stream+":"+chunk)
-	})
+	result := runCommand(context.Background(), task, baseDir, func(string, string) {})
 
 	if result.Status != "success" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	wantDir := filepath.Join(baseDir, "target_with_unsafe_chars")
-	if !containsLog(logs, wantDir) {
-		t.Fatalf("expected command to run in %q, got logs %#v", wantDir, logs)
+	bytes, err := os.ReadFile(filepath.Join(wantDir, expectedOutputFile))
+	if err != nil {
+		t.Fatalf("read cwd marker: %v", err)
+	}
+	gotDir := strings.TrimSpace(string(bytes))
+	if gotDir != wantDir {
+		t.Fatalf("expected command to run in %q, got %q", wantDir, gotDir)
 	}
 }
 
@@ -102,9 +108,40 @@ func TestSafePathSegment(t *testing.T) {
 	}
 }
 
+func TestCollectMetricsIncludesSystemMetrics(t *testing.T) {
+	exec := &executor{cfg: config.Config{}}
+	exec.cfg.Agent.WorkDir = t.TempDir()
+	exec.active.Store(3)
+
+	metrics := collectMetrics(exec)
+	required := []string{
+		"agent.running_tasks",
+		"agent.cpu.logical",
+		"agent.runtime.goroutines",
+		"agent.runtime.alloc_bytes",
+		"agent.runtime.sys_bytes",
+		"agent.os.memory.total_bytes",
+		"agent.os.disk.total_bytes",
+	}
+	for _, code := range required {
+		if !hasMetricCode(metrics, code) {
+			t.Fatalf("expected metric %q in payload", code)
+		}
+	}
+}
+
 func containsLog(logs []string, want string) bool {
 	for _, line := range logs {
 		if strings.Contains(line, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMetricCode(metrics []metricPayload, code string) bool {
+	for _, metric := range metrics {
+		if metric.Code == code {
 			return true
 		}
 	}

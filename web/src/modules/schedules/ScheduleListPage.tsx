@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { listTasks } from "../../api/tasks";
-import { createSchedule, disableSchedule, listSchedules, pauseSchedule, resumeSchedule } from "../../api/schedules";
+import { createSchedule, disableSchedule, listScheduleTriggers, listSchedules, pauseSchedule, previewSchedule, resumeSchedule } from "../../api/schedules";
 import type { ScheduleSummary } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
@@ -19,8 +19,10 @@ export function ScheduleListPage() {
     name: "",
     taskId: "",
     cronExpr: "*/5 * * * *",
-    timezone: "Asia/Shanghai"
+    timezone: "Asia/Shanghai",
+    misfirePolicy: "skip"
   });
+  const [selectedSchedule, setSelectedSchedule] = useState<ScheduleSummary | null>(null);
   const pageSize = 20;
   const canWrite = hasPermission(user, "schedule:write");
   const schedulesQuery = useQuery({
@@ -31,12 +33,20 @@ export function ScheduleListPage() {
     queryKey: ["tasks", "schedule-options"],
     queryFn: () => listTasks({ pageSize: 100 })
   });
+  const triggerQuery = useQuery({
+    queryKey: ["scheduleTriggers", selectedSchedule?.id],
+    queryFn: () => listScheduleTriggers(selectedSchedule?.id ?? ""),
+    enabled: Boolean(selectedSchedule?.id)
+  });
   const createMutation = useMutation({
     mutationFn: createSchedule,
     onSuccess: () => {
       setForm((current) => ({ ...current, name: "" }));
       queryClient.invalidateQueries({ queryKey: ["schedules"] });
     }
+  });
+  const previewMutation = useMutation({
+    mutationFn: previewSchedule
   });
   const pauseMutation = useMutation({
     mutationFn: (schedule: ScheduleSummary) => pauseSchedule(schedule.id),
@@ -105,9 +115,35 @@ export function ScheduleListPage() {
               {t("schedules.timezone")}
               <input value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} required />
             </label>
+            <label>
+              {t("schedules.misfirePolicy")}
+              <select value={form.misfirePolicy} onChange={(event) => setForm({ ...form, misfirePolicy: event.target.value })}>
+                <option value="skip">skip</option>
+                <option value="fire_once">fire_once</option>
+                <option value="fire_all">fire_all</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => previewMutation.mutate({ cronExpr: form.cronExpr, timezone: form.timezone, count: 5 })}
+            >
+              {t("schedules.preview")}
+            </button>
             <button type="submit" disabled={createMutation.isPending}>{t("schedules.createAction")}</button>
           </form>
+          {previewMutation.data?.times.length ? (
+            <div className="inline-detail">
+              {previewMutation.data.times.map((time) => (
+                <div className="detail-item" key={time}>
+                  <strong>{time}</strong>
+                  <small>{t("schedules.previewTime")}</small>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {createMutation.isError ? <p className="form-error">{createMutation.error.message}</p> : null}
+          {previewMutation.isError ? <p className="form-error">{previewMutation.error.message}</p> : null}
         </section>
       ) : null}
 
@@ -129,6 +165,7 @@ export function ScheduleListPage() {
                 <th>{t("common.name")}</th>
                 <th>{t("common.task")}</th>
                 <th>{t("schedules.cron")}</th>
+                <th>{t("schedules.misfirePolicy")}</th>
                 <th>{t("common.status")}</th>
                 <th>{t("schedules.nextFire")}</th>
                 <th>{t("schedules.lastFire")}</th>
@@ -150,10 +187,12 @@ export function ScheduleListPage() {
                     <strong>{schedule.cronExpr}</strong>
                     <small>{schedule.timezone}</small>
                   </td>
+                  <td>{schedule.misfirePolicy}</td>
                   <td><span className={`status-chip status-${schedule.status}`}>{schedule.status}</span></td>
                   <td>{schedule.nextFireAt || "-"}</td>
                   <td>{schedule.lastFireAt || "-"}</td>
                   <td className="action-cell">
+                    <button type="button" onClick={() => setSelectedSchedule((current) => current?.id === schedule.id ? null : schedule)}>{selectedSchedule?.id === schedule.id ? t("common.hide") : t("schedules.triggers")}</button>
                     {canWrite && schedule.status === "active" ? <button type="button" onClick={() => pauseMutation.mutate(schedule)}>{t("schedules.pause")}</button> : null}
                     {canWrite && schedule.status === "paused" ? <button type="button" onClick={() => resumeMutation.mutate(schedule)}>{t("schedules.resume")}</button> : null}
                     {canWrite && schedule.status !== "disabled" ? <button type="button" onClick={() => disableMutation.mutate(schedule)}>{t("schedules.disable")}</button> : null}
@@ -175,6 +214,41 @@ export function ScheduleListPage() {
         {resumeMutation.isError ? <p className="form-error">{resumeMutation.error.message}</p> : null}
         {disableMutation.isError ? <p className="form-error">{disableMutation.error.message}</p> : null}
       </section>
+
+      {selectedSchedule ? (
+        <section className="panel table-panel">
+          <div className="panel-title">
+            <h3>{t("schedules.triggers")}</h3>
+            <span>{selectedSchedule.name}</span>
+          </div>
+          <div className="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("schedules.plannedFire")}</th>
+                  <th>{t("schedules.actualFire")}</th>
+                  <th>{t("common.status")}</th>
+                  <th>{t("common.task")}</th>
+                  <th>{t("common.reason")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(triggerQuery.data ?? []).map((trigger) => (
+                  <tr key={trigger.id}>
+                    <td>{trigger.plannedFireAt}</td>
+                    <td>{trigger.actualFireAt || "-"}</td>
+                    <td><span className={`status-chip status-${trigger.status}`}>{trigger.status}</span></td>
+                    <td>{trigger.taskRunId || "-"}</td>
+                    <td>{trigger.errorMessage || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!triggerQuery.isLoading && (triggerQuery.data ?? []).length === 0 ? <p className="empty-state">{t("schedules.emptyTriggers")}</p> : null}
+          {triggerQuery.isError ? <p className="form-error">{triggerQuery.error.message}</p> : null}
+        </section>
+      ) : null}
     </main>
   );
 }

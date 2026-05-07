@@ -4,6 +4,48 @@
 
 ## Unreleased
 
+### V0.7 发布收尾与文档
+
+- 新增 `docs/v0.7-release-notes.md` 与 `docs/v0.7-release-notes.en.md`，记录 V0.7 定位、已完成能力、验收命令、已知缺口和后续顺序。
+- 将新增说明文档统一为中英文双版本：`security-permission-matrix`、`v0.7-security-release-checklist`、`v0.7-release-notes` 均提供中文默认版和 `.en.md` 英文版。
+- README 与 README.en 补充 Release/security 文档入口，便于从项目首页进入发布、权限和安全验收材料。
+- 保持历史 changelog 分节结构不压缩，仅在现有小节基础上追加新变更。
+
+### V0.7 Webhook 安全与调试增强
+
+- Webhook trigger token 与 signing secret 分离：URL token 只用于定位 source，HMAC 校验使用独立 signing secret。
+- Trigger 支持 timestamp、nonce 和 delivery id 防重放，失败事件可落库并记录失败原因。
+- Matcher 支持 AND 条件组合，包括 `header_equals`、`payload_equals`、`payload_contains`、`event_type_equals`、`ref_equals`、`branch_equals`。
+- Webhook event 查询补齐 `receivedFrom` / `receivedTo` 时间范围过滤。
+- Source/rule 增加 pause、resume、disable，rule 支持编辑。
+- 前端 Webhooks 页面补齐事件详情、请求头、payload、matcher 结果、失败原因和 task run 调试视图。
+
+### V0.7 Metrics / Alerts 生产增强
+
+- Agent 新增真实 OS 指标采集：CPU、内存、磁盘、网络发送和接收字节数。
+- Agent 首次 heartbeat 后立即上报 metrics，降低新 Host 首屏空白时间。
+- 新增 metrics trend API、Host overview、趋势图和快捷指标筛选。
+- Alert 状态机支持 ack、silence、unsilence、resolve。
+- Alert rule 支持 update、pause、resume、disable、rule template、cooldown 和恢复通知。
+- Alert history、alert events 和按 status/severity/rule/host 过滤已接入前后端。
+- `durationSeconds` 按最近指标窗口判断持续超阈值，减少单点抖动告警。
+
+### V0.7 Notifications 投递增强
+
+- 新增 SMTP Email sender，配置通过 `.env` / 环境变量注入，示例文件只保留变量名。
+- 新增 notification delivery 查询、失败重试和 channel test send。
+- Notification channel 列表只返回 `targetSummary`，不回显明文 secret/password。
+- Outbound webhook delivery 增加 `X-OpsPilot-*` 签名头。
+- 修复 delivery attempts 可能重复增加的问题。
+
+### V0.7 审计与脱敏增强
+
+- 新增 `GET /api/v1/audit-logs`，支持按 action、actor type、result、resource type、trace id、keyword、时间范围和分页查询审计日志。
+- 新增前端 Audit Logs 页面，并接入 `audit.read` 路由权限和中英文 UI 文案。
+- `security.Redact` 增强：覆盖 Bearer token、`token/password/secret/authorization` 类字段以及 camelCase secret 字段。
+- `audit.Write` 写入前会对序列化后的 `before`、`after`、`metadata` 做脱敏处理。
+- 新增脱敏与审计写入测试，避免 SMTP password、signing secret、access token 等敏感值进入审计内容。
+
 ### V0.7 发布骨架
 
 - 新增 GitHub Actions CI：后端测试、`go vet`、迁移配对检查、前端构建和 Docker build。

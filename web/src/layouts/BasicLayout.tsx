@@ -14,7 +14,8 @@ const navItems = [
   { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read" },
   { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read" },
   { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read" },
-  { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read" }
+  { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read" },
+  { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read" }
 ] as const;
 
 export function BasicLayout() {

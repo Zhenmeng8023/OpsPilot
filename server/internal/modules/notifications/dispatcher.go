@@ -3,13 +3,22 @@ package notifications
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/tls"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
+	"net"
 	"net/http"
+	"net/smtp"
+	"net/textproto"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,20 +109,11 @@ func (s *Service) DispatchPending(ctx context.Context, limit int) (DispatchResul
 
 	result := DispatchResult{}
 	for _, row := range rows {
-		if err := s.sendDelivery(ctx, row); err != nil {
+		if err := s.executeDeliveryAttempt(ctx, row, false); err != nil {
 			result.Failed++
-			if updateErr := s.markDeliveryFailed(ctx, row, err); updateErr != nil {
-				return result, updateErr
-			}
 			continue
 		}
 		result.Sent++
-		if err := s.db.WithContext(ctx).Exec(
-			"UPDATE notification_deliveries SET status = 'success', delivered_at = NOW(3), error_message = NULL, updated_at = NOW(3) WHERE id = ?",
-			row.ID,
-		).Error; err != nil {
-			return result, err
-		}
 	}
 	return result, nil
 }
@@ -123,12 +123,99 @@ func (s *Service) sendDelivery(ctx context.Context, row pendingDelivery) error {
 	case "site":
 		return nil
 	case "email":
-		return errors.New("email delivery is not configured")
+		return s.sendEmailDelivery(ctx, row)
 	case "webhook", "dingtalk", "wechat", "slack":
 		return s.postDelivery(ctx, row)
 	default:
 		return fmt.Errorf("unsupported notification channel type %q", row.ChannelType)
 	}
+}
+
+func (s *Service) sendEmailDelivery(ctx context.Context, row pendingDelivery) error {
+	host := strings.TrimSpace(s.cfg.Notify.SMTPHost)
+	username := strings.TrimSpace(s.cfg.Notify.SMTPUsername)
+	password := strings.TrimSpace(s.cfg.Notify.SMTPPassword)
+	from := strings.TrimSpace(s.cfg.Notify.SMTPFrom)
+	if host == "" || username == "" || password == "" || from == "" {
+		return errors.New("email delivery is not configured")
+	}
+	to := deliveryEmail(row.Config)
+	if to == "" {
+		return errors.New("notification email recipient is required")
+	}
+	port := s.cfg.Notify.SMTPPort
+	if port <= 0 {
+		port = 587
+	}
+	securityMode := strings.TrimSpace(s.cfg.Notify.SMTPSecurity)
+	if securityMode == "" {
+		securityMode = "starttls"
+	}
+
+	timeout := s.cfg.Notify.HTTPTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	dialer := &net.Dialer{Timeout: timeout}
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	var (
+		client  *smtp.Client
+		tlsConn *tls.Conn
+	)
+	if securityMode == "tls" {
+		tlsConn = tls.Client(conn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			_ = conn.Close()
+			return err
+		}
+		client, err = smtp.NewClient(tlsConn, host)
+	} else {
+		client, err = smtp.NewClient(conn, host)
+	}
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer client.Close()
+
+	if securityMode == "starttls" {
+		ok, _ := client.Extension("STARTTLS")
+		if !ok {
+			return errors.New("smtp server does not support STARTTLS")
+		}
+		if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
+			return err
+		}
+	}
+	if ok, _ := client.Extension("AUTH"); ok {
+		if err := client.Auth(smtp.PlainAuth("", username, password, host)); err != nil {
+			return err
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	message := buildEmailMessage(from, to, row)
+	if _, err := writer.Write([]byte(message)); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 func (s *Service) postDelivery(ctx context.Context, row pendingDelivery) error {
@@ -151,6 +238,13 @@ func (s *Service) postDelivery(ctx context.Context, row pendingDelivery) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "OpsPilot-Notification/1.0")
+	req.Header.Set("X-OpsPilot-Delivery-Id", strconv.FormatUint(row.ID, 10))
+	req.Header.Set("X-OpsPilot-Notification-Id", row.NotificationUID)
+	if secret := deliverySigningSecret(row.Config); secret != "" {
+		timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+		req.Header.Set("X-OpsPilot-Timestamp", timestamp)
+		req.Header.Set("X-OpsPilot-Signature", buildDeliverySignature(secret, timestamp, body))
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -195,6 +289,46 @@ func deliveryURL(raw sql.NullString) string {
 	return ""
 }
 
+func deliveryEmail(raw sql.NullString) string {
+	if !raw.Valid {
+		return ""
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal([]byte(raw.String), &cfg); err != nil {
+		return ""
+	}
+	for _, key := range []string{"email", "to", "address", "recipient"} {
+		if value, ok := cfg[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func deliverySigningSecret(raw sql.NullString) string {
+	if !raw.Valid {
+		return ""
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal([]byte(raw.String), &cfg); err != nil {
+		return ""
+	}
+	for _, key := range []string{"signingSecret", "signing_secret", "secret"} {
+		if value, ok := cfg[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func buildDeliverySignature(secret string, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(strings.TrimSpace(secret)))
+	_, _ = mac.Write([]byte(strings.TrimSpace(timestamp)))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
 func channelPayload(row pendingDelivery) interface{} {
 	text := row.Title
 	if row.Content.Valid && row.Content.String != "" {
@@ -220,6 +354,23 @@ func channelPayload(row pendingDelivery) interface{} {
 			"createdAt":    row.NotificationTime,
 		}
 	}
+}
+
+func buildEmailMessage(from, to string, row pendingDelivery) string {
+	subject := row.Title
+	body := row.Title
+	if row.Content.Valid && row.Content.String != "" {
+		body += "\n\n" + row.Content.String
+	}
+	headers := []string{
+		"From: " + from,
+		"To: " + to,
+		"Subject: " + mime.QEncoding.Encode("utf-8", subject),
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=UTF-8",
+		"Content-Transfer-Encoding: 8bit",
+	}
+	return strings.Join(headers, "\r\n") + "\r\n\r\n" + textproto.TrimString(body) + "\r\n"
 }
 
 func limitString(value string, maxLen int) string {

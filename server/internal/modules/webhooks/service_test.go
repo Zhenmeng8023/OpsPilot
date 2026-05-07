@@ -121,6 +121,27 @@ func TestMatchRule(t *testing.T) {
 			wantOK: true,
 		},
 		{
+			name: "event type equals",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "event_type_equals", Value: "push"},
+			}},
+			wantOK: true,
+		},
+		{
+			name: "ref equals",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "ref_equals", Value: "refs/heads/main"},
+			}},
+			wantOK: true,
+		},
+		{
+			name: "branch equals",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "branch_equals", Value: "main"},
+			}},
+			wantOK: true,
+		},
+		{
 			name: "header mismatch",
 			matcher: &Matcher{Conditions: []MatcherCondition{
 				{Type: "header_equals", Key: "X-GitHub-Event", Value: "release"},
@@ -134,11 +155,32 @@ func TestMatchRule(t *testing.T) {
 			}},
 			wantReason: "payload_mismatch:repository.name",
 		},
+		{
+			name: "event type mismatch",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "event_type_equals", Value: "release"},
+			}},
+			wantReason: "event_type_condition_mismatch",
+		},
+		{
+			name: "ref mismatch",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "ref_equals", Value: "refs/heads/release"},
+			}},
+			wantReason: "ref_mismatch",
+		},
+		{
+			name: "branch mismatch",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "branch_equals", Value: "release"},
+			}},
+			wantReason: "branch_mismatch",
+		},
 	}
 
 	for _, item := range cases {
 		t.Run(item.name, func(t *testing.T) {
-			ok, reason := matchRule(item.matcher, headers, payload)
+			ok, reason := matchRule(item.matcher, "push", headers, payload)
 			if ok != item.wantOK {
 				t.Fatalf("expected ok=%v, got %v (%s)", item.wantOK, ok, reason)
 			}
@@ -157,9 +199,12 @@ func TestMatchRuleMultipleConditions(t *testing.T) {
 
 	ok, reason := matchRule(&Matcher{Conditions: []MatcherCondition{
 		{Type: "header_equals", Key: "X-GitHub-Event", Value: "push"},
+		{Type: "event_type_equals", Value: "push"},
 		{Type: "payload_equals", Path: "ref", Value: "refs/heads/main"},
 		{Type: "payload_contains", Path: "repository.name", Value: "Pilot"},
-	}}, headers, payload)
+		{Type: "ref_equals", Value: "refs/heads/main"},
+		{Type: "branch_equals", Value: "main"},
+	}}, "push", headers, payload)
 	if !ok || reason != "" {
 		t.Fatalf("expected all matcher conditions to pass, got ok=%v reason=%q", ok, reason)
 	}
@@ -167,7 +212,7 @@ func TestMatchRuleMultipleConditions(t *testing.T) {
 	ok, reason = matchRule(&Matcher{Conditions: []MatcherCondition{
 		{Type: "header_equals", Key: "X-GitHub-Event", Value: "push"},
 		{Type: "payload_equals", Path: "ref", Value: "refs/heads/release"},
-	}}, headers, payload)
+	}}, "push", headers, payload)
 	if ok {
 		t.Fatal("expected matcher to fail when one condition fails")
 	}
@@ -183,6 +228,25 @@ func TestNormalizeMatcherRejectsInvalidCondition(t *testing.T) {
 	}
 	if appErr.Code != 400505 {
 		t.Fatalf("unexpected app error: %+v", appErr)
+	}
+}
+
+func TestNormalizeMatcherSupportsEventAndRefConditions(t *testing.T) {
+	matcher, appErr := normalizeMatcher(&Matcher{Conditions: []MatcherCondition{
+		{Type: "event_type_equals", Key: "ignored", Path: "ignored", Value: "push"},
+		{Type: "ref_equals", Key: "ignored", Path: "ignored", Value: "refs/heads/main"},
+		{Type: "branch_equals", Key: "ignored", Path: "ignored", Value: "main"},
+	}})
+	if appErr != nil {
+		t.Fatalf("normalizeMatcher returned error: %+v", appErr)
+	}
+	if len(matcher.Conditions) != 3 {
+		t.Fatalf("expected 3 conditions, got %d", len(matcher.Conditions))
+	}
+	for _, condition := range matcher.Conditions {
+		if condition.Key != "" || condition.Path != "" {
+			t.Fatalf("expected key/path to be cleared, got %+v", condition)
+		}
 	}
 }
 

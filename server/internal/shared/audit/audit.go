@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+
+	"opspilot/server/internal/shared/security"
 )
 
 type Event struct {
@@ -91,7 +93,8 @@ func jsonNull(value interface{}) sql.NullString {
 	if err != nil || string(bytes) == "null" {
 		return sql.NullString{}
 	}
-	return sql.NullString{String: string(bytes), Valid: true}
+	redacted := security.Redact(string(bytes))
+	return sql.NullString{String: redacted, Valid: true}
 }
 
 func defaultString(value, fallback string) string {

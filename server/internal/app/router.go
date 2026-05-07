@@ -15,6 +15,7 @@ import (
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/modules/agents"
 	"opspilot/server/internal/modules/alerts"
+	"opspilot/server/internal/modules/audits"
 	"opspilot/server/internal/modules/auth"
 	"opspilot/server/internal/modules/metrics"
 	"opspilot/server/internal/modules/notifications"
@@ -79,6 +80,7 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 		metrics.NewHandler(metrics.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, agentHandler.AgentAuthMiddleware(), authHandler.RequirePermission)
 		alerts.NewHandler(alerts.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 		notifications.NewHandler(notifications.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
+		audits.NewHandler(audits.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 	}
 
 	router.NoRoute(func(c *gin.Context) {

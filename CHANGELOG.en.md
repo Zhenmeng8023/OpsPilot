@@ -4,6 +4,48 @@
 
 ## Unreleased
 
+### V0.7 Release Closure And Documentation
+
+- Added `docs/v0.7-release-notes.md` and `docs/v0.7-release-notes.en.md` for V0.7 positioning, completed capabilities, validation commands, known gaps, and follow-up order.
+- Standardized newly added explanatory docs into Chinese default files plus `.en.md` English files: `security-permission-matrix`, `v0.7-security-release-checklist`, and `v0.7-release-notes`.
+- Added Release/security document links to README and README.en.
+- Preserved the existing changelog section structure; new changes are appended as new sections without compressing historical entries.
+
+### V0.7 Webhook Security And Debugging
+
+- Split Webhook trigger token and signing secret: URL tokens only locate the source, while HMAC validation uses an independent signing secret.
+- Trigger requests now support timestamp, nonce, and delivery-id replay protection; failed attempts are persisted with failure reasons.
+- Matchers support AND conditions with `header_equals`, `payload_equals`, `payload_contains`, `event_type_equals`, `ref_equals`, and `branch_equals`.
+- Webhook event queries now support `receivedFrom` / `receivedTo` time range filters.
+- Sources and rules support pause, resume, and disable; rules can be edited.
+- The Webhooks UI now includes event details, headers, payload, matcher results, failure reasons, and task run debugging.
+
+### V0.7 Metrics / Alerts Production Improvements
+
+- Agent now collects real OS metrics for CPU, memory, disk, and network sent/received bytes.
+- Agent uploads metrics immediately after the first heartbeat to reduce empty first-screen states for new Hosts.
+- Added metrics trend API, Host overview, trend charts, and quick metric filters.
+- Alert state machine now supports ack, silence, unsilence, and resolve.
+- Alert rules support update, pause, resume, disable, rule templates, cooldown, and recovery notifications.
+- Alert history, alert events, and status/severity/rule/host filters are wired through backend and frontend.
+- `durationSeconds` now evaluates recent metric windows for sustained threshold violations instead of a single latest point.
+
+### V0.7 Notification Delivery Improvements
+
+- Added SMTP Email sender with configuration injected through `.env` / environment variables; example files document variable names only.
+- Added notification delivery listing, failed delivery retry, and channel test send.
+- Notification channel lists return only `targetSummary` and do not expose plaintext secret/password values.
+- Outbound webhook deliveries include `X-OpsPilot-*` signing headers.
+- Fixed delivery attempts being incremented twice in some paths.
+
+### V0.7 Audit And Redaction Improvements
+
+- Added `GET /api/v1/audit-logs` with filters for action, actor type, result, resource type, trace id, keyword, time range, and pagination.
+- Added an Audit Logs frontend page wired to the `audit.read` route permission and bilingual UI copy.
+- Enhanced `security.Redact` to cover Bearer tokens, `token/password/secret/authorization` fields, and camelCase secret fields.
+- `audit.Write` now redacts serialized `before`, `after`, and `metadata` before persistence.
+- Added redaction and audit-write tests to prevent SMTP passwords, signing secrets, access tokens, and similar values from leaking into audit payloads.
+
 ### V0.7 Release Foundation
 
 - Added GitHub Actions CI for backend tests, `go vet`, migration pair checks, frontend build, and Docker build.

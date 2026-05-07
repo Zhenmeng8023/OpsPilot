@@ -103,6 +103,12 @@ type AlertConfig struct {
 type NotificationConfig struct {
 	DispatchInterval time.Duration
 	HTTPTimeout      time.Duration
+	SMTPHost         string
+	SMTPPort         int
+	SMTPUsername     string
+	SMTPPassword     string
+	SMTPFrom         string
+	SMTPSecurity     string
 }
 
 type BootstrapConfig struct {
@@ -174,6 +180,12 @@ func Load() (Config, error) {
 		Notify: NotificationConfig{
 			DispatchInterval: getEnvDurationSeconds("NOTIFICATION_DISPATCH_INTERVAL_SECONDS", 15*time.Second),
 			HTTPTimeout:      getEnvDurationSeconds("NOTIFICATION_HTTP_TIMEOUT_SECONDS", 10*time.Second),
+			SMTPHost:         getEnv("NOTIFICATION_SMTP_HOST", ""),
+			SMTPPort:         getEnvInt("NOTIFICATION_SMTP_PORT", 587),
+			SMTPUsername:     getEnv("NOTIFICATION_SMTP_USERNAME", ""),
+			SMTPPassword:     getEnv("NOTIFICATION_SMTP_PASSWORD", ""),
+			SMTPFrom:         getEnv("NOTIFICATION_SMTP_FROM", ""),
+			SMTPSecurity:     strings.ToLower(strings.TrimSpace(getEnv("NOTIFICATION_SMTP_SECURITY", "starttls"))),
 		},
 		Bootstrap: BootstrapConfig{
 			WorkspaceName: getEnv("BOOTSTRAP_WORKSPACE_NAME", "Default Workspace"),
@@ -209,6 +221,12 @@ func Load() (Config, error) {
 	}
 	if err := validateCommandPatterns(cfg.Command.DenyPatterns); err != nil {
 		return Config{}, err
+	}
+	if cfg.Notify.SMTPSecurity == "" {
+		cfg.Notify.SMTPSecurity = "starttls"
+	}
+	if cfg.Notify.SMTPSecurity != "starttls" && cfg.Notify.SMTPSecurity != "tls" && cfg.Notify.SMTPSecurity != "plain" {
+		return Config{}, errors.New("NOTIFICATION_SMTP_SECURITY must be one of starttls, tls or plain")
 	}
 
 	return cfg, nil

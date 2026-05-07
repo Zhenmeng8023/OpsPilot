@@ -454,6 +454,28 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: OK }
+  /api/v1/schedules/preview:
+    post:
+      summary: Preview next Cron fire times
+      description: Requires `schedule:read`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchedulePreviewPayload"
+      responses:
+        "200": { description: Next fire times }
+  /api/v1/schedules/{id}/triggers:
+    get:
+      summary: List schedule trigger history
+      description: Requires `schedule:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200": { description: Schedule trigger list }
   /api/v1/webhooks/trigger/{token}:
     post:
       security: []
@@ -568,7 +590,7 @@ paths:
                         type: object
                         required: [type, value]
                         properties:
-                          type: { type: string, enum: [header_equals, payload_equals, payload_contains] }
+                          type: { type: string, enum: [header_equals, payload_equals, payload_contains, event_type_equals, ref_equals, branch_equals] }
                           key: { type: string, example: X-GitHub-Event }
                           path: { type: string, example: repository.name }
                           value: { type: string, example: push }
@@ -612,6 +634,12 @@ paths:
         - name: deliveryId
           in: query
           schema: { type: string }
+        - name: receivedFrom
+          in: query
+          schema: { type: string, example: "2026-05-01 00:00:00" }
+        - name: receivedTo
+          in: query
+          schema: { type: string, example: "2026-05-08 23:59:59" }
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/pageSize"
       responses:
@@ -655,6 +683,29 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
       responses:
         "200": { description: Host metric list }
+  /api/v1/metrics/hosts/trends:
+    get:
+      summary: List host metric trends
+      description: Requires `metric:read`.
+      parameters:
+        - name: hostId
+          in: query
+          schema: { type: string }
+        - name: agentId
+          in: query
+          schema: { type: string }
+        - name: metricCode
+          in: query
+          required: true
+          schema: { type: string }
+        - name: hours
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 336, default: 24 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 10, maximum: 240, default: 120 }
+      responses:
+        "200": { description: Host metric trend list }
   /api/v1/alert-rules:
     get:
       summary: List alert rules
@@ -671,14 +722,125 @@ paths:
               $ref: "#/components/schemas/AlertRulePayload"
       responses:
         "200": { description: Alert rule summary }
+  /api/v1/alert-rules/{id}:
+    put:
+      summary: Update metric alert rule
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRulePayload"
+      responses:
+        "200": { description: Alert rule summary }
+  /api/v1/alert-rules/{id}/pause:
+    post:
+      summary: Pause alert rule
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/alert-rules/{id}/resume:
+    post:
+      summary: Resume alert rule
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/alert-rules/{id}/disable:
+    post:
+      summary: Disable alert rule
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
   /api/v1/alerts:
     get:
       summary: List alerts
       description: Requires `alert:read`.
       parameters:
         - $ref: "#/components/parameters/status"
+        - name: severity
+          in: query
+          schema: { type: string, enum: [info, warning, critical] }
+        - name: ruleId
+          in: query
+          schema: { type: string }
+        - name: hostId
+          in: query
+          schema: { type: string }
       responses:
         "200": { description: Alert list }
+  /api/v1/alerts/history:
+    get:
+      summary: List alert activity history
+      description: Requires `alert:read`.
+      parameters:
+        - name: hours
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 336, default: 24 }
+        - name: bucketMinutes
+          in: query
+          schema: { type: integer, minimum: 5, maximum: 240, default: 60 }
+        - name: severity
+          in: query
+          schema: { type: string, enum: [info, warning, critical] }
+        - name: ruleId
+          in: query
+          schema: { type: string }
+        - name: hostId
+          in: query
+          schema: { type: string }
+      responses:
+        "200": { description: Alert activity history }
+  /api/v1/alerts/{id}/events:
+    get:
+      summary: List alert events
+      description: Requires `alert:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: eventType
+          in: query
+          schema: { type: string }
+      responses:
+        "200": { description: Alert event list }
+  /api/v1/alerts/{id}/ack:
+    post:
+      summary: Acknowledge alert
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/alerts/{id}/silence:
+    post:
+      summary: Silence alert
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                durationSeconds: { type: integer, minimum: 1, default: 3600 }
+                reason: { type: string }
+      responses:
+        "200": { description: OK }
+  /api/v1/alerts/{id}/unsilence:
+    post:
+      summary: Unsilence alert
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
   /api/v1/alerts/{id}/resolve:
     post:
       summary: Resolve alert manually
@@ -703,6 +865,38 @@ paths:
               $ref: "#/components/schemas/NotificationChannelPayload"
       responses:
         "200": { description: Channel summary }
+  /api/v1/notification-channels/{id}/test:
+    post:
+      summary: Send test notification to channel
+      description: Requires `notification:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Test delivery result }
+  /api/v1/notification-deliveries:
+    get:
+      summary: List notification deliveries
+      description: Requires `notification:read`.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, sending, success, failed, canceled] }
+        - name: channelId
+          in: query
+          schema: { type: string }
+        - name: notificationId
+          in: query
+          schema: { type: string }
+      responses:
+        "200": { description: Notification delivery list }
+  /api/v1/notification-deliveries/{id}/retry:
+    post:
+      summary: Retry notification delivery
+      description: Requires `notification:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
   /api/v1/notifications:
     get:
       summary: List notifications
@@ -721,6 +915,42 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: OK }
+  /api/v1/audit-logs:
+    get:
+      summary: List audit logs
+      description: Requires `audit.read`. Returns redacted audit records for the default workspace plus system-level records.
+      parameters:
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: actorType
+          in: query
+          schema: { type: string, enum: [user, agent, webhook, system] }
+        - name: result
+          in: query
+          schema: { type: string, enum: [success, failed, denied] }
+        - name: resourceType
+          in: query
+          schema: { type: string }
+        - name: traceId
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/keyword"
+        - name: createdFrom
+          in: query
+          schema: { type: string, format: date-time }
+        - name: createdTo
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: Audit log page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditLogPage"
 components:
   securitySchemes:
     bearerAuth:
@@ -797,6 +1027,14 @@ components:
         taskId: { type: string }
         cronExpr: { type: string, example: "*/5 * * * *" }
         timezone: { type: string, example: Asia/Shanghai }
+        misfirePolicy: { type: string, enum: [skip, fire_once, fire_all], default: skip }
+    SchedulePreviewPayload:
+      type: object
+      required: [cronExpr]
+      properties:
+        cronExpr: { type: string, example: "*/5 * * * *" }
+        timezone: { type: string, example: Asia/Shanghai }
+        count: { type: integer, minimum: 1, maximum: 20, default: 5 }
     WebhookSourcePayload:
       type: object
       required: [name]
@@ -820,7 +1058,7 @@ components:
                 type: object
                 required: [type, value]
                 properties:
-                  type: { type: string, enum: [header_equals, payload_equals, payload_contains] }
+                  type: { type: string, enum: [header_equals, payload_equals, payload_contains, event_type_equals, ref_equals, branch_equals] }
                   key: { type: string, example: X-GitHub-Event }
                   path: { type: string, example: repository.name }
                   value: { type: string, example: push }
@@ -844,10 +1082,15 @@ components:
       required: [name, metricCode, operator]
       properties:
         name: { type: string }
-        metricCode: { type: string, example: agent.runtime.goroutines }
-        operator: { type: string, enum: [gt, gte, lt, lte, eq, ne] }
+        metricCode: { type: string, example: agent.os.cpu.percent }
+        operator: { type: string, enum: [">", ">=", "<", "<=", "==", "!="] }
         threshold: { type: number }
-        durationSeconds: { type: integer, minimum: 0, default: 60 }
+        durationSeconds:
+          type: integer
+          minimum: 0
+          default: 60
+          description: Required continuous breach window in seconds before firing.
+        cooldownSeconds: { type: integer, minimum: 0, default: 0 }
         severity: { type: string, enum: [info, warning, critical], default: warning }
     NotificationChannelPayload:
       type: object
@@ -857,4 +1100,35 @@ components:
         channelType: { type: string, enum: [site, email, webhook, dingtalk, wechat, slack], default: site }
         config:
           type: object
+          description: For `email`, use `email`; for outbound webhook-style channels, use `url` and optional `signingSecret`.
           additionalProperties: true
+    AuditLogPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLog"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+    AuditLog:
+      type: object
+      properties:
+        id: { type: integer }
+        actorType: { type: string, enum: [user, agent, webhook, system] }
+        actorUser: { type: string }
+        actorAgent: { type: string }
+        action: { type: string, example: task.create }
+        resourceType: { type: string, example: task_run }
+        resourceId: { type: integer }
+        result: { type: string, enum: [success, failed, denied] }
+        ip: { type: string }
+        userAgent: { type: string }
+        traceId: { type: string }
+        requestMethod: { type: string, example: POST }
+        requestPath: { type: string, example: /api/v1/tasks }
+        before: { type: string, description: Redacted JSON string. }
+        after: { type: string, description: Redacted JSON string. }
+        metadata: { type: string, description: Redacted JSON string. }
+        createdAt: { type: string }

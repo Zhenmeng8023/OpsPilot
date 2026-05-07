@@ -23,4 +23,22 @@ DELETE FROM users WHERE uid = @admin_user_uid;
 DELETE FROM roles WHERE uid IN (@admin_role_uid, @member_role_uid);
 DELETE FROM workspaces WHERE uid = @workspace_uid;
 
+DELETE FROM metric_definitions
+WHERE code IN (
+  'agent.running_tasks',
+  'agent.cpu.logical',
+  'agent.runtime.goroutines',
+  'agent.runtime.alloc_bytes',
+  'agent.runtime.sys_bytes',
+  'agent.os.cpu.percent',
+  'agent.os.memory.used_bytes',
+  'agent.os.memory.total_bytes',
+  'agent.os.memory.used_percent',
+  'agent.os.disk.used_bytes',
+  'agent.os.disk.total_bytes',
+  'agent.os.disk.used_percent',
+  'agent.os.network.bytes_sent',
+  'agent.os.network.bytes_recv'
+);
+
 SET FOREIGN_KEY_CHECKS = 1;

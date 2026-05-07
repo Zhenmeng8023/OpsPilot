@@ -32,6 +32,8 @@ export function listWebhookEvents(params: {
   sourceId?: string;
   status?: string;
   deliveryId?: string;
+  receivedFrom?: string;
+  receivedTo?: string;
   page?: number;
   pageSize?: number;
 } = {}) {
@@ -39,6 +41,8 @@ export function listWebhookEvents(params: {
   if (params.sourceId) search.set("sourceId", params.sourceId);
   if (params.status) search.set("status", params.status);
   if (params.deliveryId) search.set("deliveryId", params.deliveryId);
+  if (params.receivedFrom) search.set("receivedFrom", params.receivedFrom);
+  if (params.receivedTo) search.set("receivedTo", params.receivedTo);
   if (params.page) search.set("page", String(params.page));
   if (params.pageSize) search.set("pageSize", String(params.pageSize));
   return request<PageResult<WebhookEvent>>(`/api/v1/webhook-events${search.toString() ? `?${search}` : ""}`);

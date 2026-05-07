@@ -221,10 +221,21 @@ export interface ScheduleSummary {
   scheduleType: string;
   cronExpr: string;
   timezone: string;
+  misfirePolicy: string;
   status: string;
   nextFireAt?: string;
   lastFireAt?: string;
   createdBy?: string;
+  createdAt: string;
+}
+
+export interface ScheduleTrigger {
+  id: number;
+  taskRunId?: string;
+  plannedFireAt: string;
+  actualFireAt?: string;
+  status: string;
+  errorMessage?: string;
   createdAt: string;
 }
 
@@ -259,7 +270,7 @@ export interface WebhookMatcher {
 }
 
 export interface WebhookMatcherCondition {
-  type: "header_equals" | "payload_equals" | "payload_contains";
+  type: "header_equals" | "payload_equals" | "payload_contains" | "event_type_equals" | "ref_equals" | "branch_equals";
   key?: string;
   path?: string;
   value: string;
@@ -312,6 +323,24 @@ export interface HostMetric {
   createdAt: string;
 }
 
+export interface MetricTrendPoint {
+  collectedAt: string;
+  value: number;
+}
+
+export interface MetricTrendSeries {
+  hostId: string;
+  hostName: string;
+  agentId?: string;
+  agentName?: string;
+  metricCode: string;
+  unit?: string;
+  latestValue: number;
+  minValue: number;
+  maxValue: number;
+  points: MetricTrendPoint[];
+}
+
 export interface AlertRule {
   id: string;
   name: string;
@@ -320,6 +349,7 @@ export interface AlertRule {
   operator?: string;
   threshold?: number;
   durationSeconds: number;
+  cooldownSeconds: number;
   severity: string;
   status: string;
   createdBy?: string;
@@ -332,23 +362,56 @@ export interface AlertSummary {
   ruleName?: string;
   resourceType: string;
   resourceId?: number;
+  hostId?: string;
+  hostName?: string;
   title: string;
   message?: string;
   severity: string;
   status: string;
+  acknowledgedAt?: string;
+  acknowledgedBy?: string;
+  silencedUntil?: string;
+  silenceReason?: string;
+  cooldownUntil?: string;
   firstSeenAt: string;
   lastSeenAt: string;
   resolvedAt?: string;
   createdAt: string;
 }
 
+export interface AlertEventSummary {
+  id: number;
+  eventType: string;
+  message?: string;
+  actor?: string;
+  payload?: string;
+  createdAt: string;
+}
+
+export interface AlertHistoryPoint {
+  bucketStart: string;
+  firingCount: number;
+  resolvedCount: number;
+  acknowledgedCount: number;
+  silencedCount: number;
+}
+
 export interface NotificationChannel {
   id: string;
   name: string;
   channelType: string;
+  targetSummary?: string;
   status: string;
   createdBy?: string;
   createdAt: string;
+}
+
+export interface NotificationChannelTestResult {
+  channelId: string;
+  notificationId: string;
+  deliveryId: number;
+  status: string;
+  errorMessage?: string;
 }
 
 export interface NotificationSummary {
@@ -360,5 +423,41 @@ export interface NotificationSummary {
   resourceType?: string;
   resourceId?: number;
   readAt?: string;
+  createdAt: string;
+}
+
+export interface NotificationDelivery {
+  id: number;
+  notificationId?: string;
+  title?: string;
+  channelId?: string;
+  channelName?: string;
+  channelType?: string;
+  status: string;
+  attempts: number;
+  nextRetryAt?: string;
+  deliveredAt?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuditLog {
+  id: number;
+  actorType: string;
+  actorUser?: string;
+  actorAgent?: string;
+  action: string;
+  resourceType?: string;
+  resourceId?: number;
+  result: string;
+  ip?: string;
+  userAgent?: string;
+  traceId?: string;
+  requestMethod?: string;
+  requestPath?: string;
+  before?: string;
+  after?: string;
+  metadata?: string;
   createdAt: string;
 }

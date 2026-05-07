@@ -6,6 +6,7 @@ import { LoginPage } from "../modules/auth/LoginPage";
 import { hasPermission } from "../modules/auth/permissions";
 import { useAuthStore } from "../modules/auth/store";
 import { AgentManagementPage } from "../modules/agents/AgentManagementPage";
+import { AuditLogsPage } from "../modules/audits/AuditLogsPage";
 import { DashboardPage } from "../modules/dashboard/DashboardPage";
 import { MetricsPage } from "../modules/metrics/MetricsPage";
 import { NotificationsPage } from "../modules/notifications/NotificationsPage";
@@ -92,7 +93,8 @@ export const router = createBrowserRouter([
           { path: "schedules", element: <ScheduleListPage />, handle: { meta: { permission: "schedule:read" } } },
           { path: "webhooks", element: <WebhookPage />, handle: { meta: { permission: "webhook:read" } } },
           { path: "metrics", element: <MetricsPage />, handle: { meta: { permission: "metric:read" } } },
-          { path: "notifications", element: <NotificationsPage />, handle: { meta: { permission: "notification:read" } } }
+          { path: "notifications", element: <NotificationsPage />, handle: { meta: { permission: "notification:read" } } },
+          { path: "audit-logs", element: <AuditLogsPage />, handle: { meta: { permission: "audit.read" } } }
         ]
       }
     ]

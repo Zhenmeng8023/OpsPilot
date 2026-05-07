@@ -14,6 +14,7 @@ import (
 type ServiceContract interface {
 	Upload(context.Context, agents.AgentIdentity, []MetricInput) *apperror.Error
 	List(context.Context, ListInput) ([]MetricSummary, *apperror.Error)
+	ListTrends(context.Context, TrendInput) ([]MetricTrendSeries, *apperror.Error)
 }
 
 type Handler struct {
@@ -36,6 +37,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected := api.Group("/metrics")
 	protected.Use(userAuth)
 	protected.GET("/hosts", requirePermission("metric:read"), h.list)
+	protected.GET("/hosts/trends", requirePermission("metric:read"), h.listTrends)
 }
 
 func (h *Handler) upload(c *gin.Context) {
@@ -62,6 +64,21 @@ func (h *Handler) list(c *gin.Context) {
 		AgentID:    c.Query("agentId"),
 		MetricCode: c.Query("metricCode"),
 		Limit:      parseInt(c.DefaultQuery("limit", "200")),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) listTrends(c *gin.Context) {
+	items, appErr := h.service.ListTrends(c.Request.Context(), TrendInput{
+		HostID:     c.Query("hostId"),
+		AgentID:    c.Query("agentId"),
+		MetricCode: c.Query("metricCode"),
+		Hours:      parseInt(c.DefaultQuery("hours", "24")),
+		Limit:      parseInt(c.DefaultQuery("limit", "120")),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)

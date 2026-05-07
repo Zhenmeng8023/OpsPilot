@@ -35,6 +35,14 @@ type ListInput struct {
 	Limit      int
 }
 
+type TrendInput struct {
+	HostID     string
+	AgentID    string
+	MetricCode string
+	Hours      int
+	Limit      int
+}
+
 type MetricSummary struct {
 	ID          uint64  `json:"id"`
 	HostID      string  `json:"hostId"`
@@ -48,8 +56,38 @@ type MetricSummary struct {
 	CreatedAt   string  `json:"createdAt"`
 }
 
+type MetricTrendPoint struct {
+	CollectedAt string  `json:"collectedAt"`
+	Value       float64 `json:"value"`
+}
+
+type MetricTrendSeries struct {
+	HostID      string             `json:"hostId"`
+	HostName    string             `json:"hostName"`
+	AgentID     string             `json:"agentId,omitempty"`
+	AgentName   string             `json:"agentName,omitempty"`
+	MetricCode  string             `json:"metricCode"`
+	Unit        string             `json:"unit,omitempty"`
+	LatestValue float64            `json:"latestValue"`
+	MinValue    float64            `json:"minValue"`
+	MaxValue    float64            `json:"maxValue"`
+	Points      []MetricTrendPoint `json:"points"`
+}
+
 type workspaceRecord struct {
 	ID uint64
+}
+
+type trendMetricRow struct {
+	ID          uint64
+	HostID      string
+	HostName    string
+	AgentID     string
+	AgentName   string
+	MetricCode  string
+	Value       float64
+	Unit        string
+	CollectedAt string
 }
 
 func NewService(db *gorm.DB, cfg config.Config) *Service {
@@ -140,6 +178,101 @@ func (s *Service) List(ctx context.Context, input ListInput) ([]MetricSummary, *
 	return rows, nil
 }
 
+func (s *Service) ListTrends(ctx context.Context, input TrendInput) ([]MetricTrendSeries, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	metricCode := strings.TrimSpace(input.MetricCode)
+	if metricCode == "" {
+		return nil, apperror.New(http.StatusBadRequest, 400604, "metric code is required")
+	}
+	hours := normalizeTrendHours(input.Hours)
+	limit := normalizeTrendPointLimit(input.Limit)
+	startTime := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	args := []interface{}{workspace.ID, metricCode, startTime}
+	where := "WHERE hm.workspace_id = ? AND hm.metric_code = ? AND hm.collected_at >= ?"
+	if strings.TrimSpace(input.HostID) != "" {
+		where += " AND h.uid = ?"
+		args = append(args, strings.TrimSpace(input.HostID))
+	}
+	if strings.TrimSpace(input.AgentID) != "" {
+		where += " AND a.uid = ?"
+		args = append(args, strings.TrimSpace(input.AgentID))
+	}
+	args = append(args, limit)
+
+	var rows []trendMetricRow
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT ranked.id, ranked.host_id, ranked.host_name, ranked.agent_id, ranked.agent_name,
+		        ranked.metric_code, ranked.value, ranked.unit, ranked.collected_at
+		   FROM (
+		     SELECT hm.id, h.uid AS host_id, h.name AS host_name, a.uid AS agent_id, a.name AS agent_name,
+		            hm.metric_code, hm.metric_value AS value, hm.unit,
+		            DATE_FORMAT(hm.collected_at, '%Y-%m-%d %H:%i:%s') AS collected_at,
+		            hm.collected_at AS raw_collected_at,
+		            ROW_NUMBER() OVER (PARTITION BY hm.host_id, hm.metric_code ORDER BY hm.collected_at DESC, hm.id DESC) AS rn
+		       FROM host_metrics hm
+		       JOIN hosts h ON h.id = hm.host_id
+		       LEFT JOIN agents a ON a.id = hm.agent_id
+		      `+where+`
+		   ) ranked
+		  WHERE ranked.rn <= ?
+		  ORDER BY ranked.host_name ASC, ranked.raw_collected_at ASC, ranked.id ASC`,
+		args...,
+	).Scan(&rows).Error; err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500604, "list metric trends failed", err)
+	}
+
+	seriesByKey := make(map[string]*MetricTrendSeries)
+	order := make([]string, 0)
+	for _, row := range rows {
+		key := row.HostID + ":" + row.MetricCode
+		item, exists := seriesByKey[key]
+		if !exists {
+			item = &MetricTrendSeries{
+				HostID:      row.HostID,
+				HostName:    row.HostName,
+				AgentID:     row.AgentID,
+				AgentName:   row.AgentName,
+				MetricCode:  row.MetricCode,
+				Unit:        row.Unit,
+				MinValue:    row.Value,
+				MaxValue:    row.Value,
+				LatestValue: row.Value,
+				Points:      make([]MetricTrendPoint, 0, limit),
+			}
+			seriesByKey[key] = item
+			order = append(order, key)
+		}
+		if item.Unit == "" && row.Unit != "" {
+			item.Unit = row.Unit
+		}
+		if item.AgentID == "" && row.AgentID != "" {
+			item.AgentID = row.AgentID
+			item.AgentName = row.AgentName
+		}
+		if row.Value < item.MinValue {
+			item.MinValue = row.Value
+		}
+		if row.Value > item.MaxValue {
+			item.MaxValue = row.Value
+		}
+		item.LatestValue = row.Value
+		item.Points = append(item.Points, MetricTrendPoint{
+			CollectedAt: row.CollectedAt,
+			Value:       row.Value,
+		})
+	}
+
+	result := make([]MetricTrendSeries, 0, len(order))
+	for _, key := range order {
+		result = append(result, *seriesByKey[key])
+	}
+	return result, nil
+}
+
 func (s *Service) workspace(ctx context.Context) (workspaceRecord, *apperror.Error) {
 	var workspace workspaceRecord
 	err := s.db.WithContext(ctx).Raw(
@@ -183,4 +316,27 @@ func jsonNull(value interface{}) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: string(bytes), Valid: true}
+}
+
+func normalizeTrendHours(value int) int {
+	if value <= 0 {
+		return 24
+	}
+	if value > 24*14 {
+		return 24 * 14
+	}
+	return value
+}
+
+func normalizeTrendPointLimit(value int) int {
+	if value <= 0 {
+		return 120
+	}
+	if value < 10 {
+		return 10
+	}
+	if value > 240 {
+		return 240
+	}
+	return value
 }

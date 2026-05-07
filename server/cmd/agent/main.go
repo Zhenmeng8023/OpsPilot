@@ -187,6 +187,9 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if err := exec.uploadMetrics(ctx); err != nil {
+		log.Warn("initial metrics upload failed", "error", security.Redact(err.Error()))
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -620,13 +623,14 @@ func collectMetrics(e *executor) []metricPayload {
 		"arch":    runtime.GOARCH,
 		"workDir": e.cfg.Agent.WorkDir,
 	}
-	return []metricPayload{
+	metrics := []metricPayload{
 		{Code: "agent.running_tasks", Value: float64(e.active.Load()), Unit: "count", Dimensions: dimensions, CollectedAt: now},
 		{Code: "agent.cpu.logical", Value: float64(runtime.NumCPU()), Unit: "count", Dimensions: dimensions, CollectedAt: now},
 		{Code: "agent.runtime.goroutines", Value: float64(runtime.NumGoroutine()), Unit: "count", Dimensions: dimensions, CollectedAt: now},
 		{Code: "agent.runtime.alloc_bytes", Value: float64(mem.Alloc), Unit: "bytes", Dimensions: dimensions, CollectedAt: now},
 		{Code: "agent.runtime.sys_bytes", Value: float64(mem.Sys), Unit: "bytes", Dimensions: dimensions, CollectedAt: now},
 	}
+	return append(metrics, collectSystemMetrics(e.cfg.Agent.WorkDir, now, dimensions)...)
 }
 
 func localIP() string {

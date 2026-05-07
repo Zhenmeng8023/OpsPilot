@@ -10,16 +10,16 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 - T2 Agent/Host: Agent registration, token hashing, heartbeat, Agent/Host list, disable, token revoke, offline scan.
 - T3 Task execution: script templates, task creation, target dispatch, Agent poll/claim, command execution, result reporting, status aggregation.
 - T4 Realtime logs: Agent stdout/stderr/system log upload, redaction, chunk persistence, query APIs, and SSE streaming.
-- T5 Cron scheduling: schedules API, background scanner, and Schedules page; due schedules reuse the current execution chain.
-- T6 Webhook: source/rule management, tokenized trigger endpoint, HMAC-SHA256 signature validation, replay prevention, rate limiting, event persistence, and task run generation.
-- T7 Metrics/Alerts/Notifications: Agent metrics upload, host_metrics persistence, metric threshold alerts, site notifications, webhook-like external delivery, and delivery records.
+- T5 Cron scheduling: schedules API, preview, misfire policy, trigger history, background scanner, and Schedules page; due schedules reuse the current execution chain.
+- T6 Webhook: source/rule management, tokenized trigger endpoint, split signing secret, HMAC-SHA256 validation, replay prevention, rate limiting, event persistence, matcher debugging, and task run generation.
+- T7 Metrics/Alerts/Notifications: Agent OS metrics upload, host_metrics persistence, metric threshold alerts, site/Email/webhook-like notifications, delivery records, retry, and test send.
 
 ## Implemented
 
-- Minimal Cron scheduling loop: schedules API, background scanner, and Schedules page; due schedules reuse the existing task_run / task_target / Agent poll / logs / result execution chain.
+- Cron scheduling loop: schedules API, preview, misfire policy, trigger history, background scanner, and Schedules page; due schedules reuse the existing task_run / task_target / Agent poll / logs / result execution chain.
 - Frontend permission matrix: routes declare `handle.meta.permission`, the route guard checks user permissions, and navigation/key actions are permission-aware.
 - Webhook trigger loop: `POST /api/v1/webhooks/trigger/:token` requires `X-OpsPilot-Signature` or `X-Hub-Signature-256`; matched rules create task runs through the existing execution chain.
-- Metrics / Alerts / Notifications loop: Agent metrics upload, host_metrics persistence, a Metrics page, metric threshold alert rules, alert events, site notifications, webhook/dingtalk/wechat/slack dispatching, and delivery records.
+- Metrics / Alerts / Notifications loop: Agent OS metrics upload, host_metrics persistence, trend charts, metric threshold alert rules, alert events, site/Email notifications, webhook/dingtalk/wechat/slack dispatching, delivery records, retry, and test send.
 
 - Unified response envelope: `code`, `message`, `data`, `traceId`.
 - Backend layered architecture: handler/service/repository.
@@ -36,8 +36,8 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 ## Not Yet Implemented
 
 - Visual workflow orchestration beyond the current Cron scheduling loop.
-- Advanced webhook matcher expressions, replay-window tuning, and audit search.
-- Email/SMTP notifications, notification templates, and retry management UI.
+- Advanced JSONPath webhook matcher expressions and replay-window tuning.
+- Notification template editing and encrypted channel config storage.
 
 ## Requirements
 
@@ -163,3 +163,8 @@ GET /api/v1/version
 ```
 
 For the full manual acceptance flow, see [E2E Demo](./docs/e2e-demo.md).
+
+Release/security documents:
+- [Security Permission Matrix](./docs/security-permission-matrix.en.md) / [安全权限矩阵](./docs/security-permission-matrix.md)
+- [V0.7 Security Release Checklist](./docs/v0.7-security-release-checklist.en.md) / [V0.7 安全发布检查清单](./docs/v0.7-security-release-checklist.md)
+- [V0.7 Release Notes](./docs/v0.7-release-notes.en.md) / [V0.7 发布说明](./docs/v0.7-release-notes.md)

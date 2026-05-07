@@ -1,11 +1,12 @@
 import { request } from "./request";
-import type { PageResult, ScheduleSummary } from "./types";
+import type { PageResult, ScheduleSummary, ScheduleTrigger } from "./types";
 
 export interface CreateSchedulePayload {
   name: string;
   taskId: string;
   cronExpr: string;
   timezone?: string;
+  misfirePolicy?: string;
 }
 
 export function listSchedules(params: {
@@ -29,6 +30,17 @@ export function createSchedule(payload: CreateSchedulePayload) {
     method: "POST",
     body: JSON.stringify(payload)
   });
+}
+
+export function previewSchedule(payload: { cronExpr: string; timezone?: string; count?: number }) {
+  return request<{ times: string[] }>("/api/v1/schedules/preview", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function listScheduleTriggers(id: string, limit = 20) {
+  return request<ScheduleTrigger[]>(`/api/v1/schedules/${id}/triggers?limit=${limit}`);
 }
 
 export function pauseSchedule(id: string) {

@@ -77,6 +77,27 @@ ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   description = VALUES(description);
 
+INSERT INTO metric_definitions(code, name, unit, description)
+VALUES
+  ('agent.running_tasks', 'Running Tasks', 'count', 'Current number of tasks running on the Agent.'),
+  ('agent.cpu.logical', 'Logical CPU', 'count', 'Logical CPU count visible to the Agent runtime.'),
+  ('agent.runtime.goroutines', 'Goroutines', 'count', 'Current Go runtime goroutine count for the Agent.'),
+  ('agent.runtime.alloc_bytes', 'Runtime Alloc', 'bytes', 'Bytes allocated and still in use by the Agent runtime.'),
+  ('agent.runtime.sys_bytes', 'Runtime Sys', 'bytes', 'Bytes obtained from the OS by the Agent runtime.'),
+  ('agent.os.cpu.percent', 'CPU Usage', 'percent', 'Host CPU usage percent collected by the Agent.'),
+  ('agent.os.memory.used_bytes', 'Memory Used', 'bytes', 'Host memory bytes used.'),
+  ('agent.os.memory.total_bytes', 'Memory Total', 'bytes', 'Host total memory bytes.'),
+  ('agent.os.memory.used_percent', 'Memory Usage', 'percent', 'Host memory usage percent.'),
+  ('agent.os.disk.used_bytes', 'Disk Used', 'bytes', 'Host root filesystem used bytes.'),
+  ('agent.os.disk.total_bytes', 'Disk Total', 'bytes', 'Host root filesystem total bytes.'),
+  ('agent.os.disk.used_percent', 'Disk Usage', 'percent', 'Host root filesystem usage percent.'),
+  ('agent.os.network.bytes_sent', 'Network Sent', 'bytes', 'Host network bytes sent counter.'),
+  ('agent.os.network.bytes_recv', 'Network Received', 'bytes', 'Host network bytes received counter.')
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  unit = VALUES(unit),
+  description = VALUES(description);
+
 INSERT INTO roles(uid, workspace_id, code, name, description, built_in, status)
 VALUES
   (@admin_role_uid, @workspace_id, 'admin', 'Administrator', 'Full workspace administrator', 1, 'active'),

@@ -63,11 +63,13 @@ type UpdateRuleInput struct {
 }
 
 type ListEventsInput struct {
-	SourceID   string
-	Status     string
-	DeliveryID string
-	Page       int
-	PageSize   int
+	SourceID     string
+	Status       string
+	DeliveryID   string
+	ReceivedFrom string
+	ReceivedTo   string
+	Page         int
+	PageSize     int
 }
 
 type EventDetailInput struct {
@@ -671,11 +673,13 @@ func (s *Service) ListEvents(ctx context.Context, input ListEventsInput) (EventL
 	}
 	page, pageSize := normalizeEventPage(input.Page, input.PageSize)
 	rows, total, err := eventRows(ctx, s.db, workspace.ID, eventFilter{
-		SourceUID:  strings.TrimSpace(input.SourceID),
-		Status:     strings.TrimSpace(input.Status),
-		DeliveryID: strings.TrimSpace(input.DeliveryID),
-		Page:       page,
-		PageSize:   pageSize,
+		SourceUID:    strings.TrimSpace(input.SourceID),
+		Status:       strings.TrimSpace(input.Status),
+		DeliveryID:   strings.TrimSpace(input.DeliveryID),
+		ReceivedFrom: normalizeTimeFilter(input.ReceivedFrom),
+		ReceivedTo:   normalizeTimeFilter(input.ReceivedTo),
+		Page:         page,
+		PageSize:     pageSize,
 	})
 	if err != nil {
 		return EventListResult{}, apperror.Wrap(http.StatusInternalServerError, 500509, "list webhook events failed", err)
@@ -955,7 +959,7 @@ func (s *Service) Trigger(ctx context.Context, input TriggerInput) (TriggerResul
 				).Error
 				continue
 			}
-			if ok, reason := matchRule(ruleMatcher, input.Headers, payload); !ok {
+			if ok, reason := matchRule(ruleMatcher, eventType, input.Headers, payload); !ok {
 				_ = tx.WithContext(ctx).Exec(
 					"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, ?)",
 					eventID, rule.ID, limitString(reason, 1024),
@@ -1079,11 +1083,13 @@ func rules(ctx context.Context, db *gorm.DB, workspaceID, sourceID uint64, ruleU
 }
 
 type eventFilter struct {
-	SourceUID  string
-	Status     string
-	DeliveryID string
-	Page       int
-	PageSize   int
+	SourceUID    string
+	Status       string
+	DeliveryID   string
+	ReceivedFrom string
+	ReceivedTo   string
+	Page         int
+	PageSize     int
 }
 
 func eventRows(ctx context.Context, db *gorm.DB, workspaceID uint64, filter eventFilter) ([]eventRecord, int64, error) {
@@ -1100,6 +1106,14 @@ func eventRows(ctx context.Context, db *gorm.DB, workspaceID uint64, filter even
 	if filter.DeliveryID != "" {
 		where += " AND we.delivery_id LIKE ?"
 		args = append(args, "%"+filter.DeliveryID+"%")
+	}
+	if filter.ReceivedFrom != "" {
+		where += " AND we.received_at >= ?"
+		args = append(args, filter.ReceivedFrom)
+	}
+	if filter.ReceivedTo != "" {
+		where += " AND we.received_at <= ?"
+		args = append(args, filter.ReceivedTo)
 	}
 
 	var total int64
@@ -1333,6 +1347,12 @@ func normalizeEventPage(page, pageSize int) (int, int) {
 	return page, pageSize
 }
 
+func normalizeTimeFilter(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "T", " ")
+	return value
+}
+
 func parseHeaderPairs(value string) []HeaderPair {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1381,6 +1401,9 @@ func normalizeMatcher(input *Matcher) (*Matcher, *apperror.Error) {
 				return nil, apperror.New(http.StatusBadRequest, 400505, "matcher path is required")
 			}
 			condition.Key = ""
+		case "event_type_equals", "ref_equals", "branch_equals":
+			condition.Key = ""
+			condition.Path = ""
 		default:
 			return nil, apperror.New(http.StatusBadRequest, 400505, "unsupported matcher type")
 		}
@@ -1432,12 +1455,16 @@ func parsePayloadObject(body []byte) interface{} {
 	return payload
 }
 
-func matchRule(matcher *Matcher, headers map[string]string, payload interface{}) (bool, string) {
+func matchRule(matcher *Matcher, eventType string, headers map[string]string, payload interface{}) (bool, string) {
 	if matcher == nil || len(matcher.Conditions) == 0 {
 		return true, ""
 	}
 	for _, condition := range matcher.Conditions {
 		switch condition.Type {
+		case "event_type_equals":
+			if strings.TrimSpace(eventType) != condition.Value {
+				return false, "event_type_condition_mismatch"
+			}
 		case "header_equals":
 			headerValue := firstHeaderValue(headers, condition.Key)
 			if headerValue != condition.Value {
@@ -1453,11 +1480,29 @@ func matchRule(matcher *Matcher, headers map[string]string, payload interface{})
 			if !ok || !strings.Contains(payloadValue, condition.Value) {
 				return false, "payload_contains_mismatch:" + condition.Path
 			}
+		case "ref_equals":
+			refValue, ok := payloadValueAtPath(payload, "ref")
+			if !ok || refValue != condition.Value {
+				return false, "ref_mismatch"
+			}
+		case "branch_equals":
+			refValue, ok := payloadValueAtPath(payload, "ref")
+			if !ok || branchFromRef(refValue) != condition.Value {
+				return false, "branch_mismatch"
+			}
 		default:
 			return false, "matcher_invalid"
 		}
 	}
 	return true, ""
+}
+
+func branchFromRef(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if strings.HasPrefix(ref, "refs/heads/") {
+		return strings.TrimPrefix(ref, "refs/heads/")
+	}
+	return ref
 }
 
 func firstHeaderValue(headers map[string]string, key string) string {

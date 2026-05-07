@@ -3,9 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   createNotificationChannel,
+  listNotificationDeliveries,
   listNotificationChannels,
   listNotifications,
-  markNotificationRead
+  markNotificationRead,
+  retryNotificationDelivery,
+  testNotificationChannel
 } from "../../api/notifications";
 import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
@@ -17,16 +20,21 @@ export function NotificationsPage() {
   const queryClient = useQueryClient();
   const canWrite = hasPermission(user, "notification:write");
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [form, setForm] = useState({ name: "", channelType: "site", url: "" });
+  const [form, setForm] = useState({ name: "", channelType: "site", target: "", signingSecret: "" });
+  const [deliveryFilters, setDeliveryFilters] = useState({ status: "", channelId: "", notificationId: "" });
   const channelsQuery = useQuery({ queryKey: ["notificationChannels"], queryFn: listNotificationChannels });
   const notificationsQuery = useQuery({
     queryKey: ["notifications", unreadOnly],
     queryFn: () => listNotifications({ unread: unreadOnly })
   });
+  const deliveriesQuery = useQuery({
+    queryKey: ["notificationDeliveries", deliveryFilters],
+    queryFn: () => listNotificationDeliveries(deliveryFilters)
+  });
   const createMutation = useMutation({
     mutationFn: createNotificationChannel,
     onSuccess: () => {
-      setForm({ name: "", channelType: "site", url: "" });
+      setForm({ name: "", channelType: "site", target: "", signingSecret: "" });
       queryClient.invalidateQueries({ queryKey: ["notificationChannels"] });
     }
   });
@@ -34,8 +42,20 @@ export function NotificationsPage() {
     mutationFn: (id: string) => markNotificationRead(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] })
   });
+  const retryMutation = useMutation({
+    mutationFn: (id: number) => retryNotificationDelivery(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notificationDeliveries"] })
+  });
+  const testChannelMutation = useMutation({
+    mutationFn: (id: string) => testNotificationChannel(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["notificationDeliveries"] });
+    }
+  });
   const channels = useMemo(() => channelsQuery.data ?? [], [channelsQuery.data]);
   const notifications = useMemo(() => notificationsQuery.data ?? [], [notificationsQuery.data]);
+  const deliveries = useMemo(() => deliveriesQuery.data ?? [], [deliveriesQuery.data]);
 
   return (
     <main className="page">
@@ -56,7 +76,14 @@ export function NotificationsPage() {
               createMutation.mutate({
                 name: form.name,
                 channelType: form.channelType,
-                config: form.channelType === "site" ? undefined : { url: form.url }
+                config: form.channelType === "site"
+                  ? undefined
+                  : form.channelType === "email"
+                    ? { email: form.target }
+                    : {
+                        url: form.target,
+                        ...(form.signingSecret ? { signingSecret: form.signingSecret } : {})
+                      }
               });
             }}
           >
@@ -73,13 +100,71 @@ export function NotificationsPage() {
               </select>
             </label>
             {form.channelType !== "site" ? (
-              <label>{t("notifications.webhookUrl")}<input value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} required /></label>
+              <>
+                <label>
+                  {form.channelType === "email" ? t("notifications.emailTo") : t("notifications.webhookUrl")}
+                  <input value={form.target} onChange={(event) => setForm({ ...form, target: event.target.value })} required />
+                </label>
+                {form.channelType !== "email" ? (
+                  <label>
+                    {t("notifications.signingSecret")}
+                    <input value={form.signingSecret} onChange={(event) => setForm({ ...form, signingSecret: event.target.value })} placeholder={t("notifications.signingSecretOptional")} />
+                  </label>
+                ) : null}
+              </>
             ) : null}
             <button type="submit" disabled={createMutation.isPending}>{t("notifications.createChannelAction")}</button>
           </form>
           {createMutation.isError ? <p className="form-error">{createMutation.error.message}</p> : null}
         </section>
       ) : null}
+
+      <section className="panel table-panel">
+        <div className="panel-title"><h3>{t("notifications.deliveries")}</h3><span>{deliveries.length} {t("common.items")}</span></div>
+        <div className="toolbar-row">
+          <select value={deliveryFilters.status} onChange={(event) => setDeliveryFilters((current) => ({ ...current, status: event.target.value }))}>
+            <option value="">{t("notifications.allDeliveryStatuses")}</option>
+            <option value="pending">pending</option>
+            <option value="sending">sending</option>
+            <option value="success">success</option>
+            <option value="failed">failed</option>
+            <option value="canceled">canceled</option>
+          </select>
+          <select value={deliveryFilters.channelId} onChange={(event) => setDeliveryFilters((current) => ({ ...current, channelId: event.target.value }))}>
+            <option value="">{t("notifications.allChannels")}</option>
+            {channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+          </select>
+          <input
+            placeholder={t("notifications.notificationId")}
+            value={deliveryFilters.notificationId}
+            onChange={(event) => setDeliveryFilters((current) => ({ ...current, notificationId: event.target.value }))}
+          />
+          <button type="button" onClick={() => deliveriesQuery.refetch()}>{t("common.refresh")}</button>
+        </div>
+        <div className="data-table">
+          <table>
+            <thead><tr><th>{t("notifications.notification")}</th><th>{t("notifications.channels")}</th><th>{t("common.status")}</th><th>{t("notifications.attempts")}</th><th>{t("common.reason")}</th><th>{t("common.created")}</th><th>{t("common.action")}</th></tr></thead>
+            <tbody>
+              {deliveries.map((item) => (
+                <tr key={item.id}>
+                  <td><strong>{item.title || "-"}</strong><small>{item.notificationId || item.id}</small></td>
+                  <td><strong>{item.channelName || "-"}</strong><small>{item.channelType || "-"}</small></td>
+                  <td><span className={`status-chip status-${item.status}`}>{item.status}</span></td>
+                  <td><strong>{item.attempts}</strong><small>{item.nextRetryAt || item.deliveredAt || "-"}</small></td>
+                  <td>{item.errorMessage || "-"}</td>
+                  <td>{item.createdAt}</td>
+                  <td className="action-cell">
+                    {canWrite && item.status === "failed" ? <button type="button" onClick={() => retryMutation.mutate(item.id)}>{t("notifications.retryDelivery")}</button> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!deliveriesQuery.isLoading && deliveries.length === 0 ? <p className="empty-state">{t("notifications.emptyDeliveries")}</p> : null}
+        {deliveriesQuery.isError ? <p className="form-error">{deliveriesQuery.error.message}</p> : null}
+        {retryMutation.isError ? <p className="form-error">{retryMutation.error.message}</p> : null}
+      </section>
 
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("notifications.title")}</h3><span>{notifications.length} {t("common.items")}</span></div>
@@ -118,14 +203,22 @@ export function NotificationsPage() {
         <div className="panel-title"><h3>{t("notifications.channels")}</h3><span>{channels.length} {t("common.total")}</span></div>
         <div className="data-table">
           <table>
-            <thead><tr><th>{t("common.name")}</th><th>{t("common.type")}</th><th>{t("common.status")}</th><th>{t("common.created")}</th></tr></thead>
+            <thead><tr><th>{t("common.name")}</th><th>{t("common.type")}</th><th>{t("notifications.target")}</th><th>{t("common.status")}</th><th>{t("common.created")}</th><th>{t("common.action")}</th></tr></thead>
             <tbody>
               {channels.map((channel) => (
                 <tr key={channel.id}>
                   <td><strong>{channel.name}</strong><small>{channel.id}</small></td>
                   <td>{channel.channelType}</td>
+                  <td>{channel.targetSummary || "-"}</td>
                   <td><span className={`status-chip status-${channel.status}`}>{channel.status}</span></td>
                   <td>{channel.createdAt}</td>
+                  <td className="action-cell">
+                    {canWrite && channel.status === "active" ? (
+                      <button type="button" disabled={testChannelMutation.isPending} onClick={() => testChannelMutation.mutate(channel.id)}>
+                        {t("notifications.testChannel")}
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -133,6 +226,7 @@ export function NotificationsPage() {
         </div>
         {!channelsQuery.isLoading && channels.length === 0 ? <p className="empty-state">{t("notifications.emptyChannels")}</p> : null}
         {channelsQuery.isError ? <p className="form-error">{channelsQuery.error.message}</p> : null}
+        {testChannelMutation.isError ? <p className="form-error">{testChannelMutation.error.message}</p> : null}
       </section>
     </main>
   );

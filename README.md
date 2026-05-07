@@ -1,8 +1,13 @@
 # OpsPilot
 
+Release/security documents:
+- [安全权限矩阵](./docs/security-permission-matrix.md) / [Security Permission Matrix](./docs/security-permission-matrix.en.md)
+- [V0.7 安全发布检查清单](./docs/v0.7-security-release-checklist.md) / [V0.7 Security Release Checklist](./docs/v0.7-security-release-checklist.en.md)
+- [V0.7 发布说明](./docs/v0.7-release-notes.md) / [V0.7 Release Notes](./docs/v0.7-release-notes.en.md)
+
 > 语言：简体中文（当前） | [English](./README.en.md)
 
-OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台。当前已经覆盖 Agent 接入、脚本模板、任务执行、实时日志、Cron 调度、Webhook 触发、基础指标采集、RBAC 与审计。
+OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台。当前已经覆盖 Agent 接入、脚本模板、任务执行、实时日志、Cron 调度、Webhook 触发、指标采集、Alerts、Notifications、RBAC 与审计。
 
 ## 当前进展
 
@@ -10,9 +15,9 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 - T2 Agent / Host：Agent 注册、Token 哈希存储、心跳、Agent/Host 列表、禁用、Token 吊销、离线扫描。
 - T3 任务执行：脚本模板、任务创建、目标下发、Agent poll/claim、命令执行、结果上报、状态聚合。
 - T4 实时日志：Agent stdout/stderr/system 日志上报、脱敏、分片存储、查询 API、SSE 实时消费。
-- T5 Cron 调度：schedules API、后台扫描器、前端 Schedules 页面，到期后复用现有任务执行链路。
-- T6 Webhook：source/rule 管理、token 化触发入口、HMAC-SHA256 签名校验、防重放、基础限流、事件落库、生成 task_run。
-- T7 Metrics / Alerts / Notifications：Agent 指标上报、host_metrics 持久化、前端 Metrics 页面、基础阈值告警规则、告警事件、站内通知、外部 webhook 类渠道发送与 delivery 记录。
+- T5 Cron 调度：schedules API、preview、misfire policy、trigger history、后台扫描器、前端 Schedules 页面，到期后复用现有任务执行链路。
+- T6 Webhook：source/rule 管理、token 化触发入口、独立 signing secret、HMAC-SHA256 签名校验、防重放、基础限流、事件落库、matcher 调试、生成 task_run。
+- T7 Metrics / Alerts / Notifications：Agent OS 指标上报、host_metrics 持久化、前端 Metrics 页面、阈值告警规则、告警事件、站内/Email/webhook 类通知、delivery 查询、重试和 test send。
 
 ## 已实现能力
 
@@ -24,16 +29,16 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 - 任务执行安全门禁：高危命令阻断、可配置 allowlist/denylist、timeout 最大值限制、Agent 独立工作目录、执行日志上传前脱敏、运行中取消时停止本地进程。
 - tasks/scripts/logs 的分页、筛选与 total 返回。
 - 前端权限矩阵：路由通过 `handle.meta.permission` 声明权限，统一守卫检查 permissions，侧边栏和关键按钮按权限显示。
-- Cron 调度闭环：到期 schedule 复用 `task_runs` / `task_run_targets` / Agent poll / logs / result 链路。
+- Cron 调度闭环：支持 schedule preview、misfire policy、trigger history，并复用 `task_runs` / `task_run_targets` / Agent poll / logs / result 链路。
 - Webhook 触发闭环：`POST /api/v1/webhooks/trigger/:token` 需携带 `X-OpsPilot-Signature` 或 `X-Hub-Signature-256`，签名通过后匹配 rule 并生成 task_run。
-- Metrics / Alerts 监控闭环：Agent 周期上报运行中任务数、逻辑 CPU、goroutine、运行时内存指标；后台按 metric threshold 规则生成或恢复告警。
-- Notifications 通知闭环：支持 notification channel 管理、告警触发时生成 notifications 和 notification_deliveries、前端通知列表与标记已读，后台 dispatcher 会投递 webhook/dingtalk/wechat/slack 类型渠道。
+- Metrics / Alerts 监控闭环：Agent 上报真实 OS 指标和运行时指标；后台按 metric threshold 规则生成、确认、静默、恢复告警。
+- Notifications 通知闭环：支持 notification channel 管理、SMTP Email、webhook 类外部投递、delivery 查询/重试/test send、前端通知列表与标记已读。
 
 ## 尚未实现
 
 - Cron 调度之外的可视化工作流编排。
-- Webhook 的复杂 matcher 表达式、重放窗口细化和审计检索。
-- Email/SMTP 通知、通知模板、通知重试管理界面；当前 webhook/dingtalk/wechat/slack 已支持按 channel URL 发送。
+- Webhook 的复杂 JSONPath matcher 表达式和重放窗口细化。
+- Notification 模板编辑器和 channel config 加密存储。
 
 ## 环境要求
 

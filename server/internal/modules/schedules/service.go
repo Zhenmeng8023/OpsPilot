@@ -40,11 +40,18 @@ type ListInput struct {
 }
 
 type CreateInput struct {
-	Name     string
-	TaskID   string
+	Name          string
+	TaskID        string
+	CronExpr      string
+	Timezone      string
+	MisfirePolicy string
+	Audit         AuditContext
+}
+
+type PreviewInput struct {
 	CronExpr string
 	Timezone string
-	Audit    AuditContext
+	Count    int
 }
 
 type ScheduleSummary struct {
@@ -55,11 +62,26 @@ type ScheduleSummary struct {
 	ScheduleType string `json:"scheduleType"`
 	CronExpr     string `json:"cronExpr"`
 	Timezone     string `json:"timezone"`
+	MisfirePolicy string `json:"misfirePolicy"`
 	Status       string `json:"status"`
 	NextFireAt   string `json:"nextFireAt,omitempty"`
 	LastFireAt   string `json:"lastFireAt,omitempty"`
 	CreatedBy    string `json:"createdBy,omitempty"`
 	CreatedAt    string `json:"createdAt"`
+}
+
+type PreviewResult struct {
+	Times []string `json:"times"`
+}
+
+type TriggerSummary struct {
+	ID            uint64 `json:"id"`
+	TaskRunID     string `json:"taskRunId,omitempty"`
+	PlannedFireAt string `json:"plannedFireAt"`
+	ActualFireAt  string `json:"actualFireAt,omitempty"`
+	Status        string `json:"status"`
+	ErrorMessage  string `json:"errorMessage,omitempty"`
+	CreatedAt     string `json:"createdAt"`
 }
 
 type ScheduleListResult struct {
@@ -106,6 +128,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (ScheduleSummar
 	taskUID := strings.TrimSpace(input.TaskID)
 	cronExpr := strings.TrimSpace(input.CronExpr)
 	timezone := normalizeTimezone(input.Timezone)
+	misfirePolicy := normalizeMisfirePolicy(input.MisfirePolicy)
 	if name == "" {
 		return ScheduleSummary{}, apperror.New(http.StatusBadRequest, 400401, "schedule name is required")
 	}
@@ -154,9 +177,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (ScheduleSummar
 			return err
 		}
 		if err := tx.WithContext(ctx).Exec(
-			`INSERT INTO schedules(uid, workspace_id, task_id, name, schedule_type, cron_expr, timezone, status, next_fire_at, created_by)
-			 VALUES (?, ?, ?, ?, 'cron', ?, ?, 'active', ?, ?)`,
-			scheduleUID, workspace.ID, task.ID, name, cronExpr, timezone, nextFireAt, actorID,
+			`INSERT INTO schedules(uid, workspace_id, task_id, name, schedule_type, cron_expr, timezone, misfire_policy, status, next_fire_at, created_by)
+			 VALUES (?, ?, ?, ?, 'cron', ?, ?, ?, 'active', ?, ?)`,
+			scheduleUID, workspace.ID, task.ID, name, cronExpr, timezone, misfirePolicy, nextFireAt, actorID,
 		).Error; err != nil {
 			return err
 		}
@@ -190,6 +213,72 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (ScheduleSummar
 		return ScheduleSummary{}, apperror.Wrap(http.StatusInternalServerError, 500403, "create schedule failed", txErr)
 	}
 	return created, nil
+}
+
+func (s *Service) Preview(ctx context.Context, input PreviewInput) (PreviewResult, *apperror.Error) {
+	cronExpr := strings.TrimSpace(input.CronExpr)
+	timezone := normalizeTimezone(input.Timezone)
+	if cronExpr == "" {
+		return PreviewResult{}, apperror.New(http.StatusBadRequest, 400403, "cronExpr is required")
+	}
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		return PreviewResult{}, apperror.New(http.StatusBadRequest, 400404, "invalid timezone")
+	}
+	count := input.Count
+	if count <= 0 {
+		count = 5
+	}
+	if count > 20 {
+		count = 20
+	}
+	times, err := nextCronTimes(cronExpr, loc, time.Now(), count)
+	if err != nil {
+		return PreviewResult{}, apperror.New(http.StatusBadRequest, 400405, "invalid cronExpr")
+	}
+	out := make([]string, 0, len(times))
+	for _, item := range times {
+		out = append(out, item.In(loc).Format("2006-01-02 15:04:05"))
+	}
+	return PreviewResult{Times: out}, nil
+}
+
+func (s *Service) ListTriggers(ctx context.Context, scheduleUID string, limit int) ([]TriggerSummary, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	scheduleUID = strings.TrimSpace(scheduleUID)
+	if scheduleUID == "" {
+		return nil, apperror.New(http.StatusBadRequest, 400001, "schedule id is required")
+	}
+	row, err := s.repo.scheduleByUID(ctx, workspace.ID, scheduleUID)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500405, "load schedule failed", err)
+	}
+	if row.ID == 0 {
+		return nil, apperror.New(http.StatusNotFound, 404402, "schedule not found")
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.repo.listTriggers(ctx, row.ID, limit)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500406, "list schedule triggers failed", err)
+	}
+	out := make([]TriggerSummary, 0, len(rows))
+	for _, trigger := range rows {
+		out = append(out, TriggerSummary{
+			ID:            trigger.ID,
+			TaskRunID:     trigger.TaskRunUID.String,
+			PlannedFireAt: trigger.PlannedFireAt,
+			ActualFireAt:  trigger.ActualFireAt.String,
+			Status:        trigger.Status,
+			ErrorMessage:  trigger.ErrorMessage.String,
+			CreatedAt:     trigger.CreatedAt,
+		})
+	}
+	return out, nil
 }
 
 func (s *Service) Pause(ctx context.Context, scheduleUID string, auditCtx AuditContext) *apperror.Error {
@@ -283,6 +372,7 @@ func (s *Service) FireDue(ctx context.Context, now time.Time, limit int) (FireRe
 		var due []dueScheduleRecord
 		if err := tx.WithContext(ctx).Raw(
 			`SELECT s.id, s.workspace_id, s.task_id, s.name, s.cron_expr, s.timezone,
+			        s.misfire_policy,
 			        DATE_FORMAT(s.next_fire_at, '%Y-%m-%d %H:%i:%s') AS next_fire_at,
 			        s.created_by AS created_by_id
 			   FROM schedules s
@@ -299,15 +389,74 @@ func (s *Service) FireDue(ctx context.Context, now time.Time, limit int) (FireRe
 			return err
 		}
 		for _, schedule := range due {
-			if s.fireSchedule(ctx, tx, schedule, now) {
-				result.Fired++
-			} else {
-				result.Failed++
-			}
+			fired, failed := s.processDueSchedule(ctx, tx, schedule, now)
+			result.Fired += fired
+			result.Failed += failed
 		}
 		return nil
 	})
 	return result, err
+}
+
+func (s *Service) processDueSchedule(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, now time.Time) (int, int) {
+	switch normalizeMisfirePolicy(schedule.MisfirePolicy) {
+	case "skip":
+		if s.skipSchedule(ctx, tx, schedule, now) {
+			return 0, 0
+		}
+		return 0, 1
+	case "fire_all":
+		return s.fireAllMissed(ctx, tx, schedule, now)
+	default:
+		if s.fireSchedule(ctx, tx, schedule, now) {
+			return 1, 0
+		}
+		return 0, 1
+	}
+}
+
+func (s *Service) fireAllMissed(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, now time.Time) (int, int) {
+	loc, err := time.LoadLocation(normalizeTimezone(schedule.Timezone))
+	if err != nil {
+		loc = time.Local
+	}
+	fired, failed := 0, 0
+	current := schedule
+	for attempts := 0; attempts < 20; attempts++ {
+		plannedAt := parseDBTime(current.NextFireAt)
+		if !plannedAt.Valid || plannedAt.Time.After(now) {
+			break
+		}
+		if s.fireScheduleWithoutAdvance(ctx, tx, current, plannedAt.Time, now) {
+			fired++
+		} else {
+			failed++
+		}
+		next, err := nextCronTime(schedule.CronExpr, loc, plannedAt.Time)
+		if err != nil || next.After(now) {
+			break
+		}
+		current.NextFireAt = next.Format("2006-01-02 15:04:05")
+	}
+	if err := s.advanceSchedule(ctx, tx, schedule, now); err != nil {
+		failed++
+	}
+	return fired, failed
+}
+
+func (s *Service) skipSchedule(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, now time.Time) bool {
+	plannedAt := parseDBTime(schedule.NextFireAt)
+	if !plannedAt.Valid {
+		plannedAt = sql.NullTime{Time: now, Valid: true}
+	}
+	if err := tx.WithContext(ctx).Exec(
+		`INSERT INTO schedule_triggers(schedule_id, planned_fire_at, actual_fire_at, status, error_message)
+		 VALUES (?, ?, ?, 'skipped', 'misfire skipped')`,
+		schedule.ID, plannedAt, now,
+	).Error; err != nil {
+		return false
+	}
+	return s.advanceSchedule(ctx, tx, schedule, now) == nil
 }
 
 func (s *Service) fireSchedule(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, now time.Time) bool {
@@ -315,6 +464,17 @@ func (s *Service) fireSchedule(ctx context.Context, tx *gorm.DB, schedule dueSch
 	if !plannedAt.Valid {
 		plannedAt = sql.NullTime{Time: now, Valid: true}
 	}
+	if ok := s.fireScheduleWithoutAdvance(ctx, tx, schedule, plannedAt.Time, now); !ok {
+		_ = s.advanceSchedule(ctx, tx, schedule, now)
+		return false
+	}
+	if err := s.advanceSchedule(ctx, tx, schedule, now); err != nil {
+		return false
+	}
+	return true
+}
+
+func (s *Service) fireScheduleWithoutAdvance(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, plannedAt time.Time, now time.Time) bool {
 	var triggerID uint64
 	if err := tx.WithContext(ctx).Exec(
 		`INSERT INTO schedule_triggers(schedule_id, planned_fire_at, actual_fire_at, status)
@@ -340,16 +500,12 @@ func (s *Service) fireSchedule(ctx context.Context, tx *gorm.DB, schedule dueSch
 			"UPDATE schedule_triggers SET status = 'failed', error_message = ? WHERE id = ?",
 			limitString(err.Error(), 1024), triggerID,
 		).Error
-		_ = s.advanceSchedule(ctx, tx, schedule, now)
 		return false
 	}
 	if err := tx.WithContext(ctx).Exec(
 		"UPDATE schedule_triggers SET status = 'fired', task_run_id = ?, actual_fire_at = ? WHERE id = ?",
 		runID, now, triggerID,
 	).Error; err != nil {
-		return false
-	}
-	if err := s.advanceSchedule(ctx, tx, schedule, now); err != nil {
 		return false
 	}
 	return true
@@ -393,11 +549,21 @@ func summaryFromRecord(row scheduleRecord) ScheduleSummary {
 		ScheduleType: row.ScheduleType,
 		CronExpr:     row.CronExpr.String,
 		Timezone:     row.Timezone,
+		MisfirePolicy: row.MisfirePolicy,
 		Status:       row.Status,
 		NextFireAt:   row.NextFireAt.String,
 		LastFireAt:   row.LastFireAt.String,
 		CreatedBy:    row.CreatedBy.String,
 		CreatedAt:    row.CreatedAt,
+	}
+}
+
+func normalizeMisfirePolicy(value string) string {
+	switch strings.TrimSpace(value) {
+	case "fire_once", "fire_all":
+		return strings.TrimSpace(value)
+	default:
+		return "skip"
 	}
 }
 

@@ -138,11 +138,13 @@ func (h *Handler) listRules(c *gin.Context) {
 
 func (h *Handler) listEvents(c *gin.Context) {
 	result, appErr := h.service.ListEvents(c.Request.Context(), ListEventsInput{
-		SourceID:   c.Query("sourceId"),
-		Status:     c.Query("status"),
-		DeliveryID: c.Query("deliveryId"),
-		Page:       parseInt(c.DefaultQuery("page", "1")),
-		PageSize:   parseInt(c.DefaultQuery("pageSize", "20")),
+		SourceID:     c.Query("sourceId"),
+		Status:       c.Query("status"),
+		DeliveryID:   c.Query("deliveryId"),
+		ReceivedFrom: c.Query("receivedFrom"),
+		ReceivedTo:   c.Query("receivedTo"),
+		Page:         parseInt(c.DefaultQuery("page", "1")),
+		PageSize:     parseInt(c.DefaultQuery("pageSize", "20")),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)
