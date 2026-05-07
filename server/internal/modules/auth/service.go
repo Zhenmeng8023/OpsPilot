@@ -102,6 +102,10 @@ func (s *Service) JWTManager() jwtplatform.Manager {
 }
 
 func (s *Service) Register(ctx context.Context, input RegisterInput) (AuthResult, *apperror.Error) {
+	if s.cfg.App.Env == "prod" && !s.cfg.Auth.PublicRegistrationEnabled {
+		return AuthResult{}, apperror.New(http.StatusForbidden, 403003, "public registration is disabled")
+	}
+
 	username := strings.TrimSpace(input.Username)
 	email := strings.TrimSpace(input.Email)
 	if err := validateUsername(username); err != nil {
@@ -444,7 +448,7 @@ func userPermissions(ctx context.Context, db *gorm.DB, userID, workspaceID uint6
 		  ORDER BY p.code`,
 		userID, workspaceID,
 	).Scan(&permissions).Error
-	return permissions, err
+	return canonicalizePermissionList(permissions), err
 }
 
 func defaultWorkspace(ctx context.Context, db *gorm.DB, slug string) (workspaceRecord, error) {

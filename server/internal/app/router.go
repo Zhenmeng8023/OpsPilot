@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,6 +55,9 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 	})
 
 	api := router.Group("/api/v1")
+	api.GET("/version", func(c *gin.Context) {
+		response.Success(c, versionData(cfg))
+	})
 	api.GET("/ping", func(c *gin.Context) {
 		response.Success(c, gin.H{"pong": true})
 	})
@@ -82,6 +86,17 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 	})
 
 	return router
+}
+
+func versionData(cfg config.Config) gin.H {
+	return gin.H{
+		"service":   cfg.App.Name,
+		"version":   cfg.App.Version,
+		"commit":    cfg.App.Commit,
+		"buildTime": cfg.App.BuildTime,
+		"goVersion": runtime.Version(),
+		"env":       cfg.App.Env,
+	}
 }
 
 func healthData(parent context.Context, cfg config.Config, deps Dependencies) (int, gin.H) {

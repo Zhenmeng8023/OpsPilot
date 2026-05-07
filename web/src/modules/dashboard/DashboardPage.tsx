@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { request } from "../../api/request";
-import type { HealthData } from "../../api/types";
+import type { HealthData, VersionInfo } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { StatusBadge } from "../../shared/components/StatusBadge";
 
@@ -10,6 +10,10 @@ export function DashboardPage() {
   const healthQuery = useQuery({
     queryKey: ["health"],
     queryFn: () => request<HealthData>("/health", { skipAuth: true })
+  });
+  const versionQuery = useQuery({
+    queryKey: ["version"],
+    queryFn: () => request<VersionInfo>("/api/v1/version", { skipAuth: true })
   });
 
   const cards = [
@@ -59,7 +63,19 @@ export function DashboardPage() {
               </div>
               <div>
                 <dt>{t("common.version")}</dt>
-                <dd>{healthQuery.data?.version ?? "-"}</dd>
+                <dd>{versionQuery.data?.version ?? healthQuery.data?.version ?? "-"}</dd>
+              </div>
+              <div>
+                <dt>Commit</dt>
+                <dd>{versionQuery.data?.commit || "-"}</dd>
+              </div>
+              <div>
+                <dt>Build time</dt>
+                <dd>{versionQuery.data?.buildTime || "-"}</dd>
+              </div>
+              <div>
+                <dt>Go</dt>
+                <dd>{versionQuery.data?.goVersion || "-"}</dd>
               </div>
               <div>
                 <dt>{t("dashboard.time")}</dt>

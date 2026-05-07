@@ -49,6 +49,7 @@ var basePermissions = []permissionSeed{
 	{"schedule:read", "schedule", "Read schedules", "View task schedules"},
 	{"schedule:write", "schedule", "Write schedules", "Create and manage task schedules"},
 	{"metric.read", "metric", "Read metrics", "View metrics and service checks"},
+	{"metric:read", "metric", "Read metrics", "View metrics and service checks"},
 	{"alert:read", "alert", "Read alerts", "View alert rules and alert events"},
 	{"alert:write", "alert", "Write alerts", "Manage alert rules and alert state"},
 	{"alert.write", "alert", "Write alerts", "Manage alert rules and alert state"},
@@ -82,7 +83,7 @@ func Seed(ctx context.Context, db *gorm.DB, cfg config.Config) error {
 		if err := assignPermissions(ctx, tx, adminRoleID, permissionIDs); err != nil {
 			return err
 		}
-		memberPermissions := filterPermissions(permissionIDs, "workspace.read", "agent.read", "agent:read", "host:read", "script.read", "script:read", "task.read", "task:read", "log.read", "task:log:read", "metric.read")
+		memberPermissions := filterPermissions(permissionIDs, "workspace.read", "agent:read", "host:read", "script:read", "task:read", "task:log:read", "metric:read")
 		if err := assignPermissions(ctx, tx, memberRoleID, memberPermissions); err != nil {
 			return err
 		}

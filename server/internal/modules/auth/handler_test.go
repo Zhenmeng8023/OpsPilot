@@ -67,6 +67,37 @@ func TestLoginSuccessAndMemberUserManagementForbidden(t *testing.T) {
 	}
 }
 
+func TestAuthMiddlewareRejectsOpaqueDomainTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	manager := jwtplatform.NewManager(config.JWTConfig{
+		AccessSecret:  "test-access-secret",
+		RefreshSecret: "test-refresh-secret",
+		AccessTTL:     time.Hour,
+		RefreshTTL:    24 * time.Hour,
+	})
+	handler := NewHandler(&fakeAuthService{jwtManager: manager})
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/v1"))
+
+	for name, token := range map[string]string{
+		"agent token":   "opagt_test_agent_token",
+		"webhook token": "opswhk_test_webhook_token",
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401, got %d: %s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
 type fakeAuthService struct {
 	jwtManager      jwtplatform.Manager
 	listUsersCalled bool

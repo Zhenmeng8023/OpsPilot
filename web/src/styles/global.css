@@ -952,6 +952,73 @@ a {
   opacity: 0.48;
 }
 
+.matcher-builder {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.75rem;
+}
+
+.matcher-builder-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.matcher-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+
+.matcher-row button {
+  white-space: nowrap;
+}
+
+.event-detail {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.event-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.event-detail-grid > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.event-payload {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.json-block {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 900px) {
   .auth-shell,
   .app-shell,
@@ -967,7 +1034,9 @@ a {
   .metrics-grid,
   .agent-summary,
   .hero-grid,
-  .permission-checks {
+  .permission-checks,
+  .matcher-row,
+  .event-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -982,8 +1051,10 @@ a {
   .agent-summary,
   .hero-grid,
   .permission-checks,
+  .matcher-row,
   .form-grid,
-  .target-picker {
+  .target-picker,
+  .event-detail-grid {
     grid-template-columns: 1fr;
   }
 }

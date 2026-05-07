@@ -37,4 +37,5 @@ data/
 logs/
 
 # Local developer docs
-docs/
+docs/*.local.*
+docs/.local/

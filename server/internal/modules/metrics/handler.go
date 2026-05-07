@@ -35,7 +35,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 
 	protected := api.Group("/metrics")
 	protected.Use(userAuth)
-	protected.GET("/hosts", requirePermission("metric.read"), h.list)
+	protected.GET("/hosts", requirePermission("metric:read"), h.list)
 }
 
 func (h *Handler) upload(c *gin.Context) {

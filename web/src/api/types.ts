@@ -17,6 +17,15 @@ export interface HealthData {
   };
 }
 
+export interface VersionInfo {
+  service: string;
+  version: string;
+  commit: string;
+  buildTime: string;
+  goVersion: string;
+  env: string;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -228,6 +237,7 @@ export interface WebhookSource {
   createdBy?: string;
   createdAt: string;
   token?: string;
+  signingSecret?: string;
 }
 
 export interface WebhookRule {
@@ -238,9 +248,55 @@ export interface WebhookRule {
   taskName: string;
   name: string;
   eventType?: string;
+  matcher?: WebhookMatcher;
   status: string;
   createdBy?: string;
   createdAt: string;
+}
+
+export interface WebhookMatcher {
+  conditions: WebhookMatcherCondition[];
+}
+
+export interface WebhookMatcherCondition {
+  type: "header_equals" | "payload_equals" | "payload_contains";
+  key?: string;
+  path?: string;
+  value: string;
+}
+
+export interface WebhookEvent {
+  id: string;
+  sourceId?: string;
+  sourceName?: string;
+  eventType?: string;
+  deliveryId?: string;
+  sourceTimestamp?: string;
+  nonce?: string;
+  signatureHeader?: string;
+  signatureValid: boolean;
+  replayed: boolean;
+  status: string;
+  errorMessage?: string;
+  remoteIp?: string;
+  payloadHash?: string;
+  receivedAt: string;
+}
+
+export interface WebhookEventMatch {
+  id: number;
+  ruleId?: string;
+  ruleName?: string;
+  matched: boolean;
+  reason?: string;
+  taskRunId?: string;
+  createdAt: string;
+}
+
+export interface WebhookEventDetail extends WebhookEvent {
+  headers: Array<{ key: string; value: string }>;
+  payload?: string;
+  matches: WebhookEventMatch[];
 }
 
 export interface HostMetric {

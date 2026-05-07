@@ -91,7 +91,7 @@ export const router = createBrowserRouter([
           { path: "tasks/:id", element: <TaskDetailPage />, handle: { meta: { permission: "task:read" } } },
           { path: "schedules", element: <ScheduleListPage />, handle: { meta: { permission: "schedule:read" } } },
           { path: "webhooks", element: <WebhookPage />, handle: { meta: { permission: "webhook:read" } } },
-          { path: "metrics", element: <MetricsPage />, handle: { meta: { permission: "metric.read" } } },
+          { path: "metrics", element: <MetricsPage />, handle: { meta: { permission: "metric:read" } } },
           { path: "notifications", element: <NotificationsPage />, handle: { meta: { permission: "notification:read" } } }
         ]
       }

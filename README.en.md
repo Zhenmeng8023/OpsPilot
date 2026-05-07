@@ -54,6 +54,14 @@ cd D:\+\1108026_rust_go\OpsPilot
 docker compose -f .\deploy\docker-compose.yml up -d
 ```
 
+To start migrate/API/Web/Agent through Compose:
+
+```powershell
+cd D:\+\1108026_rust_go\OpsPilot
+Copy-Item .\deploy\.env.example .\deploy\.env -ErrorAction SilentlyContinue
+docker compose --env-file .\deploy\.env -f .\deploy\docker-compose.yml --profile full up --build
+```
+
 ## Database Migration
 
 ```powershell
@@ -88,6 +96,12 @@ ALERT_SCAN_INTERVAL_SECONDS=30
 NOTIFICATION_DISPATCH_INTERVAL_SECONDS=15
 NOTIFICATION_HTTP_TIMEOUT_SECONDS=10
 ```
+
+Production safeguards:
+
+- When `APP_ENV=prod`, `/auth/register` is disabled by default unless `AUTH_PUBLIC_REGISTRATION_ENABLED=true` is set explicitly.
+- When `APP_ENV=prod`, `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` must be non-empty, must not use the default development values, and must be at least 32 characters.
+- `HTTP_ALLOW_ORIGIN` supports a comma-separated whitelist; unmatched `Origin` values do not receive an allow header.
 
 ## Frontend
 
@@ -125,6 +139,7 @@ Backend:
 ```powershell
 cd D:\+\1108026_rust_go\OpsPilot\server
 go test ./...
+go vet ./...
 ```
 
 Frontend:
@@ -133,3 +148,18 @@ Frontend:
 cd D:\+\1108026_rust_go\OpsPilot\web
 npm run build
 ```
+
+Migration check:
+
+```powershell
+cd D:\+\1108026_rust_go\OpsPilot
+.\scripts\migration-check.ps1 -SkipExecution
+```
+
+Version endpoint:
+
+```text
+GET /api/v1/version
+```
+
+For the full manual acceptance flow, see [E2E Demo](./docs/e2e-demo.md).

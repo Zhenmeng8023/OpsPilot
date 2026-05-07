@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: OpsPilot API
-  version: 0.3.0
-  description: OpsPilot auth, RBAC, Agent, Host, script, task execution, logs, and SSE API.
+  version: 0.7.0-dev
+  description: OpsPilot auth, RBAC, Agent, Host, script, task execution, logs, scheduling, webhooks, metrics, alerts, and notifications API.
 servers:
   - url: http://localhost:8080
 security:
@@ -14,6 +14,36 @@ paths:
       summary: Health check
       responses:
         "200": { description: OK }
+  /api/v1/version:
+    get:
+      security: []
+      summary: Version metadata
+      responses:
+        "200":
+          description: Version metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  message: { type: string, example: success }
+                  data:
+                    type: object
+                    properties:
+                      service: { type: string, example: OpsPilot }
+                      version: { type: string, example: 0.7.0-dev }
+                      commit: { type: string, example: abc1234 }
+                      buildTime: { type: string, example: "2026-05-07T00:00:00Z" }
+                      goVersion: { type: string, example: go1.26.2 }
+                      env: { type: string, example: prod }
+                  traceId: { type: string }
+  /api/v1/ping:
+    get:
+      security: []
+      summary: API ping
+      responses:
+        "200": { description: Pong }
   /api/v1/auth/register:
     post:
       security: []
@@ -340,6 +370,18 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: Agent task }
+  /api/v1/agent/tasks/{targetId}/status:
+    get:
+      security:
+        - agentTokenAuth: []
+      summary: Agent checks current target state
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Target state, including cancel requests }
   /api/v1/agent/tasks/{targetId}/logs:
     post:
       security:
@@ -362,6 +404,321 @@ paths:
           in: path
           required: true
           schema: { type: string }
+      responses:
+        "200": { description: OK }
+  /api/v1/schedules:
+    get:
+      summary: List schedules
+      description: Requires `schedule:read`.
+      parameters:
+        - $ref: "#/components/parameters/keyword"
+        - $ref: "#/components/parameters/status"
+        - name: taskId
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": { description: Paged schedule list }
+    post:
+      summary: Create Cron schedule
+      description: Requires `schedule:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchedulePayload"
+      responses:
+        "200": { description: Schedule summary }
+  /api/v1/schedules/{id}/pause:
+    post:
+      summary: Pause schedule
+      description: Requires `schedule:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/schedules/{id}/resume:
+    post:
+      summary: Resume schedule
+      description: Requires `schedule:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/schedules/{id}/disable:
+    post:
+      summary: Disable schedule
+      description: Requires `schedule:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/webhooks/trigger/{token}:
+    post:
+      security: []
+      summary: Trigger webhook source
+      description: Requires a valid source token, HMAC signature, `X-OpsPilot-Timestamp`, and `X-OpsPilot-Nonce`.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+        - name: X-OpsPilot-Signature
+          in: header
+          schema: { type: string }
+        - name: X-Hub-Signature-256
+          in: header
+          schema: { type: string }
+        - name: X-OpsPilot-Timestamp
+          in: header
+          schema: { type: string, example: "1735689600" }
+        - name: X-OpsPilot-Nonce
+          in: header
+          schema: { type: string, example: "nonce-123" }
+        - name: X-Delivery-Id
+          in: header
+          schema: { type: string }
+        - name: X-Event-Type
+          in: header
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Trigger result with matched task runs }
+  /api/v1/webhooks/sources:
+    get:
+      summary: List webhook sources
+      description: Requires `webhook:read`.
+      responses:
+        "200": { description: Source list }
+    post:
+      summary: Create webhook source
+      description: Requires `webhook:manage`. Returns trigger token and signing secret once.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookSourcePayload"
+      responses:
+        "200": { description: Source detail with one-time trigger token and signing secret }
+  /api/v1/webhooks/sources/{id}/pause:
+    post:
+      summary: Pause webhook source
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/webhooks/sources/{id}/resume:
+    post:
+      summary: Resume webhook source
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/webhooks/sources/{id}/disable:
+    post:
+      summary: Disable webhook source
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/webhooks/rules:
+    get:
+      summary: List webhook rules
+      description: Requires `webhook:read`.
+      responses:
+        "200": { description: Rule list }
+    post:
+      summary: Create webhook rule
+      description: Requires `webhook:manage`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookRulePayload"
+      responses:
+        "200": { description: Rule summary }
+  /api/v1/webhooks/rules/{id}:
+    put:
+      summary: Update webhook rule
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                eventType: { type: string }
+                matcher:
+                  type: object
+                  properties:
+                    conditions:
+                      type: array
+                      items:
+                        type: object
+                        required: [type, value]
+                        properties:
+                          type: { type: string, enum: [header_equals, payload_equals, payload_contains] }
+                          key: { type: string, example: X-GitHub-Event }
+                          path: { type: string, example: repository.name }
+                          value: { type: string, example: push }
+      responses:
+        "200": { description: Updated rule summary }
+  /api/v1/webhooks/rules/{id}/pause:
+    post:
+      summary: Pause webhook rule
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/webhooks/rules/{id}/resume:
+    post:
+      summary: Resume webhook rule
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/webhooks/rules/{id}/disable:
+    post:
+      summary: Disable webhook rule
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/webhook-events:
+    get:
+      summary: List webhook events
+      description: Requires `webhook:read`.
+      parameters:
+        - name: sourceId
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [received, ignored, triggered, failed, rejected] }
+        - name: deliveryId
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": { description: Paged webhook event list }
+  /api/v1/webhooks/events/{id}:
+    get:
+      summary: Get webhook event detail
+      description: Requires `webhook:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Webhook event detail with headers, payload, and match results }
+  /api/v1/agent/metrics:
+    post:
+      security:
+        - agentTokenAuth: []
+      summary: Agent uploads host metrics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricsUploadPayload"
+      responses:
+        "200": { description: OK }
+  /api/v1/metrics/hosts:
+    get:
+      summary: List host metrics
+      description: Requires `metric:read`.
+      parameters:
+        - name: hostId
+          in: query
+          schema: { type: string }
+        - name: agentId
+          in: query
+          schema: { type: string }
+        - name: metricCode
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
+      responses:
+        "200": { description: Host metric list }
+  /api/v1/alert-rules:
+    get:
+      summary: List alert rules
+      description: Requires `alert:read`.
+      responses:
+        "200": { description: Alert rule list }
+    post:
+      summary: Create metric alert rule
+      description: Requires `alert:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRulePayload"
+      responses:
+        "200": { description: Alert rule summary }
+  /api/v1/alerts:
+    get:
+      summary: List alerts
+      description: Requires `alert:read`.
+      parameters:
+        - $ref: "#/components/parameters/status"
+      responses:
+        "200": { description: Alert list }
+  /api/v1/alerts/{id}/resolve:
+    post:
+      summary: Resolve alert manually
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/notification-channels:
+    get:
+      summary: List notification channels
+      description: Requires `notification:read`.
+      responses:
+        "200": { description: Channel list }
+    post:
+      summary: Create notification channel
+      description: Requires `notification:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelPayload"
+      responses:
+        "200": { description: Channel summary }
+  /api/v1/notifications:
+    get:
+      summary: List notifications
+      description: Requires `notification:read`.
+      parameters:
+        - name: unread
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200": { description: Notification list }
+  /api/v1/notifications/{id}/read:
+    post:
+      summary: Mark notification read
+      description: Requires `notification:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
       responses:
         "200": { description: OK }
 components:
@@ -432,3 +789,72 @@ components:
         maxUses: { type: integer, minimum: 1, default: 1 }
         expiresInSeconds: { type: integer, minimum: 60, default: 3600 }
         bindWorkspaceSlug: { type: string }
+    SchedulePayload:
+      type: object
+      required: [name, taskId, cronExpr]
+      properties:
+        name: { type: string }
+        taskId: { type: string }
+        cronExpr: { type: string, example: "*/5 * * * *" }
+        timezone: { type: string, example: Asia/Shanghai }
+    WebhookSourcePayload:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        sourceType: { type: string, enum: [github, gitee, gitlab, custom], default: custom }
+    WebhookRulePayload:
+      type: object
+      required: [sourceId, taskId, name]
+      properties:
+        sourceId: { type: string }
+        taskId: { type: string }
+        name: { type: string }
+        eventType: { type: string }
+        matcher:
+          type: object
+          properties:
+            conditions:
+              type: array
+              items:
+                type: object
+                required: [type, value]
+                properties:
+                  type: { type: string, enum: [header_equals, payload_equals, payload_contains] }
+                  key: { type: string, example: X-GitHub-Event }
+                  path: { type: string, example: repository.name }
+                  value: { type: string, example: push }
+    MetricsUploadPayload:
+      type: object
+      required: [metrics]
+      properties:
+        metrics:
+          type: array
+          items:
+            type: object
+            required: [code, value]
+            properties:
+              code: { type: string, example: agent.runtime.goroutines }
+              value: { type: number }
+              unit: { type: string, example: count }
+              dimensions: { type: object, additionalProperties: true }
+              collectedAt: { type: string, format: date-time }
+    AlertRulePayload:
+      type: object
+      required: [name, metricCode, operator]
+      properties:
+        name: { type: string }
+        metricCode: { type: string, example: agent.runtime.goroutines }
+        operator: { type: string, enum: [gt, gte, lt, lte, eq, ne] }
+        threshold: { type: number }
+        durationSeconds: { type: integer, minimum: 0, default: 60 }
+        severity: { type: string, enum: [info, warning, critical], default: warning }
+    NotificationChannelPayload:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        channelType: { type: string, enum: [site, email, webhook, dingtalk, wechat, slack], default: site }
+        config:
+          type: object
+          additionalProperties: true

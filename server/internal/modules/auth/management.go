@@ -287,7 +287,7 @@ func (s *Service) ListPermissions(ctx context.Context) ([]PermissionSummary, *ap
 	if err != nil {
 		return nil, apperror.Wrap(http.StatusInternalServerError, 500001, "list permissions failed", err)
 	}
-	return permissions, nil
+	return canonicalizePermissionSummaries(permissions), nil
 }
 
 func (s *Service) ListRoles(ctx context.Context) ([]RoleSummary, *apperror.Error) {
@@ -407,6 +407,7 @@ func (s *Service) UpdateRolePermissions(ctx context.Context, input UpdateRolePer
 
 func (s *Service) HasPermission(ctx context.Context, userUID, permissionCode string) (bool, error) {
 	var count int64
+	codes := permissionMatchCodes(permissionCode)
 	err := s.db.WithContext(ctx).Raw(
 		`SELECT COUNT(*)
 		   FROM users u
@@ -417,9 +418,9 @@ func (s *Service) HasPermission(ctx context.Context, userUID, permissionCode str
 		   JOIN permissions p ON p.id = rp.permission_id
 		  WHERE u.uid = ?
 		    AND u.status = 'active'
-		    AND p.code = ?
+		    AND p.code IN ?
 		    AND (ur.expires_at IS NULL OR ur.expires_at > NOW(3))`,
-		userUID, permissionCode,
+		userUID, codes,
 	).Scan(&count).Error
 	return count > 0, err
 }
@@ -548,7 +549,7 @@ func permissionsByRole(ctx context.Context, db *gorm.DB, roleID uint64) ([]Permi
 		  ORDER BY p.module, p.code`,
 		roleID,
 	).Scan(&permissions).Error
-	return permissions, err
+	return canonicalizePermissionSummaries(permissions), err
 }
 
 func normalizeRoleCodes(values []string) []string {
@@ -564,21 +565,6 @@ func normalizeRoleCodes(values []string) []string {
 	}
 	sort.Strings(roles)
 	return roles
-}
-
-func normalizePermissionCodes(values []string) []string {
-	seen := map[string]bool{}
-	permissions := make([]string, 0, len(values))
-	for _, value := range values {
-		code := strings.TrimSpace(value)
-		if code == "" || seen[code] {
-			continue
-		}
-		seen[code] = true
-		permissions = append(permissions, code)
-	}
-	sort.Strings(permissions)
-	return permissions
 }
 
 func splitCSV(value string) []string {

@@ -4,6 +4,20 @@
 
 ## Unreleased
 
+### V0.7 Release Foundation
+
+- Added GitHub Actions CI for backend tests, `go vet`, migration pair checks, frontend build, and Docker build.
+- Added root `VERSION`, build metadata injection, and public `GET /api/v1/version`.
+- Added API/Web Dockerfiles and extended the Compose `full` profile for migrate/API/Web/Agent startup.
+- Added migration checker `scripts/migration-check.ps1`.
+- Synced OpenAPI with current T5-T8 core routes and added `docs/e2e-demo.md` for manual acceptance.
+
+### V0.7 Security Baseline
+
+- Added `AUTH_PUBLIC_REGISTRATION_ENABLED`; public registration is disabled by default in production.
+- Added production JWT secret validation to reject empty values, default development values, and short secrets.
+- Updated CORS to use comma-separated origin whitelists and to omit allow headers for unmatched origins.
+
 ### T5 Cron Scheduling
 
 - Added a schedules backend module with Cron schedule creation, paginated listing, pause, resume, and disable actions.

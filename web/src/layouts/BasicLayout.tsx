@@ -13,7 +13,7 @@ const navItems = [
   { to: "/tasks", labelKey: "nav.tasks", permission: "task:read" },
   { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read" },
   { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read" },
-  { to: "/metrics", labelKey: "nav.metrics", permission: "metric.read" },
+  { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read" },
   { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read" }
 ] as const;
 

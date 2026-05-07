@@ -52,6 +52,14 @@ cd D:\+\1108026_rust_go\OpsPilot
 docker compose -f .\deploy\docker-compose.yml up -d
 ```
 
+如需使用 Compose 启动 migrate/API/Web/Agent 全栈：
+
+```powershell
+cd D:\+\1108026_rust_go\OpsPilot
+Copy-Item .\deploy\.env.example .\deploy\.env -ErrorAction SilentlyContinue
+docker compose --env-file .\deploy\.env -f .\deploy\docker-compose.yml --profile full up --build
+```
+
 默认 MySQL 配置：
 
 ```text
@@ -100,6 +108,12 @@ NOTIFICATION_DISPATCH_INTERVAL_SECONDS=15
 NOTIFICATION_HTTP_TIMEOUT_SECONDS=10
 ```
 
+生产环境安全约束：
+
+- `APP_ENV=prod` 时，`/auth/register` 默认关闭，只有显式设置 `AUTH_PUBLIC_REGISTRATION_ENABLED=true` 才允许公开注册。
+- `APP_ENV=prod` 时，`JWT_ACCESS_SECRET` 和 `JWT_REFRESH_SECRET` 不能为空、不能使用默认开发值、长度至少 32 字符。
+- `HTTP_ALLOW_ORIGIN` 支持逗号分隔白名单；不匹配的 `Origin` 不会返回 CORS allow header。
+
 ## 启动前端
 
 ```powershell
@@ -137,6 +151,7 @@ go run .\cmd\agent
 ```powershell
 cd D:\+\1108026_rust_go\OpsPilot\server
 go test ./...
+go vet ./...
 ```
 
 前端：
@@ -145,3 +160,18 @@ go test ./...
 cd D:\+\1108026_rust_go\OpsPilot\web
 npm run build
 ```
+
+迁移检查：
+
+```powershell
+cd D:\+\1108026_rust_go\OpsPilot
+.\scripts\migration-check.ps1 -SkipExecution
+```
+
+版本接口：
+
+```text
+GET /api/v1/version
+```
+
+完整手工验收流程见 [E2E Demo](./docs/e2e-demo.md)。

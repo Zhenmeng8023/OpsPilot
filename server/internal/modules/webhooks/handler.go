@@ -15,8 +15,17 @@ import (
 type ServiceContract interface {
 	ListSources(context.Context) ([]SourceSummary, *apperror.Error)
 	CreateSource(context.Context, CreateSourceInput) (SourceDetail, *apperror.Error)
+	PauseSource(context.Context, string, AuditContext) *apperror.Error
+	ResumeSource(context.Context, string, AuditContext) *apperror.Error
+	DisableSource(context.Context, string, AuditContext) *apperror.Error
 	ListRules(context.Context) ([]RuleSummary, *apperror.Error)
 	CreateRule(context.Context, CreateRuleInput) (RuleSummary, *apperror.Error)
+	UpdateRule(context.Context, UpdateRuleInput) (RuleSummary, *apperror.Error)
+	PauseRule(context.Context, string, AuditContext) *apperror.Error
+	ResumeRule(context.Context, string, AuditContext) *apperror.Error
+	DisableRule(context.Context, string, AuditContext) *apperror.Error
+	ListEvents(context.Context, ListEventsInput) (EventListResult, *apperror.Error)
+	GetEvent(context.Context, EventDetailInput) (EventDetail, *apperror.Error)
 	Trigger(context.Context, TriggerInput) (TriggerResult, *apperror.Error)
 }
 
@@ -30,10 +39,17 @@ type createSourceRequest struct {
 }
 
 type createRuleRequest struct {
-	SourceID  string `json:"sourceId" binding:"required"`
-	TaskID    string `json:"taskId" binding:"required"`
-	Name      string `json:"name" binding:"required"`
-	EventType string `json:"eventType"`
+	SourceID  string   `json:"sourceId" binding:"required"`
+	TaskID    string   `json:"taskId" binding:"required"`
+	Name      string   `json:"name" binding:"required"`
+	EventType string   `json:"eventType"`
+	Matcher   *Matcher `json:"matcher"`
+}
+
+type updateRuleRequest struct {
+	Name      string   `json:"name" binding:"required"`
+	EventType string   `json:"eventType"`
+	Matcher   *Matcher `json:"matcher"`
 }
 
 func NewHandler(service ServiceContract) *Handler {
@@ -42,13 +58,22 @@ func NewHandler(service ServiceContract) *Handler {
 
 func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc, requirePermission func(string) gin.HandlerFunc) {
 	api.POST("/webhooks/trigger/:token", h.trigger)
+	api.GET("/webhook-events", userAuth, requirePermission("webhook:read"), h.listEvents)
 
 	protected := api.Group("/webhooks")
 	protected.Use(userAuth)
 	protected.GET("/sources", requirePermission("webhook:read"), h.listSources)
 	protected.POST("/sources", requirePermission("webhook:manage"), h.createSource)
+	protected.POST("/sources/:id/pause", requirePermission("webhook:manage"), h.pauseSource)
+	protected.POST("/sources/:id/resume", requirePermission("webhook:manage"), h.resumeSource)
+	protected.POST("/sources/:id/disable", requirePermission("webhook:manage"), h.disableSource)
 	protected.GET("/rules", requirePermission("webhook:read"), h.listRules)
 	protected.POST("/rules", requirePermission("webhook:manage"), h.createRule)
+	protected.PUT("/rules/:id", requirePermission("webhook:manage"), h.updateRule)
+	protected.POST("/rules/:id/pause", requirePermission("webhook:manage"), h.pauseRule)
+	protected.POST("/rules/:id/resume", requirePermission("webhook:manage"), h.resumeRule)
+	protected.POST("/rules/:id/disable", requirePermission("webhook:manage"), h.disableRule)
+	protected.GET("/events/:id", requirePermission("webhook:read"), h.getEvent)
 }
 
 func (h *Handler) listSources(c *gin.Context) {
@@ -78,6 +103,30 @@ func (h *Handler) createSource(c *gin.Context) {
 	response.Success(c, source)
 }
 
+func (h *Handler) pauseSource(c *gin.Context) {
+	if appErr := h.service.PauseSource(c.Request.Context(), c.Param("id"), auditContext(c)); appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *Handler) resumeSource(c *gin.Context) {
+	if appErr := h.service.ResumeSource(c.Request.Context(), c.Param("id"), auditContext(c)); appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *Handler) disableSource(c *gin.Context) {
+	if appErr := h.service.DisableSource(c.Request.Context(), c.Param("id"), auditContext(c)); appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
 func (h *Handler) listRules(c *gin.Context) {
 	rules, appErr := h.service.ListRules(c.Request.Context())
 	if appErr != nil {
@@ -85,6 +134,30 @@ func (h *Handler) listRules(c *gin.Context) {
 		return
 	}
 	response.Success(c, rules)
+}
+
+func (h *Handler) listEvents(c *gin.Context) {
+	result, appErr := h.service.ListEvents(c.Request.Context(), ListEventsInput{
+		SourceID:   c.Query("sourceId"),
+		Status:     c.Query("status"),
+		DeliveryID: c.Query("deliveryId"),
+		Page:       parseInt(c.DefaultQuery("page", "1")),
+		PageSize:   parseInt(c.DefaultQuery("pageSize", "20")),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *Handler) getEvent(c *gin.Context) {
+	result, appErr := h.service.GetEvent(c.Request.Context(), EventDetailInput{EventID: c.Param("id")})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
 }
 
 func (h *Handler) createRule(c *gin.Context) {
@@ -98,6 +171,7 @@ func (h *Handler) createRule(c *gin.Context) {
 		TaskID:    req.TaskID,
 		Name:      req.Name,
 		EventType: req.EventType,
+		Matcher:   req.Matcher,
 		Audit:     auditContext(c),
 	})
 	if appErr != nil {
@@ -105,6 +179,50 @@ func (h *Handler) createRule(c *gin.Context) {
 		return
 	}
 	response.Success(c, rule)
+}
+
+func (h *Handler) updateRule(c *gin.Context) {
+	var req updateRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	rule, appErr := h.service.UpdateRule(c.Request.Context(), UpdateRuleInput{
+		ID:        c.Param("id"),
+		Name:      req.Name,
+		EventType: req.EventType,
+		Matcher:   req.Matcher,
+		Audit:     auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, rule)
+}
+
+func (h *Handler) pauseRule(c *gin.Context) {
+	if appErr := h.service.PauseRule(c.Request.Context(), c.Param("id"), auditContext(c)); appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *Handler) resumeRule(c *gin.Context) {
+	if appErr := h.service.ResumeRule(c.Request.Context(), c.Param("id"), auditContext(c)); appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *Handler) disableRule(c *gin.Context) {
+	if appErr := h.service.DisableRule(c.Request.Context(), c.Param("id"), auditContext(c)); appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
 }
 
 func (h *Handler) trigger(c *gin.Context) {
@@ -120,13 +238,16 @@ func (h *Handler) trigger(c *gin.Context) {
 		}
 	}
 	result, appErr := h.service.Trigger(c.Request.Context(), TriggerInput{
-		Token:      c.Param("token"),
-		EventType:  c.GetHeader("X-Event-Type"),
-		DeliveryID: c.GetHeader("X-Delivery-Id"),
-		Signature:  firstHeader(c, "X-OpsPilot-Signature", "X-Hub-Signature-256"),
-		RemoteIP:   c.ClientIP(),
-		Headers:    headers,
-		Body:       body,
+		Token:           c.Param("token"),
+		EventType:       c.GetHeader("X-Event-Type"),
+		DeliveryID:      c.GetHeader("X-Delivery-Id"),
+		SignatureHeader: firstHeaderName(c, "X-OpsPilot-Signature", "X-Hub-Signature-256"),
+		Signature:       firstHeader(c, "X-OpsPilot-Signature", "X-Hub-Signature-256"),
+		Timestamp:       c.GetHeader("X-OpsPilot-Timestamp"),
+		Nonce:           c.GetHeader("X-OpsPilot-Nonce"),
+		RemoteIP:        c.ClientIP(),
+		Headers:         headers,
+		Body:            body,
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)
@@ -139,6 +260,26 @@ func firstHeader(c *gin.Context, names ...string) string {
 	for _, name := range names {
 		if value := c.GetHeader(name); value != "" {
 			return value
+		}
+	}
+	return ""
+}
+
+func parseInt(value string) int {
+	parsed := 0
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return 0
+		}
+		parsed = parsed*10 + int(ch-'0')
+	}
+	return parsed
+}
+
+func firstHeaderName(c *gin.Context, names ...string) string {
+	for _, name := range names {
+		if value := c.GetHeader(name); value != "" {
+			return name
 		}
 	}
 	return ""

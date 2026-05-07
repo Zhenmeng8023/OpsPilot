@@ -10,12 +10,25 @@ import (
 	"time"
 )
 
+var (
+	BuildVersion string
+	BuildCommit  string
+	BuildTime    string
+)
+
+const (
+	defaultAccessSecret  = "dev-access-secret-change-me"
+	defaultRefreshSecret = "dev-refresh-secret-change-me"
+	minJWTSecretLength   = 32
+)
+
 type Config struct {
 	App       AppConfig
 	HTTP      HTTPConfig
 	Database  DatabaseConfig
 	Redis     RedisConfig
 	JWT       JWTConfig
+	Auth      AuthConfig
 	Agent     AgentConfig
 	Command   CommandPolicyConfig
 	Schedule  ScheduleConfig
@@ -25,9 +38,11 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Name    string
-	Env     string
-	Version string
+	Name      string
+	Env       string
+	Version   string
+	Commit    string
+	BuildTime string
 }
 
 type HTTPConfig struct {
@@ -51,6 +66,10 @@ type JWTConfig struct {
 	RefreshSecret string
 	AccessTTL     time.Duration
 	RefreshTTL    time.Duration
+}
+
+type AuthConfig struct {
+	PublicRegistrationEnabled bool
 }
 
 type AgentConfig struct {
@@ -100,9 +119,11 @@ func Load() (Config, error) {
 
 	cfg := Config{
 		App: AppConfig{
-			Name:    getEnv("APP_NAME", "OpsPilot"),
-			Env:     getEnv("APP_ENV", "local"),
-			Version: getEnv("APP_VERSION", "dev"),
+			Name:      getEnv("APP_NAME", "OpsPilot"),
+			Env:       getEnv("APP_ENV", "local"),
+			Version:   resolveVersion(),
+			Commit:    envOrBuild("APP_COMMIT", BuildCommit),
+			BuildTime: envOrBuild("APP_BUILD_TIME", BuildTime),
 		},
 		HTTP: HTTPConfig{
 			Addr:        getEnv("HTTP_ADDR", ":8080"),
@@ -118,10 +139,13 @@ func Load() (Config, error) {
 			DB:       getEnvInt("REDIS_DB", 0),
 		},
 		JWT: JWTConfig{
-			AccessSecret:  getEnv("JWT_ACCESS_SECRET", "dev-access-secret-change-me"),
-			RefreshSecret: getEnv("JWT_REFRESH_SECRET", "dev-refresh-secret-change-me"),
+			AccessSecret:  getEnv("JWT_ACCESS_SECRET", defaultAccessSecret),
+			RefreshSecret: getEnv("JWT_REFRESH_SECRET", defaultRefreshSecret),
 			AccessTTL:     getEnvDuration("JWT_ACCESS_TTL", 15*time.Minute),
 			RefreshTTL:    getEnvDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
+		},
+		Auth: AuthConfig{
+			PublicRegistrationEnabled: getEnvBool("AUTH_PUBLIC_REGISTRATION_ENABLED", getEnv("APP_ENV", "local") != "prod"),
 		},
 		Agent: AgentConfig{
 			APIBaseURL:          getEnv("AGENT_API_BASE_URL", "http://localhost:8080"),
@@ -169,6 +193,14 @@ func Load() (Config, error) {
 	if cfg.App.Env == "prod" && strings.TrimSpace(cfg.HTTP.AllowOrigin) == "*" {
 		return Config{}, errors.New("HTTP_ALLOW_ORIGIN cannot be * in prod")
 	}
+	if cfg.App.Env == "prod" {
+		if err := validateProdJWTSecret("JWT_ACCESS_SECRET", cfg.JWT.AccessSecret, defaultAccessSecret); err != nil {
+			return Config{}, err
+		}
+		if err := validateProdJWTSecret("JWT_REFRESH_SECRET", cfg.JWT.RefreshSecret, defaultRefreshSecret); err != nil {
+			return Config{}, err
+		}
+	}
 	if cfg.Agent.MaxConcurrentTasks <= 0 {
 		cfg.Agent.MaxConcurrentTasks = 1
 	}
@@ -187,6 +219,52 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envOrBuild(key, buildValue string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return strings.TrimSpace(buildValue)
+}
+
+func resolveVersion() string {
+	if value := envOrBuild("APP_VERSION", BuildVersion); value != "" {
+		return value
+	}
+	if value := readVersionFile(); value != "" {
+		return value
+	}
+	return "dev"
+}
+
+func readVersionFile() string {
+	for _, path := range []string{"VERSION", "../VERSION", "../../VERSION", "../../../VERSION"} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if value := strings.TrimSpace(string(content)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func validateProdJWTSecret(name, value, defaultValue string) error {
+	value = strings.TrimSpace(value)
+	switch {
+	case value == "":
+		return errors.New(name + " cannot be empty in prod")
+	case value == defaultValue:
+		return errors.New(name + " cannot use the default development value in prod")
+	case len(value) < minJWTSecretLength:
+		return errors.New(name + " must be at least 32 characters in prod")
+	default:
+		return nil
+	}
 }
 
 func getEnvInt(key string, fallback int) int {

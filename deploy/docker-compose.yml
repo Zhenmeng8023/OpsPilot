@@ -11,17 +11,17 @@ services:
       - --innodb_flush_log_at_trx_commit=1
       - --binlog_expire_logs_seconds=604800
     environment:
-      MYSQL_DATABASE: opspilot
-      MYSQL_USER: opspilot
-      MYSQL_PASSWORD: opspilot
-      MYSQL_ROOT_PASSWORD: opspilot_root
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-opspilot}
+      MYSQL_USER: ${MYSQL_USER:-opspilot}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-opspilot}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-opspilot_root}
       TZ: Asia/Shanghai
     ports:
       - "3306:3306"
     volumes:
       - opspilot-mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uopspilot -popspilot --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,6 +40,117 @@ services:
       timeout: 5s
       retries: 5
 
+  migrate:
+    image: mysql:8.0.39
+    container_name: opspilot-migrate
+    profiles: ["full"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-opspilot}
+      MYSQL_USER: ${MYSQL_USER:-opspilot}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-opspilot}
+    volumes:
+      - ../server/migrations:/migrations:ro
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        for file in /migrations/*.up.sql; do
+          echo "applying $${file}"
+          mysql -hmysql -u"$${MYSQL_USER}" -p"$${MYSQL_PASSWORD}" "$${MYSQL_DATABASE}" < "$${file}"
+        done
+
+  api:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-}
+        APP_COMMIT: ${APP_COMMIT:-}
+        APP_BUILD_TIME: ${APP_BUILD_TIME:-}
+    container_name: opspilot-api
+    profiles: ["full"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_NAME: OpsPilot
+      APP_ENV: ${APP_ENV:-local}
+      APP_VERSION: ${APP_VERSION:-}
+      APP_COMMIT: ${APP_COMMIT:-}
+      APP_BUILD_TIME: ${APP_BUILD_TIME:-}
+      HTTP_ADDR: ":8080"
+      HTTP_ALLOW_ORIGIN: ${HTTP_ALLOW_ORIGIN:-http://localhost:5173}
+      DATABASE_DRIVER: mysql
+      DATABASE_DSN: "${MYSQL_USER:-opspilot}:${MYSQL_PASSWORD:-opspilot}@tcp(mysql:3306)/${MYSQL_DATABASE:-opspilot}?charset=utf8mb4&parseTime=True&loc=Local"
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
+      AUTH_PUBLIC_REGISTRATION_ENABLED: ${AUTH_PUBLIC_REGISTRATION_ENABLED:-true}
+      AGENT_BOOTSTRAP_SECRET: ${AGENT_BOOTSTRAP_SECRET:-change-me-agent-bootstrap-secret}
+      AGENT_REGISTRATION_ENABLED: ${AGENT_REGISTRATION_ENABLED:-true}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-Admin@123456}
+      SCHEDULE_SCAN_INTERVAL_SECONDS: ${SCHEDULE_SCAN_INTERVAL_SECONDS:-30}
+      ALERT_SCAN_INTERVAL_SECONDS: ${ALERT_SCAN_INTERVAL_SECONDS:-30}
+      NOTIFICATION_DISPATCH_INTERVAL_SECONDS: ${NOTIFICATION_DISPATCH_INTERVAL_SECONDS:-15}
+      NOTIFICATION_HTTP_TIMEOUT_SECONDS: ${NOTIFICATION_HTTP_TIMEOUT_SECONDS:-10}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    container_name: opspilot-web
+    profiles: ["full"]
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "5173:80"
+
+  agent:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-}
+        APP_COMMIT: ${APP_COMMIT:-}
+        APP_BUILD_TIME: ${APP_BUILD_TIME:-}
+    container_name: opspilot-agent
+    profiles: ["full"]
+    depends_on:
+      api:
+        condition: service_started
+    command: ["/app/agent"]
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      AGENT_API_BASE_URL: http://api:8080
+      AGENT_BOOTSTRAP_SECRET: ${AGENT_BOOTSTRAP_SECRET:-change-me-agent-bootstrap-secret}
+      AGENT_WORK_DIR: /app/.tmp/agent-work
+      AGENT_TOKEN_FILE: /app/.tmp/agent-token
+      AGENT_POLL_INTERVAL_SECONDS: ${AGENT_POLL_INTERVAL_SECONDS:-5}
+      AGENT_HEARTBEAT_INTERVAL_SECONDS: ${AGENT_HEARTBEAT_INTERVAL_SECONDS:-30}
+      AGENT_MAX_CONCURRENT_TASKS: ${AGENT_MAX_CONCURRENT_TASKS:-2}
+    volumes:
+      - opspilot-agent-data:/app/.tmp
+
 volumes:
   opspilot-mysql-data:
   opspilot-redis-data:
+  opspilot-agent-data:

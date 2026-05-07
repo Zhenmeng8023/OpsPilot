@@ -4,6 +4,20 @@
 
 ## Unreleased
 
+### V0.7 发布骨架
+
+- 新增 GitHub Actions CI：后端测试、`go vet`、迁移配对检查、前端构建和 Docker build。
+- 新增根目录 `VERSION`、构建版本注入和公开接口 `GET /api/v1/version`。
+- 新增 API/Web Dockerfile，并扩展 Compose `full` profile 支持 migrate/API/Web/Agent 全栈启动。
+- 新增迁移检查脚本 `scripts/migration-check.ps1`。
+- OpenAPI 同步到当前 T5-T8 核心路由，并新增 `docs/e2e-demo.md` 手工验收流程。
+
+### V0.7 安全基线
+
+- 新增 `AUTH_PUBLIC_REGISTRATION_ENABLED`，生产环境默认禁止公开注册。
+- 新增生产 JWT secret 校验：拒绝空值、默认开发值和过短密钥。
+- CORS 改为逗号分隔白名单匹配，不匹配的 `Origin` 不返回 allow header。
+
 ### T5 Cron 调度
 
 - 新增 schedules 后端模块：支持 Cron 周期任务创建、分页列表、暂停、恢复、禁用。
