@@ -13,7 +13,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -115,7 +116,10 @@ a {
   font-weight: 700;
 }
 
-.login-card input {
+.login-card input,
+.management-form input,
+.management-form select,
+.data-table select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 0.9rem;
@@ -137,6 +141,42 @@ a {
   width: 100%;
   margin-top: 1.4rem;
   padding: 0.95rem 1.2rem;
+  font-weight: 800;
+}
+
+.auth-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-top: 1.2rem;
+  padding: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.auth-mode button {
+  width: 100%;
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.auth-mode button.active {
+  color: white;
+  background: var(--brand);
+}
+
+.login-card button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.form-error {
+  margin: 1rem 0 0;
+  color: var(--danger);
   font-weight: 800;
 }
 
@@ -365,10 +405,158 @@ a {
   font-weight: 800;
 }
 
+.management-grid {
+  display: grid;
+  grid-template-columns: minmax(20rem, 0.36fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.management-form {
+  align-self: start;
+}
+
+.management-form label {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.management-form button,
+.role-card button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.75rem 1rem;
+  color: white;
+  background: var(--brand);
+  font-weight: 900;
+}
+
+.management-form button {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.role-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.table-panel {
+  overflow: hidden;
+}
+
+.data-table {
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+.data-table table {
+  width: 100%;
+  min-width: 46rem;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.85rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.data-table th {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+.data-table td strong,
+.data-table td small {
+  display: block;
+}
+
+.data-table td small {
+  margin-top: 0.25rem;
+  color: var(--muted);
+}
+
+.permission-catalog {
+  align-self: start;
+}
+
+.permission-groups {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.permission-groups div div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.permission-groups span {
+  border-radius: 999px;
+  padding: 0.35rem 0.6rem;
+  color: var(--brand-strong);
+  background: var(--accent-soft);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.role-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.role-card .panel-title {
+  align-items: flex-start;
+}
+
+.role-card h3 small {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.permission-checks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.permission-checks label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 0.55rem;
+  background: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.permission-checks input {
+  flex: 0 0 auto;
+}
+
+.permission-checks span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 900px) {
   .auth-shell,
   .app-shell,
-  .panel-grid {
+  .panel-grid,
+  .management-grid {
     grid-template-columns: 1fr;
   }
 
@@ -377,7 +565,8 @@ a {
   }
 
   .metrics-grid,
-  .hero-grid {
+  .hero-grid,
+  .permission-checks {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -389,7 +578,8 @@ a {
   }
 
   .metrics-grid,
-  .hero-grid {
+  .hero-grid,
+  .permission-checks {
     grid-template-columns: 1fr;
   }
 }

@@ -4,10 +4,10 @@ import { useAuthStore } from "../modules/auth/store";
 
 const navItems = [
   { to: "/dashboard", label: "仪表盘" },
+  { to: "/users", label: "用户管理" },
+  { to: "/roles", label: "权限管理" },
   { to: "/dashboard", label: "Agent 管理" },
-  { to: "/dashboard", label: "脚本模板" },
-  { to: "/dashboard", label: "任务执行" },
-  { to: "/dashboard", label: "实时日志" }
+  { to: "/dashboard", label: "任务执行" }
 ];
 
 export function BasicLayout() {
@@ -37,14 +37,14 @@ export function BasicLayout() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Workspace</p>
-            <h2>OpsPilot 开发骨架</h2>
+            <h2>{user?.workspace.name ?? "OpsPilot"}</h2>
           </div>
           <div className="user-box">
-            <span>{user?.username ?? "demo"}</span>
+            <span>{user?.username ?? "guest"}</span>
             <button
               type="button"
               onClick={() => {
-                logout();
+                void logout();
                 navigate("/login", { replace: true });
               }}
             >

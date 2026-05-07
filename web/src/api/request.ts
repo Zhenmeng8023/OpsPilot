@@ -6,6 +6,7 @@ type RequestOptions = RequestInit & {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 const TOKEN_KEY = "opspilot.accessToken";
+const REFRESH_TOKEN_KEY = "opspilot.refreshToken";
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
@@ -33,4 +34,4 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return body.data;
 }
 
-export { TOKEN_KEY };
+export { REFRESH_TOKEN_KEY, TOKEN_KEY };

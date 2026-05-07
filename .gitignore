@@ -32,5 +32,6 @@ web/pnpm-debug.log*
 .npm-cache/
 
 # Runtime data
+.tmp/
 data/
 logs/

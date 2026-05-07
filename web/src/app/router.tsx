@@ -5,6 +5,8 @@ import { AuthLayout } from "../layouts/AuthLayout";
 import { LoginPage } from "../modules/auth/LoginPage";
 import { useAuthStore } from "../modules/auth/store";
 import { DashboardPage } from "../modules/dashboard/DashboardPage";
+import { RoleManagementPage } from "../modules/roles/RoleManagementPage";
+import { UserManagementPage } from "../modules/users/UserManagementPage";
 
 function ProtectedRoute() {
   const token = useAuthStore((state) => state.token);
@@ -31,7 +33,9 @@ export const router = createBrowserRouter([
         element: <BasicLayout />,
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
-          { path: "dashboard", element: <DashboardPage /> }
+          { path: "dashboard", element: <DashboardPage /> },
+          { path: "users", element: <UserManagementPage /> },
+          { path: "roles", element: <RoleManagementPage /> }
         ]
       }
     ]

@@ -1,6 +1,8 @@
 package jwt
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"time"
 
@@ -44,6 +46,10 @@ func (m Manager) ParseAccessToken(token string) (*Claims, error) {
 	return m.parse(token, m.accessSecret)
 }
 
+func (m Manager) ParseRefreshToken(token string) (*Claims, error) {
+	return m.parse(token, m.refreshSecret)
+}
+
 func (m Manager) parse(token string, secret []byte) (*Claims, error) {
 	claims := &Claims{}
 	parsed, err := jwtv5.ParseWithClaims(token, claims, func(token *jwtv5.Token) (interface{}, error) {
@@ -63,16 +69,29 @@ func (m Manager) parse(token string, secret []byte) (*Claims, error) {
 
 func (m Manager) generate(userID, username string, roles []string, secret []byte, ttl time.Duration) (string, error) {
 	now := time.Now()
+	tokenID, err := randomTokenID()
+	if err != nil {
+		return "", err
+	}
 	claims := Claims{
 		UserID:   userID,
 		Username: username,
 		Roles:    roles,
 		RegisteredClaims: jwtv5.RegisteredClaims{
 			Subject:   userID,
+			ID:        tokenID,
 			IssuedAt:  jwtv5.NewNumericDate(now),
 			ExpiresAt: jwtv5.NewNumericDate(now.Add(ttl)),
 		},
 	}
 
 	return jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, claims).SignedString(secret)
+}
+
+func randomTokenID() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }

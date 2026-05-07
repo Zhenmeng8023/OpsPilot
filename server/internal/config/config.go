@@ -10,12 +10,13 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	HTTP     HTTPConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	Agent    AgentConfig
+	App       AppConfig
+	HTTP      HTTPConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	JWT       JWTConfig
+	Agent     AgentConfig
+	Bootstrap BootstrapConfig
 }
 
 type AppConfig struct {
@@ -53,6 +54,14 @@ type AgentConfig struct {
 	HeartbeatInterval time.Duration
 }
 
+type BootstrapConfig struct {
+	WorkspaceName string
+	WorkspaceSlug string
+	AdminUsername string
+	AdminPassword string
+	AdminEmail    string
+}
+
 func Load() (Config, error) {
 	loadDotEnv(".env")
 	loadDotEnv("../.env")
@@ -86,6 +95,13 @@ func Load() (Config, error) {
 			APIBaseURL:        getEnv("AGENT_API_BASE_URL", "http://localhost:8080"),
 			BootstrapSecret:   getEnv("AGENT_BOOTSTRAP_SECRET", "dev-agent-bootstrap-secret"),
 			HeartbeatInterval: getEnvDuration("AGENT_HEARTBEAT_INTERVAL", 30*time.Second),
+		},
+		Bootstrap: BootstrapConfig{
+			WorkspaceName: getEnv("BOOTSTRAP_WORKSPACE_NAME", "Default Workspace"),
+			WorkspaceSlug: getEnv("BOOTSTRAP_WORKSPACE_SLUG", "default"),
+			AdminUsername: getEnv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
+			AdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", "Admin@123456"),
+			AdminEmail:    getEnv("BOOTSTRAP_ADMIN_EMAIL", "admin@opspilot.local"),
 		},
 	}
 

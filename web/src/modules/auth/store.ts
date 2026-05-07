@@ -1,18 +1,15 @@
 import { create } from "zustand";
 
-import { TOKEN_KEY } from "../../api/request";
-
-interface UserProfile {
-  id: string;
-  username: string;
-  roles: string[];
-}
+import { REFRESH_TOKEN_KEY, TOKEN_KEY, request } from "../../api/request";
+import type { AuthResponse, UserProfile } from "../../api/types";
 
 interface AuthState {
   token: string | null;
+  refreshToken: string | null;
   user: UserProfile | null;
-  loginDemo: (username: string) => void;
-  logout: () => void;
+  login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string, email?: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const USER_KEY = "opspilot.user";
@@ -30,23 +27,51 @@ function loadUser(): UserProfile | null {
   }
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+function persistSession(session: AuthResponse) {
+  localStorage.setItem(TOKEN_KEY, session.accessToken);
+  localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+  localStorage.setItem(USER_KEY, JSON.stringify(session.user));
+}
+
+function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+export const useAuthStore = create<AuthState>((set, get) => ({
   token: localStorage.getItem(TOKEN_KEY),
+  refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY),
   user: loadUser(),
-  loginDemo: (username: string) => {
-    const user: UserProfile = {
-      id: "demo-user",
-      username,
-      roles: ["admin"]
-    };
-    const token = "demo-token";
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-    set({ token, user });
+  login: async (username: string, password: string) => {
+    const session = await request<AuthResponse>("/api/v1/auth/login", {
+      method: "POST",
+      skipAuth: true,
+      body: JSON.stringify({ username, password })
+    });
+    persistSession(session);
+    set({ token: session.accessToken, refreshToken: session.refreshToken, user: session.user });
   },
-  logout: () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    set({ token: null, user: null });
+  register: async (username: string, password: string, email?: string) => {
+    const session = await request<AuthResponse>("/api/v1/auth/register", {
+      method: "POST",
+      skipAuth: true,
+      body: JSON.stringify({ username, password, email })
+    });
+    persistSession(session);
+    set({ token: session.accessToken, refreshToken: session.refreshToken, user: session.user });
+  },
+  logout: async () => {
+    const refreshToken = get().refreshToken;
+    try {
+      await request<{ ok: boolean }>("/api/v1/auth/logout", {
+        method: "POST",
+        skipAuth: true,
+        body: JSON.stringify({ refreshToken })
+      });
+    } finally {
+      clearSession();
+      set({ token: null, refreshToken: null, user: null });
+    }
   }
 }));
