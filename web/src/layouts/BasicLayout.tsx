@@ -11,10 +11,10 @@ const navItems = [
   { to: "/agents", labelKey: "nav.agents", permission: "agent:read" },
   { to: "/scripts", labelKey: "nav.scripts", permission: "script:read" },
   { to: "/tasks", labelKey: "nav.tasks", permission: "task:read" },
-  { to: "/schedules", label: "Schedules", permission: "schedule:read" },
-  { to: "/webhooks", label: "Webhooks", permission: "webhook:read" },
-  { to: "/metrics", label: "Metrics", permission: "metric.read" },
-  { to: "/notifications", label: "Notifications", permission: "notification:read" }
+  { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read" },
+  { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read" },
+  { to: "/metrics", labelKey: "nav.metrics", permission: "metric.read" },
+  { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read" }
 ] as const;
 
 export function BasicLayout() {
@@ -39,7 +39,7 @@ export function BasicLayout() {
             .filter((item) => hasPermissionCode(user?.permissions, item.permission))
             .map((item) => (
               <NavLink key={item.to} to={item.to}>
-                {"label" in item ? item.label : t(item.labelKey)}
+                {t(item.labelKey)}
               </NavLink>
             ))}
         </nav>

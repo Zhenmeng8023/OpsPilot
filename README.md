@@ -11,8 +11,8 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 - T3 任务执行：脚本模板、任务创建、目标下发、Agent poll/claim、命令执行、结果上报、状态聚合。
 - T4 实时日志：Agent stdout/stderr/system 日志上报、脱敏、分片存储、查询 API、SSE 实时消费。
 - T5 Cron 调度：schedules API、后台扫描器、前端 Schedules 页面，到期后复用现有任务执行链路。
-- T6 Webhook：source/rule 管理、token 化触发入口、防重放、基础限流、事件落库、生成 task_run。
-- T7 Metrics / Alerts / Notifications：Agent 指标上报、host_metrics 持久化、前端 Metrics 页面、基础阈值告警规则、告警事件、站内通知与 delivery 记录。
+- T6 Webhook：source/rule 管理、token 化触发入口、HMAC-SHA256 签名校验、防重放、基础限流、事件落库、生成 task_run。
+- T7 Metrics / Alerts / Notifications：Agent 指标上报、host_metrics 持久化、前端 Metrics 页面、基础阈值告警规则、告警事件、站内通知、外部 webhook 类渠道发送与 delivery 记录。
 
 ## 已实现能力
 
@@ -25,15 +25,15 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 - tasks/scripts/logs 的分页、筛选与 total 返回。
 - 前端权限矩阵：路由通过 `handle.meta.permission` 声明权限，统一守卫检查 permissions，侧边栏和关键按钮按权限显示。
 - Cron 调度闭环：到期 schedule 复用 `task_runs` / `task_run_targets` / Agent poll / logs / result 链路。
-- Webhook 触发闭环：`POST /api/v1/webhooks/trigger/:token` 匹配 rule 后生成 task_run。
+- Webhook 触发闭环：`POST /api/v1/webhooks/trigger/:token` 需携带 `X-OpsPilot-Signature` 或 `X-Hub-Signature-256`，签名通过后匹配 rule 并生成 task_run。
 - Metrics / Alerts 监控闭环：Agent 周期上报运行中任务数、逻辑 CPU、goroutine、运行时内存指标；后台按 metric threshold 规则生成或恢复告警。
-- Notifications 通知闭环：支持 notification channel 管理、告警触发时生成 notifications 和 notification_deliveries、前端通知列表与标记已读。
+- Notifications 通知闭环：支持 notification channel 管理、告警触发时生成 notifications 和 notification_deliveries、前端通知列表与标记已读，后台 dispatcher 会投递 webhook/dingtalk/wechat/slack 类型渠道。
 
 ## 尚未实现
 
 - Cron 调度之外的可视化工作流编排。
-- Webhook 的高级签名方案、复杂 matcher 表达式和审计检索。
-- 外部通知渠道的真实发送实现；当前已完成站内通知与 delivery 记录，email/webhook/dingtalk/wechat/slack 暂只保留配置入口和 pending delivery。
+- Webhook 的复杂 matcher 表达式、重放窗口细化和审计检索。
+- Email/SMTP 通知、通知模板、通知重试管理界面；当前 webhook/dingtalk/wechat/slack 已支持按 channel URL 发送。
 
 ## 环境要求
 
@@ -96,6 +96,8 @@ TASK_COMMAND_ALLOW_PATTERNS=
 TASK_COMMAND_DENY_PATTERNS=
 SCHEDULE_SCAN_INTERVAL_SECONDS=30
 ALERT_SCAN_INTERVAL_SECONDS=30
+NOTIFICATION_DISPATCH_INTERVAL_SECONDS=15
+NOTIFICATION_HTTP_TIMEOUT_SECONDS=10
 ```
 
 ## 启动前端

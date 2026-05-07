@@ -20,6 +20,7 @@ type Config struct {
 	Command   CommandPolicyConfig
 	Schedule  ScheduleConfig
 	Alert     AlertConfig
+	Notify    NotificationConfig
 	Bootstrap BootstrapConfig
 }
 
@@ -78,6 +79,11 @@ type ScheduleConfig struct {
 
 type AlertConfig struct {
 	ScanInterval time.Duration
+}
+
+type NotificationConfig struct {
+	DispatchInterval time.Duration
+	HTTPTimeout      time.Duration
 }
 
 type BootstrapConfig struct {
@@ -140,6 +146,10 @@ func Load() (Config, error) {
 		},
 		Alert: AlertConfig{
 			ScanInterval: getEnvDurationSeconds("ALERT_SCAN_INTERVAL_SECONDS", 30*time.Second),
+		},
+		Notify: NotificationConfig{
+			DispatchInterval: getEnvDurationSeconds("NOTIFICATION_DISPATCH_INTERVAL_SECONDS", 15*time.Second),
+			HTTPTimeout:      getEnvDurationSeconds("NOTIFICATION_HTTP_TIMEOUT_SECONDS", 10*time.Second),
 		},
 		Bootstrap: BootstrapConfig{
 			WorkspaceName: getEnv("BOOTSTRAP_WORKSPACE_NAME", "Default Workspace"),

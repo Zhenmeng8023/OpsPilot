@@ -3,11 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createAlertRule, listAlertRules, listAlerts, resolveAlert } from "../../api/alerts";
 import { listHostMetrics } from "../../api/metrics";
+import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 
 export function MetricsPage() {
   const user = useAuthStore((state) => state.user);
+  const t = useLanguageStore((state) => state.t);
   const queryClient = useQueryClient();
   const [metricCode, setMetricCode] = useState("");
   const [ruleForm, setRuleForm] = useState({
@@ -61,13 +63,13 @@ export function MetricsPage() {
     <main className="page">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Monitoring</p>
-          <h1>Host Metrics</h1>
+          <p className="eyebrow">{t("monitoring.eyebrow")}</p>
+          <h1>{t("metrics.title")}</h1>
         </div>
       </section>
       {canWriteAlerts ? (
         <section className="panel form-panel">
-          <div className="panel-title"><h3>Create Alert Rule</h3><span>metric threshold</span></div>
+          <div className="panel-title"><h3>{t("metrics.createRule")}</h3><span>{t("metrics.ruleHint")}</span></div>
           <form
             className="form-grid"
             onSubmit={(event) => {
@@ -75,9 +77,9 @@ export function MetricsPage() {
               createRuleMutation.mutate(ruleForm);
             }}
           >
-            <label>Name<input value={ruleForm.name} onChange={(event) => setRuleForm({ ...ruleForm, name: event.target.value })} required /></label>
+            <label>{t("common.name")}<input value={ruleForm.name} onChange={(event) => setRuleForm({ ...ruleForm, name: event.target.value })} required /></label>
             <label>
-              Metric
+              {t("metrics.metric")}
               <select value={ruleForm.metricCode} onChange={(event) => setRuleForm({ ...ruleForm, metricCode: event.target.value })}>
                 <option value="agent.running_tasks">agent.running_tasks</option>
                 <option value="agent.cpu.logical">agent.cpu.logical</option>
@@ -87,7 +89,7 @@ export function MetricsPage() {
               </select>
             </label>
             <label>
-              Operator
+              {t("metrics.operator")}
               <select value={ruleForm.operator} onChange={(event) => setRuleForm({ ...ruleForm, operator: event.target.value })}>
                 <option value=">">&gt;</option>
                 <option value=">=">&gt;=</option>
@@ -97,27 +99,27 @@ export function MetricsPage() {
                 <option value="!=">!=</option>
               </select>
             </label>
-            <label>Threshold<input type="number" value={ruleForm.threshold} onChange={(event) => setRuleForm({ ...ruleForm, threshold: Number(event.target.value) })} /></label>
-            <label>Duration<input type="number" value={ruleForm.durationSeconds} onChange={(event) => setRuleForm({ ...ruleForm, durationSeconds: Number(event.target.value) })} /></label>
+            <label>{t("metrics.threshold")}<input type="number" value={ruleForm.threshold} onChange={(event) => setRuleForm({ ...ruleForm, threshold: Number(event.target.value) })} /></label>
+            <label>{t("metrics.duration")}<input type="number" value={ruleForm.durationSeconds} onChange={(event) => setRuleForm({ ...ruleForm, durationSeconds: Number(event.target.value) })} /></label>
             <label>
-              Severity
+              {t("common.severity")}
               <select value={ruleForm.severity} onChange={(event) => setRuleForm({ ...ruleForm, severity: event.target.value })}>
                 <option value="info">info</option>
                 <option value="warning">warning</option>
                 <option value="critical">critical</option>
               </select>
             </label>
-            <button type="submit" disabled={createRuleMutation.isPending}>Create rule</button>
+            <button type="submit" disabled={createRuleMutation.isPending}>{t("metrics.createRuleAction")}</button>
           </form>
           {createRuleMutation.isError ? <p className="form-error">{createRuleMutation.error.message}</p> : null}
         </section>
       ) : null}
       {canReadAlerts ? (
         <section className="panel table-panel">
-          <div className="panel-title"><h3>Firing Alerts</h3><span>{alerts.length} firing</span></div>
+          <div className="panel-title"><h3>{t("metrics.firingAlerts")}</h3><span>{t("metrics.firingCount").replace("{count}", String(alerts.length))}</span></div>
           <div className="data-table">
             <table>
-              <thead><tr><th>Alert</th><th>Severity</th><th>Rule</th><th>Last seen</th><th>Action</th></tr></thead>
+              <thead><tr><th>{t("metrics.alert")}</th><th>{t("common.severity")}</th><th>{t("metrics.rule")}</th><th>{t("metrics.lastSeen")}</th><th>{t("common.action")}</th></tr></thead>
               <tbody>
                 {alerts.map((alert) => (
                   <tr key={alert.id}>
@@ -126,24 +128,24 @@ export function MetricsPage() {
                     <td>{alert.ruleName || "-"}</td>
                     <td>{alert.lastSeenAt}</td>
                     <td className="action-cell">
-                      {canWriteAlerts ? <button type="button" onClick={() => resolveMutation.mutate(alert.id)}>Resolve</button> : null}
+                      {canWriteAlerts ? <button type="button" onClick={() => resolveMutation.mutate(alert.id)}>{t("metrics.resolve")}</button> : null}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {!alertsQuery.isLoading && alerts.length === 0 ? <p className="empty-state">No firing alerts.</p> : null}
+          {!alertsQuery.isLoading && alerts.length === 0 ? <p className="empty-state">{t("metrics.emptyAlerts")}</p> : null}
           {alertsQuery.isError ? <p className="form-error">{alertsQuery.error.message}</p> : null}
           {resolveMutation.isError ? <p className="form-error">{resolveMutation.error.message}</p> : null}
         </section>
       ) : null}
       {canReadAlerts ? (
         <section className="panel table-panel">
-          <div className="panel-title"><h3>Alert Rules</h3><span>{rules.length} total</span></div>
+          <div className="panel-title"><h3>{t("metrics.alertRules")}</h3><span>{rules.length} {t("common.total")}</span></div>
           <div className="data-table">
             <table>
-              <thead><tr><th>Name</th><th>Metric</th><th>Condition</th><th>Severity</th><th>Status</th></tr></thead>
+              <thead><tr><th>{t("common.name")}</th><th>{t("metrics.metric")}</th><th>{t("metrics.condition")}</th><th>{t("common.severity")}</th><th>{t("common.status")}</th></tr></thead>
               <tbody>
                 {rules.map((rule) => (
                   <tr key={rule.id}>
@@ -157,25 +159,25 @@ export function MetricsPage() {
               </tbody>
             </table>
           </div>
-          {!rulesQuery.isLoading && rules.length === 0 ? <p className="empty-state">No alert rules found.</p> : null}
+          {!rulesQuery.isLoading && rules.length === 0 ? <p className="empty-state">{t("metrics.emptyRules")}</p> : null}
           {rulesQuery.isError ? <p className="form-error">{rulesQuery.error.message}</p> : null}
         </section>
       ) : null}
       <section className="panel table-panel">
         <div className="toolbar-row">
           <select value={metricCode} onChange={(event) => setMetricCode(event.target.value)}>
-            <option value="">All metrics</option>
+            <option value="">{t("common.allMetrics")}</option>
             <option value="agent.running_tasks">agent.running_tasks</option>
             <option value="agent.cpu.logical">agent.cpu.logical</option>
             <option value="agent.runtime.goroutines">agent.runtime.goroutines</option>
             <option value="agent.runtime.alloc_bytes">agent.runtime.alloc_bytes</option>
             <option value="agent.runtime.sys_bytes">agent.runtime.sys_bytes</option>
           </select>
-          <button type="button" onClick={() => metricsQuery.refetch()}>Refresh</button>
+          <button type="button" onClick={() => metricsQuery.refetch()}>{t("common.refresh")}</button>
         </div>
         <div className="data-table">
           <table>
-            <thead><tr><th>Host</th><th>Agent</th><th>Metric</th><th>Value</th><th>Collected</th></tr></thead>
+            <thead><tr><th>{t("metrics.host")}</th><th>{t("metrics.agent")}</th><th>{t("metrics.metric")}</th><th>{t("metrics.value")}</th><th>{t("metrics.collected")}</th></tr></thead>
             <tbody>
               {latest.map((metric) => (
                 <tr key={`${metric.hostId}:${metric.metricCode}`}>
@@ -189,7 +191,7 @@ export function MetricsPage() {
             </tbody>
           </table>
         </div>
-        {!metricsQuery.isLoading && latest.length === 0 ? <p className="empty-state">No metrics found.</p> : null}
+        {!metricsQuery.isLoading && latest.length === 0 ? <p className="empty-state">{t("metrics.emptyMetrics")}</p> : null}
         {metricsQuery.isError ? <p className="form-error">{metricsQuery.error.message}</p> : null}
       </section>
     </main>

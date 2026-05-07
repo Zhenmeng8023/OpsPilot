@@ -4,11 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listTasks } from "../../api/tasks";
 import { createSchedule, disableSchedule, listSchedules, pauseSchedule, resumeSchedule } from "../../api/schedules";
 import type { ScheduleSummary } from "../../api/types";
+import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 
 export function ScheduleListPage() {
   const user = useAuthStore((state) => state.user);
+  const t = useLanguageStore((state) => state.t);
   const queryClient = useQueryClient();
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState("");
@@ -50,22 +52,30 @@ export function ScheduleListPage() {
   });
   const schedules = useMemo(() => schedulesQuery.data?.items ?? [], [schedulesQuery.data]);
   const total = schedulesQuery.data?.total ?? 0;
-  const taskOptions = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data]);
+  const taskOptions = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof tasksQuery.data>["items"][number]>();
+    for (const task of tasksQuery.data?.items ?? []) {
+      if (!map.has(task.taskId)) {
+        map.set(task.taskId, task);
+      }
+    }
+    return Array.from(map.values());
+  }, [tasksQuery.data]);
 
   return (
     <main className="page">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Automation</p>
-          <h1>Schedules</h1>
+          <p className="eyebrow">{t("automation.eyebrow")}</p>
+          <h1>{t("schedules.title")}</h1>
         </div>
       </section>
 
       {canWrite ? (
         <section className="panel form-panel">
           <div className="panel-title">
-            <h3>Create Cron Schedule</h3>
-            <span>uses existing task definitions</span>
+            <h3>{t("schedules.create")}</h3>
+            <span>{t("schedules.createHint")}</span>
           </div>
           <form
             className="form-grid"
@@ -75,27 +85,27 @@ export function ScheduleListPage() {
             }}
           >
             <label>
-              Name
+              {t("common.name")}
               <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
             </label>
             <label>
-              Task
+              {t("common.task")}
               <select value={form.taskId} onChange={(event) => setForm({ ...form, taskId: event.target.value })} required>
-                <option value="">Select task definition</option>
+                <option value="">{t("common.selectTask")}</option>
                 {taskOptions.map((task) => (
                   <option key={task.taskId} value={task.taskId}>{task.name}</option>
                 ))}
               </select>
             </label>
             <label>
-              Cron
+              {t("schedules.cron")}
               <input value={form.cronExpr} onChange={(event) => setForm({ ...form, cronExpr: event.target.value })} required />
             </label>
             <label>
-              Timezone
+              {t("schedules.timezone")}
               <input value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} required />
             </label>
-            <button type="submit" disabled={createMutation.isPending}>Create schedule</button>
+            <button type="submit" disabled={createMutation.isPending}>{t("schedules.createAction")}</button>
           </form>
           {createMutation.isError ? <p className="form-error">{createMutation.error.message}</p> : null}
         </section>
@@ -103,26 +113,26 @@ export function ScheduleListPage() {
 
       <section className="panel table-panel">
         <div className="toolbar-row">
-          <input placeholder="Search schedules" value={keyword} onChange={(event) => { setKeyword(event.target.value); setPage(1); }} />
+          <input placeholder={t("schedules.search")} value={keyword} onChange={(event) => { setKeyword(event.target.value); setPage(1); }} />
           <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
-            <option value="">All status</option>
+            <option value="">{t("common.allStatus")}</option>
             <option value="active">active</option>
             <option value="paused">paused</option>
             <option value="disabled">disabled</option>
           </select>
-          <button type="button" onClick={() => schedulesQuery.refetch()}>Refresh</button>
+          <button type="button" onClick={() => schedulesQuery.refetch()}>{t("common.refresh")}</button>
         </div>
         <div className="data-table">
           <table>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Task</th>
-                <th>Cron</th>
-                <th>Status</th>
-                <th>Next fire</th>
-                <th>Last fire</th>
-                <th>Action</th>
+                <th>{t("common.name")}</th>
+                <th>{t("common.task")}</th>
+                <th>{t("schedules.cron")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("schedules.nextFire")}</th>
+                <th>{t("schedules.lastFire")}</th>
+                <th>{t("common.action")}</th>
               </tr>
             </thead>
             <tbody>
@@ -144,21 +154,21 @@ export function ScheduleListPage() {
                   <td>{schedule.nextFireAt || "-"}</td>
                   <td>{schedule.lastFireAt || "-"}</td>
                   <td className="action-cell">
-                    {canWrite && schedule.status === "active" ? <button type="button" onClick={() => pauseMutation.mutate(schedule)}>Pause</button> : null}
-                    {canWrite && schedule.status === "paused" ? <button type="button" onClick={() => resumeMutation.mutate(schedule)}>Resume</button> : null}
-                    {canWrite && schedule.status !== "disabled" ? <button type="button" onClick={() => disableMutation.mutate(schedule)}>Disable</button> : null}
+                    {canWrite && schedule.status === "active" ? <button type="button" onClick={() => pauseMutation.mutate(schedule)}>{t("schedules.pause")}</button> : null}
+                    {canWrite && schedule.status === "paused" ? <button type="button" onClick={() => resumeMutation.mutate(schedule)}>{t("schedules.resume")}</button> : null}
+                    {canWrite && schedule.status !== "disabled" ? <button type="button" onClick={() => disableMutation.mutate(schedule)}>{t("schedules.disable")}</button> : null}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {!schedulesQuery.isLoading && schedules.length === 0 ? <p className="empty-state">No schedules found.</p> : null}
+        {!schedulesQuery.isLoading && schedules.length === 0 ? <p className="empty-state">{t("schedules.empty")}</p> : null}
         <div className="toolbar-row">
-          <span>{total} total</span>
-          <button type="button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button>
-          <span>Page {page}</span>
-          <button type="button" disabled={page * pageSize >= total} onClick={() => setPage((value) => value + 1)}>Next</button>
+          <span>{total} {t("common.total")}</span>
+          <button type="button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>{t("common.previous")}</button>
+          <span>{t("common.page").replace("{page}", String(page))}</span>
+          <button type="button" disabled={page * pageSize >= total} onClick={() => setPage((value) => value + 1)}>{t("common.next")}</button>
         </div>
         {schedulesQuery.isError ? <p className="form-error">{schedulesQuery.error.message}</p> : null}
         {pauseMutation.isError ? <p className="form-error">{pauseMutation.error.message}</p> : null}

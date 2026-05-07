@@ -4,11 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createWebhookRule, createWebhookSource, listWebhookRules, listWebhookSources } from "../../api/webhooks";
 import { listTasks } from "../../api/tasks";
 import { API_BASE_URL } from "../../api/request";
+import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 
 export function WebhookPage() {
   const user = useAuthStore((state) => state.user);
+  const t = useLanguageStore((state) => state.t);
   const queryClient = useQueryClient();
   const canManage = hasPermission(user, "webhook:manage");
   const [sourceForm, setSourceForm] = useState({ name: "", sourceType: "custom" });
@@ -34,25 +36,33 @@ export function WebhookPage() {
   });
   const sources = useMemo(() => sourcesQuery.data ?? [], [sourcesQuery.data]);
   const rules = useMemo(() => rulesQuery.data ?? [], [rulesQuery.data]);
-  const taskOptions = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data]);
+  const taskOptions = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof tasksQuery.data>["items"][number]>();
+    for (const task of tasksQuery.data?.items ?? []) {
+      if (!map.has(task.taskId)) {
+        map.set(task.taskId, task);
+      }
+    }
+    return Array.from(map.values());
+  }, [tasksQuery.data]);
   const triggerURL = issuedToken ? `${API_BASE_URL || window.location.origin}/api/v1/webhooks/trigger/${issuedToken}` : "";
 
   return (
     <main className="page">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Automation</p>
-          <h1>Webhooks</h1>
+          <p className="eyebrow">{t("automation.eyebrow")}</p>
+          <h1>{t("webhooks.title")}</h1>
         </div>
       </section>
 
       {canManage ? (
         <section className="panel form-panel">
-          <div className="panel-title"><h3>Create Source</h3><span>token is shown once</span></div>
+          <div className="panel-title"><h3>{t("webhooks.createSource")}</h3><span>{t("webhooks.sourceHint")}</span></div>
           <form className="form-grid" onSubmit={(event) => { event.preventDefault(); createSourceMutation.mutate(sourceForm); }}>
-            <label>Name<input value={sourceForm.name} onChange={(event) => setSourceForm({ ...sourceForm, name: event.target.value })} required /></label>
+            <label>{t("common.name")}<input value={sourceForm.name} onChange={(event) => setSourceForm({ ...sourceForm, name: event.target.value })} required /></label>
             <label>
-              Type
+              {t("common.type")}
               <select value={sourceForm.sourceType} onChange={(event) => setSourceForm({ ...sourceForm, sourceType: event.target.value })}>
                 <option value="custom">custom</option>
                 <option value="github">github</option>
@@ -60,7 +70,7 @@ export function WebhookPage() {
                 <option value="gitee">gitee</option>
               </select>
             </label>
-            <button type="submit" disabled={createSourceMutation.isPending}>Create source</button>
+            <button type="submit" disabled={createSourceMutation.isPending}>{t("webhooks.createSourceAction")}</button>
           </form>
           {triggerURL ? <p className="empty-state">{triggerURL}</p> : null}
           {createSourceMutation.isError ? <p className="form-error">{createSourceMutation.error.message}</p> : null}
@@ -69,35 +79,35 @@ export function WebhookPage() {
 
       {canManage ? (
         <section className="panel form-panel">
-          <div className="panel-title"><h3>Create Rule</h3><span>triggers existing task definitions</span></div>
+          <div className="panel-title"><h3>{t("webhooks.createRule")}</h3><span>{t("webhooks.ruleHint")}</span></div>
           <form className="form-grid" onSubmit={(event) => { event.preventDefault(); createRuleMutation.mutate(ruleForm); }}>
             <label>
-              Source
+              {t("common.source")}
               <select value={ruleForm.sourceId} onChange={(event) => setRuleForm({ ...ruleForm, sourceId: event.target.value })} required>
-                <option value="">Select source</option>
+                <option value="">{t("webhooks.selectSource")}</option>
                 {sources.map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}
               </select>
             </label>
             <label>
-              Task
+              {t("common.task")}
               <select value={ruleForm.taskId} onChange={(event) => setRuleForm({ ...ruleForm, taskId: event.target.value })} required>
-                <option value="">Select task</option>
+                <option value="">{t("webhooks.selectTask")}</option>
                 {taskOptions.map((task) => <option key={task.taskId} value={task.taskId}>{task.name}</option>)}
               </select>
             </label>
-            <label>Name<input value={ruleForm.name} onChange={(event) => setRuleForm({ ...ruleForm, name: event.target.value })} required /></label>
-            <label>Event type<input value={ruleForm.eventType} onChange={(event) => setRuleForm({ ...ruleForm, eventType: event.target.value })} /></label>
-            <button type="submit" disabled={createRuleMutation.isPending}>Create rule</button>
+            <label>{t("common.name")}<input value={ruleForm.name} onChange={(event) => setRuleForm({ ...ruleForm, name: event.target.value })} required /></label>
+            <label>{t("webhooks.eventType")}<input value={ruleForm.eventType} onChange={(event) => setRuleForm({ ...ruleForm, eventType: event.target.value })} /></label>
+            <button type="submit" disabled={createRuleMutation.isPending}>{t("webhooks.createRuleAction")}</button>
           </form>
           {createRuleMutation.isError ? <p className="form-error">{createRuleMutation.error.message}</p> : null}
         </section>
       ) : null}
 
       <section className="panel table-panel">
-        <div className="panel-title"><h3>Rules</h3><span>{rules.length} total</span></div>
+        <div className="panel-title"><h3>{t("webhooks.rules")}</h3><span>{rules.length} {t("common.total")}</span></div>
         <div className="data-table">
           <table>
-            <thead><tr><th>Name</th><th>Source</th><th>Task</th><th>Event</th><th>Status</th><th>Created</th></tr></thead>
+            <thead><tr><th>{t("common.name")}</th><th>{t("common.source")}</th><th>{t("common.task")}</th><th>{t("webhooks.event")}</th><th>{t("common.status")}</th><th>{t("common.created")}</th></tr></thead>
             <tbody>
               {rules.map((rule) => (
                 <tr key={rule.id}>
@@ -112,7 +122,7 @@ export function WebhookPage() {
             </tbody>
           </table>
         </div>
-        {!rulesQuery.isLoading && rules.length === 0 ? <p className="empty-state">No webhook rules found.</p> : null}
+        {!rulesQuery.isLoading && rules.length === 0 ? <p className="empty-state">{t("webhooks.emptyRules")}</p> : null}
       </section>
     </main>
   );

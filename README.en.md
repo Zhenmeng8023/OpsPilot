@@ -2,7 +2,7 @@
 
 > Language: [简体中文](./README.md) | English (current)
 
-OpsPilot is an automation operations platform built with Go + Gin + React + TypeScript. The project currently covers the T3/T4 execution chain: script templates, task execution, Agent polling/execution, task logs, SSE live logs, RBAC, and audit logs.
+OpsPilot is an automation operations platform built with Go + Gin + React + TypeScript. The project now covers Agent onboarding, script templates, task execution, live logs, Cron scheduling, Webhook triggering, basic metrics, alerts, notifications, RBAC, and audit logs.
 
 ## Current Stage
 
@@ -10,13 +10,16 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 - T2 Agent/Host: Agent registration, token hashing, heartbeat, Agent/Host list, disable, token revoke, offline scan.
 - T3 Task execution: script templates, task creation, target dispatch, Agent poll/claim, command execution, result reporting, status aggregation.
 - T4 Realtime logs: Agent stdout/stderr/system log upload, redaction, chunk persistence, query APIs, and SSE streaming.
+- T5 Cron scheduling: schedules API, background scanner, and Schedules page; due schedules reuse the current execution chain.
+- T6 Webhook: source/rule management, tokenized trigger endpoint, HMAC-SHA256 signature validation, replay prevention, rate limiting, event persistence, and task run generation.
+- T7 Metrics/Alerts/Notifications: Agent metrics upload, host_metrics persistence, metric threshold alerts, site notifications, webhook-like external delivery, and delivery records.
 
 ## Implemented
 
 - Minimal Cron scheduling loop: schedules API, background scanner, and Schedules page; due schedules reuse the existing task_run / task_target / Agent poll / logs / result execution chain.
 - Frontend permission matrix: routes declare `handle.meta.permission`, the route guard checks user permissions, and navigation/key actions are permission-aware.
-- Webhook trigger loop: source/rule management, tokenized trigger endpoint, delivery replay prevention, rate limiting, event persistence, and task run generation through the existing execution chain.
-- Metrics / Alerts / Notifications loop: Agent metrics upload, host_metrics persistence, a Metrics page, metric threshold alert rules, alert events, site notifications, and delivery records.
+- Webhook trigger loop: `POST /api/v1/webhooks/trigger/:token` requires `X-OpsPilot-Signature` or `X-Hub-Signature-256`; matched rules create task runs through the existing execution chain.
+- Metrics / Alerts / Notifications loop: Agent metrics upload, host_metrics persistence, a Metrics page, metric threshold alert rules, alert events, site notifications, webhook/dingtalk/wechat/slack dispatching, and delivery records.
 
 - Unified response envelope: `code`, `message`, `data`, `traceId`.
 - Backend layered architecture: handler/service/repository.
@@ -33,8 +36,8 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 ## Not Yet Implemented
 
 - Visual workflow orchestration beyond the current Cron scheduling loop.
-- Advanced webhook signature schemes, matcher expressions, and audit search.
-- Real external delivery for email/webhook/dingtalk/wechat/slack. Site notifications and delivery records are implemented.
+- Advanced webhook matcher expressions, replay-window tuning, and audit search.
+- Email/SMTP notifications, notification templates, and retry management UI.
 
 ## Requirements
 
@@ -81,6 +84,9 @@ AGENT_OFFLINE_SCAN_INTERVAL_SECONDS=45
 TASK_COMMAND_ALLOW_PATTERNS=
 TASK_COMMAND_DENY_PATTERNS=
 SCHEDULE_SCAN_INTERVAL_SECONDS=30
+ALERT_SCAN_INTERVAL_SECONDS=30
+NOTIFICATION_DISPATCH_INTERVAL_SECONDS=15
+NOTIFICATION_HTTP_TIMEOUT_SECONDS=10
 ```
 
 ## Frontend

@@ -16,7 +16,7 @@
 - Added Webhook source/rule management APIs and a Webhooks page.
 - Added public trigger endpoint `POST /api/v1/webhooks/trigger/:token`; the source token identifies the sender.
 - Trigger requests write `webhook_events` and `webhook_event_matches`; matched rules create `task_runs` through the existing execution chain.
-- Added basic protections: `X-Delivery-Id` replay prevention, per-source per-minute rate limiting, payload hashing, and request header persistence.
+- Added basic protections: `X-OpsPilot-Signature` / `X-Hub-Signature-256` HMAC-SHA256 validation, `X-Delivery-Id` replay prevention, per-source per-minute rate limiting, payload hashing, and request header persistence.
 
 ### T7 Metrics Monitoring
 
@@ -30,8 +30,8 @@
 
 - Added notification channel / notification management APIs and a Notifications page.
 - First-time firing alerts now create `notifications` and `notification_deliveries`.
-- Site notification channels mark deliveries as success immediately; external channels create pending deliveries for future sender implementation.
-- The web app supports notification listing, unread filtering, mark-as-read, channel listing, and site channel creation.
+- Site notification channels mark deliveries as success immediately; webhook/dingtalk/wechat/slack channels are dispatched by a background sender from pending delivery rows.
+- The web app supports notification listing, unread filtering, mark-as-read, channel listing, and webhook-like channel URL configuration.
 
 ### T1 Authentication and RBAC
 

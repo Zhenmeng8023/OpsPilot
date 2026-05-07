@@ -452,6 +452,46 @@ a {
   font-weight: 800;
 }
 
+.form-panel {
+  align-self: start;
+}
+
+.form-panel label {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.form-panel input,
+.form-panel select,
+.form-panel textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  padding: 0.9rem 1rem;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.form-panel button[type="submit"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.85rem 1rem;
+  color: white;
+  background: var(--brand);
+  font-weight: 900;
+}
+
+.form-panel button[type="submit"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .management-form button,
 .role-card button {
   border: 0;

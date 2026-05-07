@@ -2,6 +2,7 @@ package webhooks
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -52,6 +53,7 @@ type TriggerInput struct {
 	Token      string
 	EventType  string
 	DeliveryID string
+	Signature  string
 	RemoteIP   string
 	Headers    map[string]string
 	Body       []byte
@@ -353,6 +355,9 @@ func (s *Service) Trigger(ctx context.Context, input TriggerInput) (TriggerResul
 		if source.ID == 0 || source.Status != "active" {
 			return apperror.New(http.StatusUnauthorized, 401502, "invalid webhook token")
 		}
+		if !validSignature(input.Token, input.Body, input.Signature) {
+			return apperror.New(http.StatusUnauthorized, 401503, "invalid webhook signature")
+		}
 		if input.DeliveryID != "" {
 			var duplicateID uint64
 			if err := tx.WithContext(ctx).Raw(
@@ -546,6 +551,18 @@ func ruleSummary(row ruleRecord) RuleSummary {
 		CreatedBy:  row.CreatedBy.String,
 		CreatedAt:  row.CreatedAt,
 	}
+}
+
+func validSignature(token string, body []byte, signature string) bool {
+	signature = strings.TrimSpace(signature)
+	if signature == "" {
+		return false
+	}
+	signature = strings.TrimPrefix(signature, "sha256=")
+	mac := hmac.New(sha256.New, []byte(strings.TrimSpace(token)))
+	_, _ = mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expected), []byte(strings.ToLower(signature)))
 }
 
 func newSecret() (string, string, error) {

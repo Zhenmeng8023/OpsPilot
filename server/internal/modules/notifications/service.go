@@ -263,15 +263,17 @@ func EnqueueForAlert(ctx context.Context, tx *gorm.DB, workspaceID, alertID uint
 	}
 	for _, channel := range channels {
 		status := "pending"
+		attempts := 0
 		deliveredAt := sql.NullTime{}
 		if channel.ChannelType == "site" {
 			status = "success"
+			attempts = 1
 			deliveredAt.Valid = true
 		}
 		if err := tx.WithContext(ctx).Exec(
 			`INSERT INTO notification_deliveries(notification_id, channel_id, status, attempts, delivered_at)
-			 VALUES (?, ?, ?, 1, CASE WHEN ? THEN NOW(3) ELSE NULL END)`,
-			notificationID, channel.ID, status, deliveredAt.Valid,
+			 VALUES (?, ?, ?, ?, CASE WHEN ? THEN NOW(3) ELSE NULL END)`,
+			notificationID, channel.ID, status, attempts, deliveredAt.Valid,
 		).Error; err != nil {
 			return err
 		}

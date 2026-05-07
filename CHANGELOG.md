@@ -16,7 +16,7 @@
 - 新增 Webhook source/rule 管理 API 与前端 Webhooks 页面。
 - 新增公开触发入口 `POST /api/v1/webhooks/trigger/:token`，通过 source token 识别来源。
 - 触发时写入 `webhook_events` 与 `webhook_event_matches`，匹配 rule 后复用现有任务执行链路生成 `task_runs`。
-- 增加基础防护：`X-Delivery-Id` 防重放、每 source 每分钟限流、payload hash 与请求头落库。
+- 增加基础防护：`X-OpsPilot-Signature` / `X-Hub-Signature-256` HMAC-SHA256 签名校验、`X-Delivery-Id` 防重放、每 source 每分钟限流、payload hash 与请求头落库。
 
 ### T7 Metrics 监控
 
@@ -30,8 +30,8 @@
 
 - 新增 notification channel / notification 管理 API 与前端 Notifications 页面。
 - 告警首次 firing 时自动生成 `notifications` 和 `notification_deliveries`。
-- 站内通知 channel 会立即标记 delivery success；外部渠道先生成 pending delivery，等待后续真实发送实现。
-- 前端支持通知列表、未读筛选、标记已读、渠道列表和站内渠道创建。
+- 站内通知 channel 会立即标记 delivery success；webhook/dingtalk/wechat/slack 渠道由后台 dispatcher 读取 pending delivery 并按 URL 投递。
+- 前端支持通知列表、未读筛选、标记已读、渠道列表和 webhook 类渠道 URL 配置。
 
 ### T1 认证与 RBAC
 
