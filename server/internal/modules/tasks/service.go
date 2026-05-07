@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,10 @@ type Service struct {
 	cfg  config.Config
 	repo repository
 }
+
+const maxTaskTimeoutSeconds uint = 3600
+
+var dangerousCommandPattern = regexp.MustCompile(`(?i)(^|[;&|()\r\n])\s*(sudo\s+)?([a-z]:\\[^\s;&|()]+\\|/[^\s;&|()]+/)?(rm|del|format|shutdown|reboot|mkfs(\.[a-z0-9_+-]+)?|remove-item)\b`)
 
 type AuditContext struct {
 	ActorUID      string
@@ -48,8 +53,13 @@ type CreateTaskInput struct {
 }
 
 type ListTasksInput struct {
-	Keyword string
-	Status  string
+	Keyword     string
+	Status      string
+	Creator     string
+	CreatedFrom string
+	CreatedTo   string
+	Page        int
+	PageSize    int
 }
 
 type AgentIdentity struct {
@@ -80,7 +90,9 @@ type ResultInput struct {
 type LogQuery struct {
 	TaskID   string
 	TargetID string
+	Stream   string
 	AfterID  uint64
+	Limit    int
 }
 
 type TaskSummary struct {
@@ -102,6 +114,13 @@ type TaskSummary struct {
 	StartedAt      string `json:"startedAt,omitempty"`
 	FinishedAt     string `json:"finishedAt,omitempty"`
 	ErrorMessage   string `json:"errorMessage,omitempty"`
+}
+
+type TaskListResult struct {
+	Items    []TaskSummary `json:"items"`
+	Total    int64         `json:"total"`
+	Page     int           `json:"page"`
+	PageSize int           `json:"pageSize"`
 }
 
 type TaskDetail struct {
@@ -137,6 +156,11 @@ type AgentTask struct {
 	HostName       string `json:"hostName,omitempty"`
 }
 
+type TargetState struct {
+	TargetID string `json:"targetId"`
+	Status   string `json:"status"`
+}
+
 type TaskLogEntry struct {
 	ID        uint64 `json:"id"`
 	RunID     string `json:"runId"`
@@ -164,20 +188,29 @@ func NewService(db *gorm.DB, cfg config.Config) *Service {
 	return &Service{db: db, cfg: cfg, repo: newRepository(db)}
 }
 
-func (s *Service) List(ctx context.Context, input ListTasksInput) ([]TaskSummary, *apperror.Error) {
+func (s *Service) List(ctx context.Context, input ListTasksInput) (TaskListResult, *apperror.Error) {
 	workspace, appErr := s.workspace(ctx)
 	if appErr != nil {
-		return nil, appErr
+		return TaskListResult{}, appErr
 	}
-	rows, err := s.repo.listRuns(ctx, workspace.ID, strings.TrimSpace(input.Keyword), strings.TrimSpace(input.Status))
+	input.Page, input.PageSize = normalizePage(input.Page, input.PageSize)
+	rows, total, err := s.repo.listRuns(ctx, workspace.ID, listRunsFilter{
+		Keyword:     strings.TrimSpace(input.Keyword),
+		Status:      strings.TrimSpace(input.Status),
+		Creator:     strings.TrimSpace(input.Creator),
+		CreatedFrom: normalizeDateStart(input.CreatedFrom),
+		CreatedTo:   normalizeDateEnd(input.CreatedTo),
+		Page:        input.Page,
+		PageSize:    input.PageSize,
+	})
 	if err != nil {
-		return nil, apperror.Wrap(http.StatusInternalServerError, 500301, "list tasks failed", err)
+		return TaskListResult{}, apperror.Wrap(http.StatusInternalServerError, 500301, "list tasks failed", err)
 	}
 	out := make([]TaskSummary, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, summaryFromRun(row))
 	}
-	return out, nil
+	return TaskListResult{Items: out, Total: total, Page: input.Page, PageSize: input.PageSize}, nil
 }
 
 func (s *Service) Get(ctx context.Context, runUID string) (TaskDetail, *apperror.Error) {
@@ -225,11 +258,19 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (TaskDetail
 	if input.TimeoutSeconds == 0 {
 		return TaskDetail{}, apperror.New(http.StatusBadRequest, 400302, "timeoutSeconds must be greater than 0")
 	}
+	if input.TimeoutSeconds > maxTaskTimeoutSeconds {
+		return TaskDetail{}, apperror.New(http.StatusBadRequest, 400311, "timeoutSeconds exceeds maximum allowed value")
+	}
 	if scriptUID == "" && command == "" {
 		return TaskDetail{}, apperror.New(http.StatusBadRequest, 400303, "script or command is required")
 	}
 	if command != "" && !validScriptType(scriptType) {
 		return TaskDetail{}, apperror.New(http.StatusBadRequest, 400304, "unsupported command type")
+	}
+	if command != "" {
+		if err := validateCommandSafety(command, s.cfg.Command); err != nil {
+			return TaskDetail{}, err
+		}
 	}
 	if len(input.TargetAgentIDs) == 0 && len(input.TargetHostIDs) == 0 {
 		return TaskDetail{}, apperror.New(http.StatusBadRequest, 400305, "task targets cannot be empty")
@@ -366,7 +407,7 @@ func (s *Service) Cancel(ctx context.Context, runUID string, auditCtx AuditConte
 		if run.ID == 0 {
 			return apperror.New(http.StatusNotFound, 404301, "task not found")
 		}
-		if !CanTransition(Status(run.Status), StatusCanceled) {
+		if IsTerminal(Status(run.Status)) {
 			return apperror.New(http.StatusBadRequest, 400306, "task cannot be canceled from current status")
 		}
 		actor, err := repo.userByUID(ctx, auditCtx.ActorUID)
@@ -386,15 +427,34 @@ func (s *Service) Cancel(ctx context.Context, runUID string, auditCtx AuditConte
 			return err
 		}
 		if err := tx.WithContext(ctx).Exec(
+			`UPDATE task_run_targets
+			    SET status = 'canceling'
+			  WHERE run_id = ? AND status IN ('running', 'canceling')`,
+			run.ID,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`UPDATE task_run_attempts ta
+			    JOIN task_run_targets rt ON rt.id = ta.run_target_id
+			    SET ta.status = 'canceling'
+			  WHERE rt.run_id = ? AND ta.status = 'running'`,
+			run.ID,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
 			`UPDATE task_runs
-			    SET status = 'canceled', cancel_requested_by = ?, cancel_reason = 'user requested',
-			        canceled_targets = total_targets, finished_at = NOW(3)
+			    SET cancel_requested_by = ?, cancel_reason = 'user requested'
 			  WHERE id = ?`,
 			actorID, run.ID,
 		).Error; err != nil {
 			return err
 		}
-		if err := writeRunEvent(ctx, tx, run.ID, 0, 0, run.Status, string(StatusCanceled), "task canceled", nil); err != nil {
+		if err := refreshRunAggregate(ctx, tx, run.ID); err != nil {
+			return err
+		}
+		if err := writeRunEvent(ctx, tx, run.ID, 0, 0, run.Status, string(StatusCanceled), "task cancellation requested", nil); err != nil {
 			return err
 		}
 		audit.Write(ctx, tx, audit.Event{
@@ -425,7 +485,7 @@ func (s *Service) Poll(ctx context.Context, identity AgentIdentity, limit int) (
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
-	rows, err := s.repo.agentPoll(ctx, identity.ID, limit)
+	rows, err := s.repo.agentPoll(ctx, identity.WorkspaceID, identity.ID, limit)
 	if err != nil {
 		return nil, apperror.Wrap(http.StatusInternalServerError, 500307, "poll tasks failed", err)
 	}
@@ -451,12 +511,14 @@ func (s *Service) Claim(ctx context.Context, identity AgentIdentity, targetUID s
 			CurrentAttemptNo uint
 		}
 		if err := tx.WithContext(ctx).Raw(
-			`SELECT id, run_id, status, agent_id, current_attempt_no
-			   FROM task_run_targets
-			  WHERE uid = ?
+			`SELECT rt.id, rt.run_id, rt.status, rt.agent_id, rt.current_attempt_no
+			   FROM task_run_targets rt
+			   JOIN task_runs tr ON tr.id = rt.run_id
+			  WHERE rt.uid = ?
+			    AND tr.workspace_id = ?
 			  LIMIT 1
 			  FOR UPDATE`,
-			targetUID,
+			targetUID, identity.WorkspaceID,
 		).Scan(&row).Error; err != nil {
 			return err
 		}
@@ -498,7 +560,7 @@ func (s *Service) Claim(ctx context.Context, identity AgentIdentity, targetUID s
 		if err := writeRunEvent(ctx, tx, row.RunID, row.ID, 0, row.Status, string(StatusRunning), "agent claimed task target", nil); err != nil {
 			return err
 		}
-		taskRow, err := newRepository(tx).agentTaskByTargetUID(ctx, targetUID)
+		taskRow, err := newRepository(tx).agentTaskByTargetUID(ctx, identity.WorkspaceID, targetUID)
 		if err != nil {
 			return err
 		}
@@ -512,6 +574,31 @@ func (s *Service) Claim(ctx context.Context, identity AgentIdentity, targetUID s
 		return AgentTask{}, apperror.Wrap(http.StatusInternalServerError, 500308, "claim task failed", txErr)
 	}
 	return claimed, nil
+}
+
+func (s *Service) TargetState(ctx context.Context, identity AgentIdentity, targetUID string) (TargetState, *apperror.Error) {
+	targetUID = strings.TrimSpace(targetUID)
+	if targetUID == "" {
+		return TargetState{}, apperror.New(http.StatusBadRequest, 400001, "target id is required")
+	}
+	var state TargetState
+	err := s.db.WithContext(ctx).Raw(
+		`SELECT rt.uid AS target_id, rt.status
+		   FROM task_run_targets rt
+		   JOIN task_runs tr ON tr.id = rt.run_id
+		  WHERE rt.uid = ?
+		    AND rt.agent_id = ?
+		    AND tr.workspace_id = ?
+		  LIMIT 1`,
+		targetUID, identity.ID, identity.WorkspaceID,
+	).Scan(&state).Error
+	if err != nil {
+		return TargetState{}, apperror.Wrap(http.StatusInternalServerError, 500313, "load task target status failed", err)
+	}
+	if state.TargetID == "" {
+		return TargetState{}, apperror.New(http.StatusNotFound, 404302, "task target not found")
+	}
+	return state, nil
 }
 
 func (s *Service) UploadLog(ctx context.Context, identity AgentIdentity, input LogInput) *apperror.Error {
@@ -528,14 +615,14 @@ func (s *Service) UploadLog(ctx context.Context, identity AgentIdentity, input L
 	}
 	timestamp := parseTime(input.Timestamp)
 	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		target, err := lockAgentTarget(ctx, tx, input.TargetID, identity.ID)
+		target, err := lockAgentTarget(ctx, tx, input.TargetID, identity.WorkspaceID, identity.ID)
 		if err != nil {
 			return err
 		}
 		if target.ID == 0 {
 			return apperror.New(http.StatusNotFound, 404302, "task target not found")
 		}
-		if target.Status != string(StatusRunning) {
+		if target.Status != string(StatusRunning) && target.Status != string(StatusCanceling) {
 			return apperror.New(http.StatusConflict, 409303, "task target is not running")
 		}
 		attempt, err := newRepository(tx).latestAttempt(ctx, target.ID)
@@ -572,7 +659,7 @@ func (s *Service) ReportResult(ctx context.Context, identity AgentIdentity, inpu
 	finishedAt := parseTime(input.FinishedAt)
 	errorMessage := security.Redact(input.ErrorMessage)
 	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		target, err := lockAgentTarget(ctx, tx, input.TargetID, identity.ID)
+		target, err := lockAgentTarget(ctx, tx, input.TargetID, identity.WorkspaceID, identity.ID)
 		if err != nil {
 			return err
 		}
@@ -631,7 +718,11 @@ func (s *Service) Logs(ctx context.Context, query LogQuery) ([]TaskLogEntry, *ap
 	if _, appErr := s.Get(ctx, query.TaskID); appErr != nil {
 		return nil, appErr
 	}
-	rows, err := s.repo.logs(ctx, workspace.ID, query.TaskID, query.TargetID, query.AfterID)
+	stream := strings.TrimSpace(query.Stream)
+	if stream != "" && stream != "stdout" && stream != "stderr" && stream != "system" {
+		return nil, apperror.New(http.StatusBadRequest, 400307, "unsupported log stream")
+	}
+	rows, err := s.repo.logs(ctx, workspace.ID, query.TaskID, query.TargetID, stream, query.AfterID, normalizeLimit(query.Limit, 500, 1000))
 	if err != nil {
 		return nil, apperror.Wrap(http.StatusInternalServerError, 500311, "query task logs failed", err)
 	}
@@ -653,6 +744,12 @@ func (s *Service) resolveScript(ctx context.Context, tx *gorm.DB, repo repositor
 		}
 		if strings.TrimSpace(script.Content) == "" {
 			return scriptRecord{}, apperror.New(http.StatusBadRequest, 400202, "script content cannot be empty")
+		}
+		if err := validateScriptApproval(script); err != nil {
+			return scriptRecord{}, err
+		}
+		if err := validateCommandSafety(script.Content, s.cfg.Command); err != nil {
+			return scriptRecord{}, err
 		}
 		return script, nil
 	}
@@ -780,16 +877,18 @@ type lockedTarget struct {
 	AgentID sql.NullInt64
 }
 
-func lockAgentTarget(ctx context.Context, tx *gorm.DB, targetUID string, agentID uint64) (lockedTarget, error) {
+func lockAgentTarget(ctx context.Context, tx *gorm.DB, targetUID string, workspaceID, agentID uint64) (lockedTarget, error) {
 	var target lockedTarget
 	err := tx.WithContext(ctx).Raw(
-		`SELECT id, run_id, status, agent_id
-		   FROM task_run_targets
-		  WHERE uid = ?
-		    AND agent_id = ?
+		`SELECT rt.id, rt.run_id, rt.status, rt.agent_id
+		   FROM task_run_targets rt
+		   JOIN task_runs tr ON tr.id = rt.run_id
+		  WHERE rt.uid = ?
+		    AND tr.workspace_id = ?
+		    AND rt.agent_id = ?
 		  LIMIT 1
 		  FOR UPDATE`,
-		targetUID, agentID,
+		targetUID, workspaceID, agentID,
 	).Scan(&target).Error
 	return target, err
 }
@@ -804,8 +903,9 @@ func refreshRunAggregate(ctx context.Context, tx *gorm.DB, runID uint64) error {
 		             SUM(CASE WHEN status IN ('failed', 'timeout') THEN 1 ELSE 0 END) AS failed_count,
 		             SUM(CASE WHEN status = 'timeout' THEN 1 ELSE 0 END) AS timeout_count,
 		             SUM(CASE WHEN status = 'canceled' THEN 1 ELSE 0 END) AS canceled_count,
-		             SUM(CASE WHEN status IN ('pending', 'queued', 'running') THEN 1 ELSE 0 END) AS active_count,
-		             SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_count
+		             SUM(CASE WHEN status IN ('pending', 'queued', 'running', 'canceling') THEN 1 ELSE 0 END) AS active_count,
+		             SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_count,
+		             SUM(CASE WHEN status = 'canceling' THEN 1 ELSE 0 END) AS canceling_count
 		        FROM task_run_targets
 		       WHERE run_id = ?
 		       GROUP BY run_id
@@ -815,6 +915,7 @@ func refreshRunAggregate(ctx context.Context, tx *gorm.DB, runID uint64) error {
 		        tr.failed_targets = agg.failed_count,
 		        tr.canceled_targets = agg.canceled_count,
 		        tr.status = CASE
+		          WHEN agg.canceling_count > 0 THEN 'canceling'
 		          WHEN agg.active_count > 0 AND agg.running_count > 0 THEN 'running'
 		          WHEN agg.active_count > 0 THEN 'queued'
 		          WHEN agg.failed_count > 0 AND agg.timeout_count = agg.failed_count THEN 'timeout'
@@ -1025,4 +1126,84 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func normalizePage(page, pageSize int) (int, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	return page, pageSize
+}
+
+func normalizeLimit(value, fallback, maxValue int) int {
+	if value <= 0 {
+		value = fallback
+	}
+	if value > maxValue {
+		value = maxValue
+	}
+	return value
+}
+
+func normalizeDateStart(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func normalizeDateEnd(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) == len("2006-01-02") {
+		return value + " 23:59:59"
+	}
+	return value
+}
+
+func validateScriptApproval(script scriptRecord) error {
+	if !script.ApprovalRequired {
+		return nil
+	}
+	status := strings.ToLower(strings.TrimSpace(script.LatestApprovalStatus.String))
+	switch status {
+	case "approved":
+		return nil
+	case "pending":
+		return apperror.New(http.StatusConflict, 409306, "script approval is pending")
+	case "rejected", "canceled":
+		return apperror.New(http.StatusBadRequest, 400309, "script latest revision is not approved")
+	default:
+		return apperror.New(http.StatusBadRequest, 400309, "script requires approval before execution")
+	}
+}
+
+func validateCommandSafety(command string, policy config.CommandPolicyConfig) *apperror.Error {
+	if dangerousCommandPattern.MatchString(command) {
+		return apperror.New(http.StatusBadRequest, 400310, "command contains high-risk operation and is blocked")
+	}
+	for _, pattern := range policy.DenyPatterns {
+		matched, err := regexp.MatchString(pattern, command)
+		if err != nil {
+			return apperror.Wrap(http.StatusInternalServerError, 500314, "invalid command deny pattern", err)
+		}
+		if matched {
+			return apperror.New(http.StatusBadRequest, 400310, "command is blocked by denylist policy")
+		}
+	}
+	if len(policy.AllowPatterns) > 0 {
+		for _, pattern := range policy.AllowPatterns {
+			matched, err := regexp.MatchString(pattern, command)
+			if err != nil {
+				return apperror.Wrap(http.StatusInternalServerError, 500315, "invalid command allow pattern", err)
+			}
+			if matched {
+				return nil
+			}
+		}
+		return apperror.New(http.StatusBadRequest, 400312, "command is not allowed by allowlist policy")
+	}
+	return nil
 }

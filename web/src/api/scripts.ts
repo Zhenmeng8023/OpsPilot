@@ -1,5 +1,5 @@
 import { request } from "./request";
-import type { Script, ScriptApprovalSummary } from "./types";
+import type { PageResult, Script, ScriptApprovalSummary } from "./types";
 
 export interface ScriptPayload {
   name: string;
@@ -9,11 +9,22 @@ export interface ScriptPayload {
   changeSummary?: string;
 }
 
-export function listScripts(params: { keyword?: string; status?: string } = {}) {
+export function listScripts(params: {
+  keyword?: string;
+  status?: string;
+  type?: string;
+  approvalStatus?: string;
+  page?: number;
+  pageSize?: number;
+} = {}) {
   const search = new URLSearchParams();
   if (params.keyword) search.set("keyword", params.keyword);
   if (params.status) search.set("status", params.status);
-  return request<Script[]>(`/api/v1/scripts${search.toString() ? `?${search}` : ""}`);
+  if (params.type) search.set("type", params.type);
+  if (params.approvalStatus) search.set("approvalStatus", params.approvalStatus);
+  if (params.page) search.set("page", String(params.page));
+  if (params.pageSize) search.set("pageSize", String(params.pageSize));
+  return request<PageResult<Script>>(`/api/v1/scripts${search.toString() ? `?${search}` : ""}`);
 }
 
 export function getScript(id: string) {

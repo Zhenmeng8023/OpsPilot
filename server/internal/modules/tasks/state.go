@@ -3,13 +3,14 @@ package tasks
 type Status string
 
 const (
-	StatusPending  Status = "pending"
-	StatusQueued   Status = "queued"
-	StatusRunning  Status = "running"
-	StatusSuccess  Status = "success"
-	StatusFailed   Status = "failed"
-	StatusTimeout  Status = "timeout"
-	StatusCanceled Status = "canceled"
+	StatusPending   Status = "pending"
+	StatusQueued    Status = "queued"
+	StatusRunning   Status = "running"
+	StatusCanceling Status = "canceling"
+	StatusSuccess   Status = "success"
+	StatusFailed    Status = "failed"
+	StatusTimeout   Status = "timeout"
+	StatusCanceled  Status = "canceled"
 )
 
 func CanTransition(from, to Status) bool {
@@ -19,7 +20,9 @@ func CanTransition(from, to Status) bool {
 	case StatusQueued:
 		return to == StatusRunning || to == StatusCanceled
 	case StatusRunning:
-		return to == StatusSuccess || to == StatusFailed || to == StatusTimeout
+		return to == StatusSuccess || to == StatusFailed || to == StatusTimeout || to == StatusCanceling || to == StatusCanceled
+	case StatusCanceling:
+		return to == StatusCanceled
 	default:
 		return false
 	}

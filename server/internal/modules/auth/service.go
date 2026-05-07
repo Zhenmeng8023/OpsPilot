@@ -61,11 +61,12 @@ type AuthResult struct {
 }
 
 type UserProfile struct {
-	ID        string   `json:"id"`
-	Username  string   `json:"username"`
-	Email     string   `json:"email,omitempty"`
-	Roles     []string `json:"roles"`
-	Workspace struct {
+	ID          string   `json:"id"`
+	Username    string   `json:"username"`
+	Email       string   `json:"email,omitempty"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
+	Workspace   struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 		Slug string `json:"slug"`
@@ -350,11 +351,19 @@ func (s *Service) Me(ctx context.Context, userUID string) (UserProfile, *apperro
 	if err != nil {
 		return UserProfile{}, apperror.Wrap(http.StatusInternalServerError, 500001, "load roles failed", err)
 	}
-	return profileFrom(user, workspace, roles), nil
+	permissions, err := userPermissions(ctx, s.db, user.ID, workspace.ID)
+	if err != nil {
+		return UserProfile{}, apperror.Wrap(http.StatusInternalServerError, 500001, "load permissions failed", err)
+	}
+	return profileFrom(user, workspace, roles, permissions), nil
 }
 
 func (s *Service) issueTokens(ctx context.Context, tx *gorm.DB, user userRecord, workspace workspaceRecord, family string) (AuthResult, error) {
 	roles, err := userRoles(ctx, tx, user.ID, workspace.ID)
+	if err != nil {
+		return AuthResult{}, err
+	}
+	permissions, err := userPermissions(ctx, tx, user.ID, workspace.ID)
 	if err != nil {
 		return AuthResult{}, err
 	}
@@ -386,7 +395,7 @@ func (s *Service) issueTokens(ctx context.Context, tx *gorm.DB, user userRecord,
 		RefreshToken: refreshToken,
 		TokenType:    "Bearer",
 		ExpiresIn:    int64(s.cfg.JWT.AccessTTL.Seconds()),
-		User:         profileFrom(user, workspace, roles),
+		User:         profileFrom(user, workspace, roles, permissions),
 	}, nil
 }
 
@@ -420,6 +429,24 @@ func userRoles(ctx context.Context, db *gorm.DB, userID, workspaceID uint64) ([]
 	return roles, err
 }
 
+func userPermissions(ctx context.Context, db *gorm.DB, userID, workspaceID uint64) ([]string, error) {
+	var permissions []string
+	err := db.WithContext(ctx).Raw(
+		`SELECT DISTINCT p.code
+		   FROM user_roles ur
+		   JOIN roles r ON r.id = ur.role_id
+		   JOIN role_permissions rp ON rp.role_id = r.id
+		   JOIN permissions p ON p.id = rp.permission_id
+		  WHERE ur.user_id = ?
+		    AND ur.workspace_id = ?
+		    AND r.status = 'active'
+		    AND (ur.expires_at IS NULL OR ur.expires_at > NOW(3))
+		  ORDER BY p.code`,
+		userID, workspaceID,
+	).Scan(&permissions).Error
+	return permissions, err
+}
+
 func defaultWorkspace(ctx context.Context, db *gorm.DB, slug string) (workspaceRecord, error) {
 	var workspace workspaceRecord
 	err := db.WithContext(ctx).Raw(
@@ -444,11 +471,12 @@ func roleID(ctx context.Context, db *gorm.DB, workspaceID uint64, code string) (
 	return id, nil
 }
 
-func profileFrom(user userRecord, workspace workspaceRecord, roles []string) UserProfile {
+func profileFrom(user userRecord, workspace workspaceRecord, roles, permissions []string) UserProfile {
 	profile := UserProfile{
-		ID:       user.UID,
-		Username: user.Username,
-		Roles:    roles,
+		ID:          user.UID,
+		Username:    user.Username,
+		Roles:       roles,
+		Permissions: permissions,
 	}
 	if user.Email.Valid {
 		profile.Email = user.Email.String

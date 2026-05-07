@@ -55,6 +55,10 @@ VALUES
   ,('schedule:write', 'schedule', 'Write schedules', 'Create and manage task schedules')
   ,('webhook:read', 'webhook', 'Read webhooks', 'View webhook sources and rules')
   ,('webhook:manage', 'webhook', 'Manage webhooks', 'Manage webhook sources and trigger rules')
+  ,('alert:read', 'alert', 'Read alerts', 'View alert rules and alert events')
+  ,('alert:write', 'alert', 'Write alerts', 'Manage alert rules and alert state')
+  ,('notification:read', 'notification', 'Read notifications', 'View notification channels and messages')
+  ,('notification:write', 'notification', 'Write notifications', 'Manage notification channels')
 ON DUPLICATE KEY UPDATE
   module = VALUES(module),
   name = VALUES(name),
@@ -67,7 +71,8 @@ JOIN permissions p ON p.code IN (
   'agent:read', 'agent:write', 'host:read', 'host:write',
   'script:read', 'script:write', 'script:approve',
   'task:read', 'task:write', 'task:execute', 'task:cancel', 'task:log:read'
-  , 'schedule:read', 'schedule:write', 'webhook:read', 'webhook:manage'
+  , 'schedule:read', 'schedule:write', 'webhook:read', 'webhook:manage', 'alert:read', 'alert:write'
+  , 'notification:read', 'notification:write'
 )
 WHERE r.code = 'admin';
 

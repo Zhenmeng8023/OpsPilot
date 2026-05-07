@@ -13,6 +13,11 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 
 ## Implemented
 
+- Minimal Cron scheduling loop: schedules API, background scanner, and Schedules page; due schedules reuse the existing task_run / task_target / Agent poll / logs / result execution chain.
+- Frontend permission matrix: routes declare `handle.meta.permission`, the route guard checks user permissions, and navigation/key actions are permission-aware.
+- Webhook trigger loop: source/rule management, tokenized trigger endpoint, delivery replay prevention, rate limiting, event persistence, and task run generation through the existing execution chain.
+- Metrics / Alerts / Notifications loop: Agent metrics upload, host_metrics persistence, a Metrics page, metric threshold alert rules, alert events, site notifications, and delivery records.
+
 - Unified response envelope: `code`, `message`, `data`, `traceId`.
 - Backend layered architecture: handler/service/repository.
 - RBAC for scripts, tasks, logs, agents, and hosts.
@@ -21,14 +26,15 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 - Task state machine: `pending -> queued -> running -> success|failed|timeout`, and `pending|queued -> canceled`.
 - Agent executor: concurrency control, timeout handling, log upload retry, result reporting.
 - Frontend pages for scripts, script approvals, tasks, task logs, agents/hosts, and enrollment tokens.
+- Policy-enforced approval gate: scripts with `approvalRequired=true` must have latest approval status `approved` before task execution.
+- Task execution safety gate: high-risk command blocking, configurable command allowlist/denylist, maximum timeout enforcement, per-task Agent work directories, Agent-side log redaction before upload, and local process termination when canceling a running task.
 - Audit events for auth, scripts, tasks, agents, and role permission updates.
 
 ## Not Yet Implemented
 
-- Visual workflow orchestration and cron scheduling UI.
-- Policy-enforced approval gate (for example, high-risk scripts must be approved before execution).
-- Webhook trigger execution path.
-- Metrics and alerts pages beyond schema placeholders.
+- Visual workflow orchestration beyond the current Cron scheduling loop.
+- Advanced webhook signature schemes, matcher expressions, and audit search.
+- Real external delivery for email/webhook/dingtalk/wechat/slack. Site notifications and delivery records are implemented.
 
 ## Requirements
 
@@ -61,6 +67,20 @@ cd D:\+\1108026_rust_go\OpsPilot\server
 Copy-Item .\.env.example .\.env
 go mod tidy
 go run .\cmd\api
+```
+
+Key environment variables:
+
+```text
+DATABASE_DSN=opspilot:opspilot@tcp(127.0.0.1:3306)/opspilot?charset=utf8mb4&parseTime=True&loc=Local
+HTTP_ADDR=:8080
+HTTP_ALLOW_ORIGIN=http://localhost:5173
+AGENT_BOOTSTRAP_SECRET=dev-agent-bootstrap-secret
+AGENT_REGISTRATION_ENABLED=true
+AGENT_OFFLINE_SCAN_INTERVAL_SECONDS=45
+TASK_COMMAND_ALLOW_PATTERNS=
+TASK_COMMAND_DENY_PATTERNS=
+SCHEDULE_SCAN_INTERVAL_SECONDS=30
 ```
 
 ## Frontend

@@ -22,6 +22,7 @@ export interface UserProfile {
   username: string;
   email?: string;
   roles: string[];
+  permissions: string[];
   workspace: {
     id: string;
     name: string;
@@ -129,6 +130,8 @@ export interface Script {
   scriptType: string;
   status: string;
   version: number;
+  approvalRequired: boolean;
+  approvalStatus?: string;
   content?: string;
   changeSummary?: string;
   createdBy?: string;
@@ -199,4 +202,107 @@ export interface TaskLogEntry {
   createdAt: string;
   agentName?: string;
   hostName?: string;
+}
+
+export interface ScheduleSummary {
+  id: string;
+  name: string;
+  taskId: string;
+  taskName: string;
+  scheduleType: string;
+  cronExpr: string;
+  timezone: string;
+  status: string;
+  nextFireAt?: string;
+  lastFireAt?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface WebhookSource {
+  id: string;
+  name: string;
+  sourceType: string;
+  status: string;
+  lastReceivedAt?: string;
+  createdBy?: string;
+  createdAt: string;
+  token?: string;
+}
+
+export interface WebhookRule {
+  id: string;
+  sourceId: string;
+  sourceName: string;
+  taskId: string;
+  taskName: string;
+  name: string;
+  eventType?: string;
+  status: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface HostMetric {
+  id: number;
+  hostId: string;
+  hostName: string;
+  agentId?: string;
+  agentName?: string;
+  metricCode: string;
+  value: number;
+  unit?: string;
+  collectedAt: string;
+  createdAt: string;
+}
+
+export interface AlertRule {
+  id: string;
+  name: string;
+  ruleType: string;
+  metricCode?: string;
+  operator?: string;
+  threshold?: number;
+  durationSeconds: number;
+  severity: string;
+  status: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface AlertSummary {
+  id: string;
+  ruleId?: string;
+  ruleName?: string;
+  resourceType: string;
+  resourceId?: number;
+  title: string;
+  message?: string;
+  severity: string;
+  status: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt?: string;
+  createdAt: string;
+}
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  channelType: string;
+  status: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface NotificationSummary {
+  id: string;
+  title: string;
+  content?: string;
+  category: string;
+  severity: string;
+  resourceType?: string;
+  resourceId?: number;
+  readAt?: string;
+  createdAt: string;
 }

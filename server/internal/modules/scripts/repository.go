@@ -23,6 +23,8 @@ type scriptRecord struct {
 	Description      sql.NullString
 	ScriptType       string
 	Status           string
+	ApprovalRequired bool
+	ApprovalStatus   sql.NullString
 	CreatedBy        sql.NullString
 	CreatedByID      sql.NullInt64
 	CreatedAt        string
@@ -46,16 +48,25 @@ type scriptVersionRecord struct {
 }
 
 type approvalRecord struct {
-	ID           uint64
-	VersionUID   string
-	ScriptUID    string
-	ScriptName   string
-	VersionNo    uint
-	Status       string
-	Comment      sql.NullString
-	Approver     sql.NullString
-	ApprovedAt   sql.NullString
-	CreatedAt    string
+	ID         uint64
+	VersionUID string
+	ScriptUID  string
+	ScriptName string
+	VersionNo  uint
+	Status     string
+	Comment    sql.NullString
+	Approver   sql.NullString
+	ApprovedAt sql.NullString
+	CreatedAt  string
+}
+
+type listScriptsFilter struct {
+	Keyword        string
+	ScriptType     string
+	Status         string
+	ApprovalStatus string
+	Page           int
+	PageSize       int
 }
 
 func newRepository(db *gorm.DB) repository {
@@ -80,22 +91,59 @@ func (r repository) userIDByUID(ctx context.Context, uid string) (sql.NullInt64,
 	return sql.NullInt64{Int64: int64(id), Valid: true}, nil
 }
 
-func (r repository) listScripts(ctx context.Context, workspaceID uint64, keyword, status string) ([]scriptRecord, error) {
+func (r repository) listScripts(ctx context.Context, workspaceID uint64, filter listScriptsFilter) ([]scriptRecord, int64, error) {
 	args := []interface{}{workspaceID}
 	where := "WHERE st.workspace_id = ? AND st.deleted_at IS NULL"
-	if keyword != "" {
+	if filter.Keyword != "" {
 		where += " AND (st.name LIKE ? OR st.description LIKE ?)"
-		like := "%" + keyword + "%"
+		like := "%" + filter.Keyword + "%"
 		args = append(args, like, like)
 	}
-	if status != "" {
+	if filter.ScriptType != "" {
+		where += " AND st.script_type = ?"
+		args = append(args, filter.ScriptType)
+	}
+	if filter.Status != "" {
 		where += " AND st.status = ?"
-		args = append(args, status)
+		args = append(args, filter.Status)
+	}
+	if filter.ApprovalStatus != "" {
+		if filter.ApprovalStatus == "not_required" {
+			where += " AND st.approval_required = 0"
+		} else {
+			where += ` AND st.approval_required = 1
+			           AND (SELECT sa.status
+			                  FROM script_approvals sa
+			                  JOIN script_versions sva ON sva.id = sa.script_version_id
+			                 WHERE sva.template_id = st.id
+			                 ORDER BY sva.version_no DESC, sa.id DESC
+			                 LIMIT 1) = ?`
+			args = append(args, filter.ApprovalStatus)
+		}
+	}
+
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(
+		`SELECT COUNT(DISTINCT st.id)
+		   FROM script_templates st
+		   LEFT JOIN users u ON u.id = st.created_by
+		  `+where,
+		args...,
+	).Scan(&total).Error; err != nil {
+		return nil, 0, err
 	}
 
 	var rows []scriptRecord
+	queryArgs := append([]interface{}{}, args...)
+	queryArgs = append(queryArgs, (filter.Page-1)*filter.PageSize, filter.PageSize)
 	err := r.db.WithContext(ctx).Raw(
-		`SELECT st.id, st.uid, st.name, st.description, st.script_type, st.status,
+		`SELECT st.id, st.uid, st.name, st.description, st.script_type, st.status, st.approval_required,
+		        (SELECT sa.status
+		           FROM script_approvals sa
+		           JOIN script_versions sva ON sva.id = sa.script_version_id
+		          WHERE sva.template_id = st.id
+		          ORDER BY sva.version_no DESC, sa.id DESC
+		          LIMIT 1) AS approval_status,
 		        u.username AS created_by,
 		        DATE_FORMAT(st.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
 		        DATE_FORMAT(st.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
@@ -104,17 +152,18 @@ func (r repository) listScripts(ctx context.Context, workspaceID uint64, keyword
 		   LEFT JOIN script_versions sv ON sv.template_id = st.id
 		   LEFT JOIN users u ON u.id = st.created_by
 		   `+where+`
-		  GROUP BY st.id, st.uid, st.name, st.description, st.script_type, st.status, u.username, st.created_at, st.updated_at
-		  ORDER BY st.updated_at DESC, st.created_at DESC`,
-		args...,
+		  GROUP BY st.id, st.uid, st.name, st.description, st.script_type, st.status, st.approval_required, u.username, st.created_at, st.updated_at
+		  ORDER BY st.updated_at DESC, st.created_at DESC
+		  LIMIT ?, ?`,
+		queryArgs...,
 	).Scan(&rows).Error
-	return rows, err
+	return rows, total, err
 }
 
 func (r repository) scriptByUID(ctx context.Context, workspaceID uint64, uid string) (scriptRecord, error) {
 	var row scriptRecord
 	err := r.db.WithContext(ctx).Raw(
-		`SELECT st.id, st.uid, st.name, st.description, st.script_type, st.status,
+		`SELECT st.id, st.uid, st.name, st.description, st.script_type, st.status, st.approval_required,
 		        st.created_by AS created_by_id,
 		        u.username AS created_by,
 		        DATE_FORMAT(st.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
@@ -123,7 +172,12 @@ func (r repository) scriptByUID(ctx context.Context, workspaceID uint64, uid str
 		        sv.uid AS latest_version_uid,
 		        sv.version_no AS latest_version,
 		        sv.content,
-		        sv.change_summary
+		        sv.change_summary,
+		        (SELECT sa.status
+		           FROM script_approvals sa
+		          WHERE sa.script_version_id = sv.id
+		          ORDER BY sa.id DESC
+		          LIMIT 1) AS approval_status
 		   FROM script_templates st
 		   LEFT JOIN users u ON u.id = st.created_by
 		   LEFT JOIN script_versions sv ON sv.id = (

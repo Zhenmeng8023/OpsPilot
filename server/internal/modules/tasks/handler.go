@@ -16,13 +16,14 @@ import (
 )
 
 type ServiceContract interface {
-	List(context.Context, ListTasksInput) ([]TaskSummary, *apperror.Error)
+	List(context.Context, ListTasksInput) (TaskListResult, *apperror.Error)
 	Get(context.Context, string) (TaskDetail, *apperror.Error)
 	Create(context.Context, CreateTaskInput) (TaskDetail, *apperror.Error)
 	Cancel(context.Context, string, AuditContext) *apperror.Error
 	Targets(context.Context, string) ([]TaskTargetSummary, *apperror.Error)
 	Poll(context.Context, AgentIdentity, int) ([]AgentTask, *apperror.Error)
 	Claim(context.Context, AgentIdentity, string) (AgentTask, *apperror.Error)
+	TargetState(context.Context, AgentIdentity, string) (TargetState, *apperror.Error)
 	UploadLog(context.Context, AgentIdentity, LogInput) *apperror.Error
 	ReportResult(context.Context, AgentIdentity, ResultInput) *apperror.Error
 	Logs(context.Context, LogQuery) ([]TaskLogEntry, *apperror.Error)
@@ -80,14 +81,20 @@ func (h *Handler) RegisterAgentRoutes(api *gin.RouterGroup, agentAuth gin.Handle
 	agentGroup.Use(agentAuth)
 	agentGroup.GET("/poll", h.poll)
 	agentGroup.POST("/:targetId/claim", h.claim)
+	agentGroup.GET("/:targetId/status", h.targetState)
 	agentGroup.POST("/:targetId/logs", h.uploadLog)
 	agentGroup.POST("/:targetId/result", h.reportResult)
 }
 
 func (h *Handler) list(c *gin.Context) {
 	tasks, appErr := h.service.List(c.Request.Context(), ListTasksInput{
-		Keyword: c.Query("keyword"),
-		Status:  c.Query("status"),
+		Keyword:     c.Query("keyword"),
+		Status:      c.Query("status"),
+		Creator:     c.Query("creator"),
+		CreatedFrom: c.Query("createdFrom"),
+		CreatedTo:   c.Query("createdTo"),
+		Page:        int(parseUint(c.DefaultQuery("page", "1"))),
+		PageSize:    int(parseUint(c.DefaultQuery("pageSize", "20"))),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)
@@ -149,7 +156,9 @@ func (h *Handler) targets(c *gin.Context) {
 func (h *Handler) logs(c *gin.Context) {
 	logs, appErr := h.service.Logs(c.Request.Context(), LogQuery{
 		TaskID:  c.Param("id"),
+		Stream:  c.Query("stream"),
 		AfterID: parseUint(c.Query("afterSequence")),
+		Limit:   int(parseUint(c.DefaultQuery("limit", "500"))),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)
@@ -162,7 +171,9 @@ func (h *Handler) targetLogs(c *gin.Context) {
 	logs, appErr := h.service.Logs(c.Request.Context(), LogQuery{
 		TaskID:   c.Param("id"),
 		TargetID: c.Param("targetId"),
+		Stream:   c.Query("stream"),
 		AfterID:  parseUint(c.Query("afterSequence")),
+		Limit:    int(parseUint(c.DefaultQuery("limit", "500"))),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)
@@ -203,7 +214,9 @@ func (h *Handler) streamLogs(c *gin.Context) {
 			logs, appErr := h.service.Logs(c.Request.Context(), LogQuery{
 				TaskID:   c.Param("id"),
 				TargetID: targetID,
+				Stream:   c.Query("stream"),
 				AfterID:  cursor,
+				Limit:    int(parseUint(c.DefaultQuery("limit", "500"))),
 			})
 			if appErr != nil {
 				writeSSE(c, "error", gin.H{"message": appErr.Message})
@@ -247,6 +260,20 @@ func (h *Handler) claim(c *gin.Context) {
 		return
 	}
 	response.Success(c, task)
+}
+
+func (h *Handler) targetState(c *gin.Context) {
+	identity, ok := agentIdentity(c)
+	if !ok {
+		response.Fail(c, http.StatusUnauthorized, 401012, "invalid agent token")
+		return
+	}
+	state, appErr := h.service.TargetState(c.Request.Context(), identity, c.Param("targetId"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, state)
 }
 
 func (h *Handler) uploadLog(c *gin.Context) {

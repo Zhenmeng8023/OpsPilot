@@ -12,6 +12,9 @@ func TestStatusTransitions(t *testing.T) {
 		{StatusRunning, StatusSuccess},
 		{StatusRunning, StatusFailed},
 		{StatusRunning, StatusTimeout},
+		{StatusRunning, StatusCanceling},
+		{StatusRunning, StatusCanceled},
+		{StatusCanceling, StatusCanceled},
 		{StatusPending, StatusCanceled},
 		{StatusQueued, StatusCanceled},
 	}
@@ -29,7 +32,7 @@ func TestStatusTransitions(t *testing.T) {
 		{StatusQueued, StatusSuccess},
 		{StatusFailed, StatusQueued},
 		{StatusCanceled, StatusRunning},
-		{StatusRunning, StatusCanceled},
+		{StatusCanceling, StatusSuccess},
 	}
 	for _, item := range disallowed {
 		if CanTransition(item.from, item.to) {
@@ -44,7 +47,7 @@ func TestIsTerminal(t *testing.T) {
 			t.Fatalf("expected %s to be terminal", status)
 		}
 	}
-	for _, status := range []Status{StatusPending, StatusQueued, StatusRunning} {
+	for _, status := range []Status{StatusPending, StatusQueued, StatusRunning, StatusCanceling} {
 		if IsTerminal(status) {
 			t.Fatalf("expected %s to be non-terminal", status)
 		}

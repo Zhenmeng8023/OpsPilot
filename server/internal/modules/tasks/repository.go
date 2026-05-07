@@ -24,15 +24,17 @@ type userRecord struct {
 }
 
 type scriptRecord struct {
-	TemplateID  uint64
-	TemplateUID string
-	VersionID   uint64
-	VersionUID  string
-	Name        string
-	ScriptType  string
-	Content     string
-	Status      string
-	VersionNo   uint
+	TemplateID           uint64
+	TemplateUID          string
+	VersionID            uint64
+	VersionUID           string
+	Name                 string
+	ScriptType           string
+	Content              string
+	Status               string
+	VersionNo            uint
+	ApprovalRequired     bool
+	LatestApprovalStatus sql.NullString
 }
 
 type targetCandidate struct {
@@ -123,6 +125,16 @@ type logRecord struct {
 	HostName  sql.NullString
 }
 
+type listRunsFilter struct {
+	Keyword     string
+	Status      string
+	Creator     string
+	CreatedFrom string
+	CreatedTo   string
+	Page        int
+	PageSize    int
+}
+
 func newRepository(db *gorm.DB) repository {
 	return repository{db: db}
 }
@@ -149,7 +161,13 @@ func (r repository) activeScriptByUID(ctx context.Context, workspaceID uint64, u
 	var row scriptRecord
 	err := r.db.WithContext(ctx).Raw(
 		`SELECT st.id AS template_id, st.uid AS template_uid, st.name, st.script_type, st.status,
-		        sv.id AS version_id, sv.uid AS version_uid, sv.version_no, sv.content
+		        st.approval_required,
+		        sv.id AS version_id, sv.uid AS version_uid, sv.version_no, sv.content,
+		        (SELECT sa.status
+		           FROM script_approvals sa
+		          WHERE sa.script_version_id = sv.id
+		          ORDER BY sa.id DESC
+		          LIMIT 1) AS latest_approval_status
 		   FROM script_templates st
 		   JOIN script_versions sv ON sv.id = (
 		     SELECT sv2.id FROM script_versions sv2
@@ -217,29 +235,54 @@ func (r repository) runByUID(ctx context.Context, workspaceID uint64, uid string
 	return row, err
 }
 
-func (r repository) listRuns(ctx context.Context, workspaceID uint64, keyword, status string) ([]runRecord, error) {
+func (r repository) listRuns(ctx context.Context, workspaceID uint64, filter listRunsFilter) ([]runRecord, int64, error) {
 	args := []interface{}{workspaceID}
 	where := "WHERE tr.workspace_id = ?"
-	if keyword != "" {
+	if filter.Keyword != "" {
 		where += " AND (t.name LIKE ? OR t.description LIKE ?)"
-		like := "%" + keyword + "%"
+		like := "%" + filter.Keyword + "%"
 		args = append(args, like, like)
 	}
-	if status != "" {
+	if filter.Status != "" {
 		where += " AND tr.status = ?"
-		args = append(args, status)
+		args = append(args, filter.Status)
+	}
+	if filter.Creator != "" {
+		where += " AND (u.username LIKE ? OR u.uid = ?)"
+		args = append(args, "%"+filter.Creator+"%", filter.Creator)
+	}
+	if filter.CreatedFrom != "" {
+		where += " AND tr.created_at >= ?"
+		args = append(args, filter.CreatedFrom)
+	}
+	if filter.CreatedTo != "" {
+		where += " AND tr.created_at <= ?"
+		args = append(args, filter.CreatedTo)
+	}
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(
+		`SELECT COUNT(DISTINCT tr.id)
+		   FROM task_runs tr
+		   JOIN tasks t ON t.id = tr.task_id
+		   LEFT JOIN users u ON u.id = tr.created_by
+		  `+where,
+		args...,
+	).Scan(&total).Error; err != nil {
+		return nil, 0, err
 	}
 	var rows []runRecord
+	queryArgs := append([]interface{}{}, args...)
+	queryArgs = append(queryArgs, (filter.Page-1)*filter.PageSize, filter.PageSize)
 	err := r.db.WithContext(ctx).Raw(summarySQL()+`
 		  `+where+`
 		  GROUP BY tr.id, tr.uid, t.id, t.uid, t.name, t.description, tr.status, tr.timeout_seconds,
 		           tr.total_targets, tr.success_targets, tr.failed_targets, tr.canceled_targets,
 		           u.username, tr.created_by, tr.created_at, tr.queued_at, tr.started_at, tr.finished_at, tr.error_message
 		  ORDER BY tr.created_at DESC
-		  LIMIT 200`,
-		args...,
+		  LIMIT ?, ?`,
+		queryArgs...,
 	).Scan(&rows).Error
-	return rows, err
+	return rows, total, err
 }
 
 func (r repository) targetsByRunUID(ctx context.Context, workspaceID uint64, runUID string) ([]runTargetRecord, error) {
@@ -262,7 +305,7 @@ func (r repository) targetsByRunUID(ctx context.Context, workspaceID uint64, run
 	return rows, err
 }
 
-func (r repository) agentPoll(ctx context.Context, agentID uint64, limit int) ([]agentTaskRecord, error) {
+func (r repository) agentPoll(ctx context.Context, workspaceID, agentID uint64, limit int) ([]agentTaskRecord, error) {
 	var rows []agentTaskRecord
 	err := r.db.WithContext(ctx).Raw(
 		`SELECT rt.uid AS target_id, tr.uid AS run_id, t.name AS task_name, t.description,
@@ -275,17 +318,18 @@ func (r repository) agentPoll(ctx context.Context, agentID uint64, limit int) ([
 		   JOIN script_templates st ON st.id = t.script_template_id
 		   JOIN agents a ON a.id = rt.agent_id
 		   LEFT JOIN hosts h ON h.id = rt.host_id
-		  WHERE rt.agent_id = ?
+		  WHERE tr.workspace_id = ?
+		    AND rt.agent_id = ?
 		    AND rt.status = 'queued'
 		    AND tr.status IN ('queued', 'running')
 		  ORDER BY rt.created_at, rt.id
 		  LIMIT ?`,
-		agentID, limit,
+		workspaceID, agentID, limit,
 	).Scan(&rows).Error
 	return rows, err
 }
 
-func (r repository) agentTaskByTargetUID(ctx context.Context, targetUID string) (agentTaskRecord, error) {
+func (r repository) agentTaskByTargetUID(ctx context.Context, workspaceID uint64, targetUID string) (agentTaskRecord, error) {
 	var row agentTaskRecord
 	err := r.db.WithContext(ctx).Raw(
 		`SELECT rt.uid AS target_id, tr.uid AS run_id, t.name AS task_name, t.description,
@@ -299,8 +343,9 @@ func (r repository) agentTaskByTargetUID(ctx context.Context, targetUID string) 
 		   JOIN agents a ON a.id = rt.agent_id
 		   LEFT JOIN hosts h ON h.id = rt.host_id
 		  WHERE rt.uid = ?
+		    AND tr.workspace_id = ?
 		  LIMIT 1`,
-		targetUID,
+		targetUID, workspaceID,
 	).Scan(&row).Error
 	return row, err
 }
@@ -318,13 +363,18 @@ func (r repository) latestAttempt(ctx context.Context, runTargetID uint64) (atte
 	return row, err
 }
 
-func (r repository) logs(ctx context.Context, workspaceID uint64, runUID, targetUID string, afterID uint64) ([]logRecord, error) {
+func (r repository) logs(ctx context.Context, workspaceID uint64, runUID, targetUID, stream string, afterID uint64, limit int) ([]logRecord, error) {
 	args := []interface{}{workspaceID, runUID, afterID}
 	where := "WHERE tr.workspace_id = ? AND tr.uid = ? AND l.id > ?"
 	if strings.TrimSpace(targetUID) != "" {
 		where += " AND rt.uid = ?"
 		args = append(args, targetUID)
 	}
+	if strings.TrimSpace(stream) != "" {
+		where += " AND l.stream = ?"
+		args = append(args, stream)
+	}
+	args = append(args, limit)
 	var rows []logRecord
 	err := r.db.WithContext(ctx).Raw(
 		`SELECT l.id, tr.uid AS run_id, rt.uid AS target_id, l.sequence, l.stream, l.content,
@@ -337,7 +387,7 @@ func (r repository) logs(ctx context.Context, workspaceID uint64, runUID, target
 		   LEFT JOIN hosts h ON h.id = rt.host_id
 		  `+where+`
 		  ORDER BY l.id ASC
-		  LIMIT 500`,
+		  LIMIT ?`,
 		args...,
 	).Scan(&rows).Error
 	return rows, err

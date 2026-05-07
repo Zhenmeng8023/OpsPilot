@@ -1,5 +1,5 @@
 import { streamSSE, request } from "./request";
-import type { TaskDetail, TaskLogEntry, TaskSummary, TaskTarget } from "./types";
+import type { PageResult, TaskDetail, TaskLogEntry, TaskSummary, TaskTarget } from "./types";
 
 export interface CreateTaskPayload {
   name: string;
@@ -12,11 +12,24 @@ export interface CreateTaskPayload {
   targetHostIds: string[];
 }
 
-export function listTasks(params: { keyword?: string; status?: string } = {}) {
+export function listTasks(params: {
+  keyword?: string;
+  status?: string;
+  creator?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  page?: number;
+  pageSize?: number;
+} = {}) {
   const search = new URLSearchParams();
   if (params.keyword) search.set("keyword", params.keyword);
   if (params.status) search.set("status", params.status);
-  return request<TaskSummary[]>(`/api/v1/tasks${search.toString() ? `?${search}` : ""}`);
+  if (params.creator) search.set("creator", params.creator);
+  if (params.createdFrom) search.set("createdFrom", params.createdFrom);
+  if (params.createdTo) search.set("createdTo", params.createdTo);
+  if (params.page) search.set("page", String(params.page));
+  if (params.pageSize) search.set("pageSize", String(params.pageSize));
+  return request<PageResult<TaskSummary>>(`/api/v1/tasks${search.toString() ? `?${search}` : ""}`);
 }
 
 export function createTask(payload: CreateTaskPayload) {
@@ -38,9 +51,11 @@ export function getTaskTargets(id: string) {
   return request<TaskTarget[]>(`/api/v1/tasks/${id}/targets`);
 }
 
-export function getTaskLogs(id: string, targetId?: string, afterSequence?: number) {
+export function getTaskLogs(id: string, targetId?: string, afterSequence?: number, stream?: string, limit?: number) {
   const search = new URLSearchParams();
   if (afterSequence) search.set("afterSequence", String(afterSequence));
+  if (stream) search.set("stream", stream);
+  if (limit) search.set("limit", String(limit));
   if (targetId) {
     return request<TaskLogEntry[]>(`/api/v1/tasks/${id}/targets/${targetId}/logs${search.toString() ? `?${search}` : ""}`);
   }
@@ -52,6 +67,8 @@ export function streamTaskLogs(
   options: {
     targetId?: string;
     afterSequence?: number;
+    stream?: string;
+    limit?: number;
     signal?: AbortSignal;
     onLog: (log: TaskLogEntry) => void;
     onError?: (error: Error) => void;
@@ -60,6 +77,8 @@ export function streamTaskLogs(
   const search = new URLSearchParams();
   if (options.targetId) search.set("targetId", options.targetId);
   if (options.afterSequence) search.set("afterSequence", String(options.afterSequence));
+  if (options.stream) search.set("stream", options.stream);
+  if (options.limit) search.set("limit", String(options.limit));
   return streamSSE(`/api/v1/tasks/${id}/logs/stream${search.toString() ? `?${search}` : ""}`, {
     signal: options.signal,
     onError: options.onError,

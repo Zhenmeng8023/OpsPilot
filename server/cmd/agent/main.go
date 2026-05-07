@@ -75,6 +75,11 @@ type agentTask struct {
 	TimeoutSeconds uint   `json:"timeoutSeconds"`
 }
 
+type targetState struct {
+	TargetID string `json:"targetId"`
+	Status   string `json:"status"`
+}
+
 type logPayload struct {
 	Sequence  uint64 `json:"sequence"`
 	Stream    string `json:"stream"`
@@ -88,6 +93,18 @@ type resultPayload struct {
 	ErrorMessage string `json:"errorMessage,omitempty"`
 	StartedAt    string `json:"startedAt"`
 	FinishedAt   string `json:"finishedAt"`
+}
+
+type metricPayload struct {
+	Code        string                 `json:"code"`
+	Value       float64                `json:"value"`
+	Unit        string                 `json:"unit,omitempty"`
+	Dimensions  map[string]interface{} `json:"dimensions,omitempty"`
+	CollectedAt string                 `json:"collectedAt,omitempty"`
+}
+
+type metricsPayload struct {
+	Metrics []metricPayload `json:"metrics"`
 }
 
 type executor struct {
@@ -203,6 +220,9 @@ func (e *executor) heartbeatLoop(ctx context.Context) {
 			if err := e.heartbeat(ctx); err != nil {
 				e.log.Warn("heartbeat failed", "error", security.Redact(err.Error()))
 			}
+			if err := e.uploadMetrics(ctx); err != nil {
+				e.log.Warn("metrics upload failed", "error", security.Redact(err.Error()))
+			}
 		}
 	}
 }
@@ -268,7 +288,7 @@ func (e *executor) runTarget(parent context.Context, task agentTask) {
 		payload := logPayload{
 			Sequence:  sequence.Add(1),
 			Stream:    stream,
-			Chunk:     chunk,
+			Chunk:     security.Redact(chunk),
 			Timestamp: time.Now().Format(time.RFC3339Nano),
 		}
 		if err := e.uploadLog(parent, claimed.TargetID, payload); err != nil {
@@ -276,7 +296,17 @@ func (e *executor) runTarget(parent context.Context, task agentTask) {
 		}
 	}
 	upload("system", "task claimed by agent\n")
-	result := runCommand(parent, claimed, e.cfg.Agent.WorkDir, upload)
+	runCtx, cancelRun := context.WithCancel(parent)
+	defer cancelRun()
+	done := make(chan struct{})
+	cancelRequested := atomic.Bool{}
+	go e.monitorCancellation(runCtx, claimed.TargetID, done, &cancelRequested, cancelRun, upload)
+	result := runCommand(runCtx, claimed, e.cfg.Agent.WorkDir, upload)
+	close(done)
+	if cancelRequested.Load() && result.Status != "canceled" {
+		result.Status = "canceled"
+		result.ErrorMessage = "task canceled"
+	}
 	payload := resultPayload{
 		Status:       result.Status,
 		ExitCode:     result.ExitCode,
@@ -307,11 +337,48 @@ func (e *executor) reportResult(ctx context.Context, targetID string, payload re
 	return err
 }
 
+func (e *executor) targetState(ctx context.Context, targetID string) (targetState, error) {
+	return getJSON[targetState](ctx, e.client, "/api/v1/agent/tasks/"+targetID+"/status", e.token)
+}
+
+func (e *executor) monitorCancellation(ctx context.Context, targetID string, done <-chan struct{}, canceled *atomic.Bool, cancel context.CancelFunc, onLog func(stream, chunk string)) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			state, err := e.targetState(ctx, targetID)
+			if err != nil {
+				e.log.Warn("check task target status failed", "target_id", targetID, "error", security.Redact(err.Error()))
+				continue
+			}
+			if state.Status == "canceling" || state.Status == "canceled" {
+				canceled.Store(true)
+				if state.Status == "canceling" {
+					onLog("system", "cancel requested; stopping command\n")
+				}
+				cancel()
+				return
+			}
+		}
+	}
+}
+
 func (e *executor) heartbeat(ctx context.Context) error {
 	payload := collectHostInfo(e.cfg)
 	payload.Status = "online"
 	payload.RunningTasks = e.active.Load()
 	_, err := postJSON[json.RawMessage](ctx, e.client, "/api/v1/agents/heartbeat", e.token, payload)
+	return err
+}
+
+func (e *executor) uploadMetrics(ctx context.Context) error {
+	payload := metricsPayload{Metrics: collectMetrics(e)}
+	_, err := postJSON[json.RawMessage](ctx, e.client, "/api/v1/agent/metrics", e.token, payload)
 	return err
 }
 
@@ -331,6 +398,10 @@ func register(ctx context.Context, client apiClient, cfg config.Config) (string,
 
 func runCommand(parent context.Context, task agentTask, workDir string, onLog func(stream, chunk string)) commandResult {
 	startedAt := time.Now()
+	taskDir, err := prepareTaskWorkDir(workDir, task.TargetID)
+	if err != nil {
+		return failedResult(startedAt, err)
+	}
 	timeout := time.Duration(task.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = time.Second
@@ -339,7 +410,7 @@ func runCommand(parent context.Context, task agentTask, workDir string, onLog fu
 	defer cancel()
 
 	cmd := commandFor(ctx, task.ScriptType, task.Command)
-	cmd.Dir = workDir
+	cmd.Dir = taskDir
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return failedResult(startedAt, err)
@@ -363,6 +434,9 @@ func runCommand(parent context.Context, task agentTask, workDir string, onLog fu
 	exitCode := 0
 	if cmd.ProcessState != nil {
 		exitCode = cmd.ProcessState.ExitCode()
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return commandResult{Status: "canceled", ExitCode: &exitCode, ErrorMessage: "task canceled", StartedAt: startedAt, FinishedAt: finishedAt}
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return commandResult{Status: "timeout", ExitCode: &exitCode, ErrorMessage: "command timed out", StartedAt: startedAt, FinishedAt: finishedAt}
@@ -395,6 +469,47 @@ func commandFor(ctx context.Context, scriptType, command string) *exec.Cmd {
 		return exec.CommandContext(ctx, "/bin/bash", "-lc", command)
 	}
 	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
+}
+
+func prepareTaskWorkDir(baseDir, targetID string) (string, error) {
+	if strings.TrimSpace(baseDir) == "" {
+		baseDir = "."
+	}
+	taskDir := filepath.Join(baseDir, safePathSegment(targetID))
+	if err := os.MkdirAll(taskDir, 0o700); err != nil {
+		return "", err
+	}
+	return taskDir, nil
+}
+
+func safePathSegment(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "task"
+	}
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '-', r == '_', r == '.':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	if builder.Len() == 0 {
+		return "task"
+	}
+	segment := builder.String()
+	if segment == "." || segment == ".." {
+		return "task"
+	}
+	return segment
 }
 
 func streamOutput(wg *sync.WaitGroup, reader io.Reader, stream string, onLog func(stream, chunk string)) {
@@ -493,6 +608,24 @@ func collectHostInfo(cfg config.Config) agentPayload {
 			"workspace": cfg.Agent.Workspace,
 			"workDir":   cfg.Agent.WorkDir,
 		},
+	}
+}
+
+func collectMetrics(e *executor) []metricPayload {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	now := time.Now().Format(time.RFC3339)
+	dimensions := map[string]interface{}{
+		"os":      runtime.GOOS,
+		"arch":    runtime.GOARCH,
+		"workDir": e.cfg.Agent.WorkDir,
+	}
+	return []metricPayload{
+		{Code: "agent.running_tasks", Value: float64(e.active.Load()), Unit: "count", Dimensions: dimensions, CollectedAt: now},
+		{Code: "agent.cpu.logical", Value: float64(runtime.NumCPU()), Unit: "count", Dimensions: dimensions, CollectedAt: now},
+		{Code: "agent.runtime.goroutines", Value: float64(runtime.NumGoroutine()), Unit: "count", Dimensions: dimensions, CollectedAt: now},
+		{Code: "agent.runtime.alloc_bytes", Value: float64(mem.Alloc), Unit: "bytes", Dimensions: dimensions, CollectedAt: now},
+		{Code: "agent.runtime.sys_bytes", Value: float64(mem.Sys), Unit: "bytes", Dimensions: dimensions, CollectedAt: now},
 	}
 }
 

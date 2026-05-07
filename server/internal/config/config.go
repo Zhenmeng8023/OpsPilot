@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,9 @@ type Config struct {
 	Redis     RedisConfig
 	JWT       JWTConfig
 	Agent     AgentConfig
+	Command   CommandPolicyConfig
+	Schedule  ScheduleConfig
+	Alert     AlertConfig
 	Bootstrap BootstrapConfig
 }
 
@@ -61,6 +65,19 @@ type AgentConfig struct {
 	TokenFile           string
 	RegistrationEnabled bool
 	OfflineScanInterval time.Duration
+}
+
+type CommandPolicyConfig struct {
+	AllowPatterns []string
+	DenyPatterns  []string
+}
+
+type ScheduleConfig struct {
+	ScanInterval time.Duration
+}
+
+type AlertConfig struct {
+	ScanInterval time.Duration
 }
 
 type BootstrapConfig struct {
@@ -114,6 +131,16 @@ func Load() (Config, error) {
 			RegistrationEnabled: getEnvBool("AGENT_REGISTRATION_ENABLED", true),
 			OfflineScanInterval: getEnvDurationSeconds("AGENT_OFFLINE_SCAN_INTERVAL_SECONDS", getEnvDuration("AGENT_OFFLINE_SCAN_INTERVAL", 45*time.Second)),
 		},
+		Command: CommandPolicyConfig{
+			AllowPatterns: getEnvList("TASK_COMMAND_ALLOW_PATTERNS"),
+			DenyPatterns:  getEnvList("TASK_COMMAND_DENY_PATTERNS"),
+		},
+		Schedule: ScheduleConfig{
+			ScanInterval: getEnvDurationSeconds("SCHEDULE_SCAN_INTERVAL_SECONDS", 30*time.Second),
+		},
+		Alert: AlertConfig{
+			ScanInterval: getEnvDurationSeconds("ALERT_SCAN_INTERVAL_SECONDS", 30*time.Second),
+		},
 		Bootstrap: BootstrapConfig{
 			WorkspaceName: getEnv("BOOTSTRAP_WORKSPACE_NAME", "Default Workspace"),
 			WorkspaceSlug: getEnv("BOOTSTRAP_WORKSPACE_SLUG", "default"),
@@ -134,6 +161,12 @@ func Load() (Config, error) {
 	}
 	if cfg.Agent.MaxConcurrentTasks <= 0 {
 		cfg.Agent.MaxConcurrentTasks = 1
+	}
+	if err := validateCommandPatterns(cfg.Command.AllowPatterns); err != nil {
+		return Config{}, err
+	}
+	if err := validateCommandPatterns(cfg.Command.DenyPatterns); err != nil {
+		return Config{}, err
 	}
 
 	return cfg, nil
@@ -168,6 +201,31 @@ func getEnvBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func getEnvList(key string) []string {
+	value := strings.TrimSpace(getEnv(key, ""))
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func validateCommandPatterns(patterns []string) error {
+	for _, pattern := range patterns {
+		if _, err := regexp.Compile(pattern); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func getEnvDuration(key string, fallback time.Duration) time.Duration {

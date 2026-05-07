@@ -11,7 +11,8 @@ WHERE p.code IN (
   'agent:read', 'agent:write', 'host:read', 'host:write',
   'script:read', 'script:write', 'script:approve',
   'task:read', 'task:write', 'task:execute', 'task:cancel', 'task:log:read'
-  , 'schedule:read', 'schedule:write', 'webhook:read', 'webhook:manage'
+  , 'schedule:read', 'schedule:write', 'webhook:read', 'webhook:manage', 'alert:read', 'alert:write'
+  , 'notification:read', 'notification:write'
 );
 
 DELETE FROM permissions
@@ -19,7 +20,8 @@ WHERE code IN (
   'agent:read', 'agent:write', 'host:read', 'host:write',
   'script:read', 'script:write', 'script:approve',
   'task:read', 'task:write', 'task:execute', 'task:cancel', 'task:log:read'
-  , 'schedule:read', 'schedule:write', 'webhook:read', 'webhook:manage'
+  , 'schedule:read', 'schedule:write', 'webhook:read', 'webhook:manage', 'alert:read', 'alert:write'
+  , 'notification:read', 'notification:write'
 );
 
 DROP TABLE IF EXISTS agent_enrollment_tokens;

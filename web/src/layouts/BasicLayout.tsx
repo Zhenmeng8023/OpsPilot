@@ -1,15 +1,20 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { useLanguageStore } from "../i18n/language";
+import { hasPermissionCode } from "../modules/auth/permissions";
 import { useAuthStore } from "../modules/auth/store";
 
 const navItems = [
-  { to: "/dashboard", labelKey: "nav.dashboard" },
-  { to: "/users", labelKey: "nav.users" },
-  { to: "/roles", labelKey: "nav.roles" },
-  { to: "/agents", labelKey: "nav.agents" },
-  { to: "/scripts", labelKey: "nav.scripts" },
-  { to: "/tasks", labelKey: "nav.tasks" }
+  { to: "/dashboard", labelKey: "nav.dashboard", permission: "workspace.read" },
+  { to: "/users", labelKey: "nav.users", permission: "user.read" },
+  { to: "/roles", labelKey: "nav.roles", permission: "role.read" },
+  { to: "/agents", labelKey: "nav.agents", permission: "agent:read" },
+  { to: "/scripts", labelKey: "nav.scripts", permission: "script:read" },
+  { to: "/tasks", labelKey: "nav.tasks", permission: "task:read" },
+  { to: "/schedules", label: "Schedules", permission: "schedule:read" },
+  { to: "/webhooks", label: "Webhooks", permission: "webhook:read" },
+  { to: "/metrics", label: "Metrics", permission: "metric.read" },
+  { to: "/notifications", label: "Notifications", permission: "notification:read" }
 ] as const;
 
 export function BasicLayout() {
@@ -30,11 +35,13 @@ export function BasicLayout() {
           </div>
         </div>
         <nav className="nav-list">
-          {navItems.map((item) => (
-            <NavLink key={item.labelKey} to={item.to}>
-              {t(item.labelKey)}
-            </NavLink>
-          ))}
+          {navItems
+            .filter((item) => hasPermissionCode(user?.permissions, item.permission))
+            .map((item) => (
+              <NavLink key={item.to} to={item.to}>
+                {"label" in item ? item.label : t(item.labelKey)}
+              </NavLink>
+            ))}
         </nav>
       </aside>
       <div className="main-area">

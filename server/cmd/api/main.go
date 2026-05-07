@@ -13,7 +13,9 @@ import (
 	"opspilot/server/internal/app"
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/modules/agents"
+	"opspilot/server/internal/modules/alerts"
 	"opspilot/server/internal/modules/auth"
+	"opspilot/server/internal/modules/schedules"
 	"opspilot/server/internal/platform/db"
 	"opspilot/server/internal/platform/logger"
 	redisplatform "opspilot/server/internal/platform/redis"
@@ -49,6 +51,8 @@ func main() {
 	scannerCtx, scannerCancel := context.WithCancel(context.Background())
 	defer scannerCancel()
 	startOfflineScanner(scannerCtx, log, agents.NewService(dbHandle, cfg), cfg.Agent.OfflineScanInterval)
+	schedules.StartScheduler(scannerCtx, log, schedules.NewService(dbHandle, cfg), cfg.Schedule.ScanInterval)
+	alerts.StartScanner(scannerCtx, log, alerts.NewService(dbHandle, cfg), cfg.Alert.ScanInterval)
 
 	redisClient := redisplatform.NewClient(cfg.Redis)
 	if err := redisplatform.Ping(startupCtx, redisClient); err != nil {

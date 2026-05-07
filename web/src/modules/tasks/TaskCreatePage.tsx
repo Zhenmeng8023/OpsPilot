@@ -1,11 +1,11 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { request } from "../../api/request";
 import { listScripts } from "../../api/scripts";
 import { createTask } from "../../api/tasks";
-import type { Agent, Host, PageResult } from "../../api/types";
+import type { Agent, Host, PageResult, Script } from "../../api/types";
 
 export function TaskCreatePage() {
   const navigate = useNavigate();
@@ -20,9 +20,17 @@ export function TaskCreatePage() {
     targetAgentIds: [] as string[],
     targetHostIds: [] as string[]
   });
-  const scriptsQuery = useQuery({ queryKey: ["scripts", "active"], queryFn: () => listScripts({ status: "active" }) });
+  const scriptsQuery = useQuery({ queryKey: ["scripts", "active"], queryFn: () => listScripts({ status: "active", pageSize: 100 }) });
   const agentsQuery = useQuery({ queryKey: ["agents", "task-create"], queryFn: () => request<PageResult<Agent>>("/api/v1/agents?pageSize=100") });
   const hostsQuery = useQuery({ queryKey: ["hosts", "task-create"], queryFn: () => request<PageResult<Host>>("/api/v1/hosts?pageSize=100") });
+  const selectedScript = useMemo(
+    () => (scriptsQuery.data?.items ?? []).find((script) => script.id === form.scriptId),
+    [scriptsQuery.data, form.scriptId]
+  );
+  const scriptApprovalBlocked =
+    mode === "script" &&
+    Boolean(selectedScript?.approvalRequired) &&
+    selectedScript?.approvalStatus !== "approved";
   const createMutation = useMutation({
     mutationFn: () =>
       createTask({
@@ -38,7 +46,12 @@ export function TaskCreatePage() {
     onSuccess: (task) => navigate(`/tasks/${task.id}`)
   });
   const hasTargets = form.targetAgentIds.length + form.targetHostIds.length > 0;
-  const isValid = form.name.trim() && form.timeoutSeconds > 0 && hasTargets && (mode === "script" ? form.scriptId : form.command.trim());
+  const isValid =
+    form.name.trim() &&
+    form.timeoutSeconds > 0 &&
+    hasTargets &&
+    (mode === "script" ? form.scriptId : form.command.trim()) &&
+    !scriptApprovalBlocked;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,7 +81,12 @@ export function TaskCreatePage() {
             Script template
             <select value={form.scriptId} onChange={(event) => setForm({ ...form, scriptId: event.target.value })}>
               <option value="">Select script</option>
-              {(scriptsQuery.data ?? []).map((script) => <option key={script.id} value={script.id}>{script.name} v{script.version}</option>)}
+              {(scriptsQuery.data?.items ?? []).map((script) => (
+                <option key={script.id} value={script.id}>
+                  {script.name} v{script.version}
+                  {script.approvalRequired ? ` [${script.approvalStatus || "unapproved"}]` : ""}
+                </option>
+              ))}
             </select>
           </label>
         ) : (
@@ -99,6 +117,9 @@ export function TaskCreatePage() {
         </section>
         {form.timeoutSeconds <= 0 ? <p className="form-error">Timeout must be greater than 0.</p> : null}
         {!hasTargets ? <p className="form-error">Select at least one target Agent or Host.</p> : null}
+        {scriptApprovalBlocked ? (
+          <p className="form-error">{approvalBlockedMessage(selectedScript)}</p>
+        ) : null}
         {createMutation.isError ? <p className="form-error">{createMutation.error.message}</p> : null}
         <button className="ghost-button" type="submit" disabled={createMutation.isPending || !isValid}>Create task</button>
       </form>
@@ -108,4 +129,15 @@ export function TaskCreatePage() {
 
 function toggleValue(values: string[], value: string, setValues: (values: string[]) => void) {
   setValues(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
+}
+
+function approvalBlockedMessage(script?: Script) {
+  const status = script?.approvalStatus || "unapproved";
+  if (status === "pending") {
+    return "Selected script is awaiting approval and cannot be executed yet.";
+  }
+  if (status === "rejected" || status === "canceled") {
+    return "Selected script approval is not accepted. Please update and re-request approval.";
+  }
+  return "Selected script requires approval before execution.";
 }

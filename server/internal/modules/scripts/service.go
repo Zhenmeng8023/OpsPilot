@@ -51,20 +51,33 @@ type UpdateInput struct {
 }
 
 type ListInput struct {
-	Keyword string
-	Status  string
+	Keyword        string
+	ScriptType     string
+	Status         string
+	ApprovalStatus string
+	Page           int
+	PageSize       int
 }
 
 type ScriptSummary struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	ScriptType  string `json:"scriptType"`
-	Status      string `json:"status"`
-	Version     uint   `json:"version"`
-	CreatedBy   string `json:"createdBy,omitempty"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Description      string `json:"description,omitempty"`
+	ScriptType       string `json:"scriptType"`
+	Status           string `json:"status"`
+	Version          uint   `json:"version"`
+	ApprovalRequired bool   `json:"approvalRequired"`
+	ApprovalStatus   string `json:"approvalStatus,omitempty"`
+	CreatedBy        string `json:"createdBy,omitempty"`
+	CreatedAt        string `json:"createdAt"`
+	UpdatedAt        string `json:"updatedAt"`
+}
+
+type ScriptListResult struct {
+	Items    []ScriptSummary `json:"items"`
+	Total    int64           `json:"total"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"pageSize"`
 }
 
 type ScriptDetail struct {
@@ -90,20 +103,28 @@ func NewService(db *gorm.DB, cfg config.Config) *Service {
 	return &Service{db: db, cfg: cfg, repo: newRepository(db)}
 }
 
-func (s *Service) List(ctx context.Context, input ListInput) ([]ScriptSummary, *apperror.Error) {
+func (s *Service) List(ctx context.Context, input ListInput) (ScriptListResult, *apperror.Error) {
 	workspace, appErr := s.workspace(ctx)
 	if appErr != nil {
-		return nil, appErr
+		return ScriptListResult{}, appErr
 	}
-	rows, err := s.repo.listScripts(ctx, workspace.ID, strings.TrimSpace(input.Keyword), strings.TrimSpace(input.Status))
+	input.Page, input.PageSize = normalizePage(input.Page, input.PageSize)
+	rows, total, err := s.repo.listScripts(ctx, workspace.ID, listScriptsFilter{
+		Keyword:        strings.TrimSpace(input.Keyword),
+		ScriptType:     strings.TrimSpace(input.ScriptType),
+		Status:         strings.TrimSpace(input.Status),
+		ApprovalStatus: strings.TrimSpace(input.ApprovalStatus),
+		Page:           input.Page,
+		PageSize:       input.PageSize,
+	})
 	if err != nil {
-		return nil, apperror.Wrap(http.StatusInternalServerError, 500201, "list scripts failed", err)
+		return ScriptListResult{}, apperror.Wrap(http.StatusInternalServerError, 500201, "list scripts failed", err)
 	}
 	out := make([]ScriptSummary, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, summaryFromRecord(row))
 	}
-	return out, nil
+	return ScriptListResult{Items: out, Total: total, Page: input.Page, PageSize: input.PageSize}, nil
 }
 
 func (s *Service) Get(ctx context.Context, scriptUID string) (ScriptDetail, *apperror.Error) {
@@ -520,15 +541,17 @@ func (s *Service) workspace(ctx context.Context) (workspaceRecord, *apperror.Err
 
 func summaryFromRecord(row scriptRecord) ScriptSummary {
 	return ScriptSummary{
-		ID:          row.UID,
-		Name:        row.Name,
-		Description: row.Description.String,
-		ScriptType:  row.ScriptType,
-		Status:      row.Status,
-		Version:     row.LatestVersion,
-		CreatedBy:   row.CreatedBy.String,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		ID:               row.UID,
+		Name:             row.Name,
+		Description:      row.Description.String,
+		ScriptType:       row.ScriptType,
+		Status:           row.Status,
+		Version:          row.LatestVersion,
+		ApprovalRequired: row.ApprovalRequired,
+		ApprovalStatus:   row.ApprovalStatus.String,
+		CreatedBy:        row.CreatedBy.String,
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
 	}
 }
 
@@ -580,4 +603,17 @@ func checksum(content string) string {
 func nullString(value string) sql.NullString {
 	value = strings.TrimSpace(value)
 	return sql.NullString{String: value, Valid: value != ""}
+}
+
+func normalizePage(page, pageSize int) (int, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	return page, pageSize
 }

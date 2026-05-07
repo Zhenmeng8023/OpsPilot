@@ -4,6 +4,35 @@
 
 ## Unreleased
 
+### T5 Cron Scheduling
+
+- Added a schedules backend module with Cron schedule creation, paginated listing, pause, resume, and disable actions.
+- Added a background schedule scanner controlled by `SCHEDULE_SCAN_INTERVAL_SECONDS`; due schedules create task runs through the existing `task_runs` / `task_run_targets` / Agent poll / logs / result execution chain.
+- Added a Schedules page in the web app for creating Cron schedules from existing task definitions and viewing next/last fire times.
+- Added a frontend route permission matrix: routes declare `handle.meta.permission`, the guard checks the current user's permissions, and navigation/actions are permission-aware.
+
+### T6 Webhook Triggering
+
+- Added Webhook source/rule management APIs and a Webhooks page.
+- Added public trigger endpoint `POST /api/v1/webhooks/trigger/:token`; the source token identifies the sender.
+- Trigger requests write `webhook_events` and `webhook_event_matches`; matched rules create `task_runs` through the existing execution chain.
+- Added basic protections: `X-Delivery-Id` replay prevention, per-source per-minute rate limiting, payload hashing, and request header persistence.
+
+### T7 Metrics Monitoring
+
+- Added Agent metrics upload endpoint `POST /api/v1/agent/metrics`, persisted into `host_metrics`.
+- Agent now uploads running task count, logical CPU count, goroutine count, and runtime memory metrics on the heartbeat loop.
+- Added management API `GET /api/v1/metrics/hosts` and a Metrics page for recent host/Agent metrics.
+- Added alert rules / alerts APIs and a background scanner; metric threshold rules create firing alerts and automatically resolve when values recover.
+- The Metrics page now includes alert rule creation, current firing alerts, and rule listing.
+
+### T8 Notifications
+
+- Added notification channel / notification management APIs and a Notifications page.
+- First-time firing alerts now create `notifications` and `notification_deliveries`.
+- Site notification channels mark deliveries as success immediately; external channels create pending deliveries for future sender implementation.
+- The web app supports notification listing, unread filtering, mark-as-read, channel listing, and site channel creation.
+
 ### T1 Authentication and RBAC
 
 - Added login, registration, refresh/logout, current user, users, roles, and permissions APIs.
@@ -42,3 +71,9 @@
 - Added script approval UI: pending queue, approve/reject actions, and request-approval action in script editor.
 - Synced OpenAPI for enrollment token and script approval endpoints.
 - Synced RBAC seed data with `script:approve`.
+- Added script approval execution gate: task creation now rejects scripts with `approvalRequired=true` when latest approval status is not `approved`.
+- Added approval visibility in UI: script list now includes an approval status column, and task creation shows script approval status with blocking guidance for non-executable scripts.
+- Added task execution safety gate: blocks high-risk commands such as `rm/del/format/shutdown/reboot/mkfs/Remove-Item` and caps task timeout at 3600 seconds.
+- Added environment-configurable command policy: `TASK_COMMAND_ALLOW_PATTERNS` and `TASK_COMMAND_DENY_PATTERNS` can extend allowlist / denylist behavior with regular expressions.
+- Updated Agent executor to use one work directory per task and redact stdout/stderr/system logs before upload.
+- Completed running-task cancellation: backend now uses `canceling` state and exposes Agent target status, while Agent stops the local command and reports `canceled` when cancellation is requested.

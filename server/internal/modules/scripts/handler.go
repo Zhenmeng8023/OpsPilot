@@ -13,7 +13,7 @@ import (
 )
 
 type ServiceContract interface {
-	List(context.Context, ListInput) ([]ScriptSummary, *apperror.Error)
+	List(context.Context, ListInput) (ScriptListResult, *apperror.Error)
 	Get(context.Context, string) (ScriptDetail, *apperror.Error)
 	Create(context.Context, CreateInput) (ScriptDetail, *apperror.Error)
 	Update(context.Context, UpdateInput) (ScriptDetail, *apperror.Error)
@@ -70,8 +70,12 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 
 func (h *Handler) list(c *gin.Context) {
 	scripts, appErr := h.service.List(c.Request.Context(), ListInput{
-		Keyword: c.Query("keyword"),
-		Status:  c.Query("status"),
+		Keyword:        c.Query("keyword"),
+		ScriptType:     c.Query("type"),
+		Status:         c.Query("status"),
+		ApprovalStatus: c.Query("approvalStatus"),
+		Page:           int(parseUint(c.DefaultQuery("page", "1"))),
+		PageSize:       int(parseUint(c.DefaultQuery("pageSize", "20"))),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)
@@ -195,4 +199,9 @@ func auditContext(c *gin.Context) AuditContext {
 
 func writeAppError(c *gin.Context, appErr *apperror.Error) {
 	response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+}
+
+func parseUint(value string) uint64 {
+	parsed, _ := strconv.ParseUint(value, 10, 64)
+	return parsed
 }
