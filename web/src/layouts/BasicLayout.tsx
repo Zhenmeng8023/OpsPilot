@@ -1,19 +1,21 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+import { useLanguageStore } from "../i18n/language";
 import { useAuthStore } from "../modules/auth/store";
 
 const navItems = [
-  { to: "/dashboard", label: "仪表盘" },
-  { to: "/users", label: "用户管理" },
-  { to: "/roles", label: "权限管理" },
-  { to: "/dashboard", label: "Agent 管理" },
-  { to: "/dashboard", label: "任务执行" }
-];
+  { to: "/dashboard", labelKey: "nav.dashboard" },
+  { to: "/users", labelKey: "nav.users" },
+  { to: "/roles", labelKey: "nav.roles" },
+  { to: "/agents", labelKey: "nav.agents" }
+] as const;
 
 export function BasicLayout() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const t = useLanguageStore((state) => state.t);
+  const toggleLanguage = useLanguageStore((state) => state.toggleLanguage);
 
   return (
     <div className="app-shell">
@@ -27,8 +29,8 @@ export function BasicLayout() {
         </div>
         <nav className="nav-list">
           {navItems.map((item) => (
-            <NavLink key={item.label} to={item.to}>
-              {item.label}
+            <NavLink key={item.labelKey} to={item.to}>
+              {t(item.labelKey)}
             </NavLink>
           ))}
         </nav>
@@ -36,11 +38,14 @@ export function BasicLayout() {
       <div className="main-area">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Workspace</p>
+            <p className="eyebrow">{t("layout.workspace")}</p>
             <h2>{user?.workspace.name ?? "OpsPilot"}</h2>
           </div>
           <div className="user-box">
             <span>{user?.username ?? "guest"}</span>
+            <button type="button" className="language-button" aria-label={t("language.label")} onClick={toggleLanguage}>
+              {t("language.toggle")}
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -48,7 +53,7 @@ export function BasicLayout() {
                 navigate("/login", { replace: true });
               }}
             >
-              退出
+              {t("common.logout")}
             </button>
           </div>
         </header>

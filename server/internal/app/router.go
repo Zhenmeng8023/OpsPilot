@@ -12,6 +12,7 @@ import (
 
 	"opspilot/server/internal/app/middleware"
 	"opspilot/server/internal/config"
+	"opspilot/server/internal/modules/agents"
 	"opspilot/server/internal/modules/auth"
 	"opspilot/server/internal/shared/response"
 )
@@ -50,8 +51,12 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 		response.Success(c, gin.H{"pong": true})
 	})
 	if deps.DB != nil {
-		authHandler := auth.NewHandler(auth.NewService(deps.DB, cfg))
+		authService := auth.NewService(deps.DB, cfg)
+		authHandler := auth.NewHandler(authService)
 		authHandler.RegisterRoutes(api)
+
+		agentHandler := agents.NewHandler(agents.NewService(deps.DB, cfg))
+		agentHandler.RegisterRoutes(api, auth.AuthMiddleware(authService.JWTManager()), authHandler.RequirePermission)
 	}
 
 	router.NoRoute(func(c *gin.Context) {

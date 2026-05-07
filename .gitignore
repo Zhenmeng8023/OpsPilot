@@ -35,3 +35,6 @@ web/pnpm-debug.log*
 .tmp/
 data/
 logs/
+
+# Local developer docs
+docs/

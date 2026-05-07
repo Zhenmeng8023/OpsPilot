@@ -4,6 +4,7 @@ import { BasicLayout } from "../layouts/BasicLayout";
 import { AuthLayout } from "../layouts/AuthLayout";
 import { LoginPage } from "../modules/auth/LoginPage";
 import { useAuthStore } from "../modules/auth/store";
+import { AgentManagementPage } from "../modules/agents/AgentManagementPage";
 import { DashboardPage } from "../modules/dashboard/DashboardPage";
 import { RoleManagementPage } from "../modules/roles/RoleManagementPage";
 import { UserManagementPage } from "../modules/users/UserManagementPage";
@@ -35,7 +36,8 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: "dashboard", element: <DashboardPage /> },
           { path: "users", element: <UserManagementPage /> },
-          { path: "roles", element: <RoleManagementPage /> }
+          { path: "roles", element: <RoleManagementPage /> },
+          { path: "agents", element: <AgentManagementPage /> }
         ]
       }
     ]

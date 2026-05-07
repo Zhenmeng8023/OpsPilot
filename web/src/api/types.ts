@@ -63,3 +63,38 @@ export interface Role {
   status: string;
   permissions: Permission[];
 }
+
+export interface Host {
+  id: string;
+  name: string;
+  hostname?: string;
+  ip?: string;
+  os?: string;
+  arch?: string;
+  status: string;
+  agentCount?: number;
+  onlineAgentCount?: number;
+  lastHeartbeatAt?: string;
+  createdAt: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  status: string;
+  tokenPrefix?: string;
+  version?: string;
+  ip?: string;
+  os?: string;
+  arch?: string;
+  lastHeartbeatAt?: string;
+  disabledAt?: string;
+  createdAt: string;
+  host?: Host;
+}
+
+export interface OfflineScanResult {
+  offlineAgents: number;
+  offlineHosts: number;
+  thresholdSeconds: number;
+}

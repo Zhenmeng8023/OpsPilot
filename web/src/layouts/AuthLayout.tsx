@@ -1,14 +1,22 @@
 import type { ReactNode } from "react";
 
+import { useLanguageStore } from "../i18n/language";
+
 export function AuthLayout({ children }: { children: ReactNode }) {
+  const t = useLanguageStore((state) => state.t);
+  const toggleLanguage = useLanguageStore((state) => state.toggleLanguage);
+
   return (
     <main className="auth-shell">
       <section className="auth-hero">
+        <div className="auth-language">
+          <button type="button" className="language-button" aria-label={t("language.label")} onClick={toggleLanguage}>
+            {t("language.toggle")}
+          </button>
+        </div>
         <p className="eyebrow">OpsPilot Control Plane</p>
-        <h1>自动化运维与任务调度平台</h1>
-        <p>
-          面向 Agent 接入、脚本模板、任务执行、实时日志和审计追踪的轻量级工程平台。
-        </p>
+        <h1>{t("auth.heroTitle")}</h1>
+        <p>{t("auth.heroDescription")}</p>
         <div className="hero-grid">
           <span>Agent</span>
           <span>Task Runs</span>

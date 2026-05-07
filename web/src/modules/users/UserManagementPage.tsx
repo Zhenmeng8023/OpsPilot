@@ -3,9 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { request } from "../../api/request";
 import type { ManagedUser, Role } from "../../api/types";
+import { useLanguageStore } from "../../i18n/language";
 
 export function UserManagementPage() {
   const queryClient = useQueryClient();
+  const t = useLanguageStore((state) => state.t);
   const [form, setForm] = useState({ username: "", email: "", password: "User@123456", role: "member" });
   const usersQuery = useQuery({
     queryKey: ["users"],
@@ -64,26 +66,26 @@ export function UserManagementPage() {
       <section className="page-heading">
         <div>
           <p className="eyebrow">Access Control</p>
-          <h1>用户管理</h1>
+          <h1>{t("users.title")}</h1>
         </div>
       </section>
 
       <section className="management-grid">
         <form className="panel management-form" onSubmit={submit}>
           <div className="panel-title">
-            <h3>创建用户</h3>
-            <span>{createUser.isPending ? "保存中" : "Ready"}</span>
+            <h3>{t("users.create")}</h3>
+            <span>{createUser.isPending ? t("common.saving") : t("common.ready")}</span>
           </div>
           <label>
-            用户名
+            {t("auth.username")}
             <input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
           </label>
           <label>
-            邮箱
+            {t("auth.email")}
             <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
           </label>
           <label>
-            初始密码
+            {t("users.initialPassword")}
             <input
               type="password"
               value={form.password}
@@ -91,7 +93,7 @@ export function UserManagementPage() {
             />
           </label>
           <label>
-            角色
+            {t("users.role")}
             <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
               {roles.map((role) => (
                 <option key={role.id} value={role.code}>
@@ -102,23 +104,25 @@ export function UserManagementPage() {
           </label>
           {createUser.isError ? <p className="form-error">{String(createUser.error.message)}</p> : null}
           <button type="submit" disabled={createUser.isPending}>
-            创建用户
+            {t("users.create")}
           </button>
         </form>
 
         <section className="panel table-panel">
           <div className="panel-title">
-            <h3>用户列表</h3>
-            <span>{users.length} users</span>
+            <h3>{t("users.list")}</h3>
+            <span>
+              {users.length} {t("nav.users")}
+            </span>
           </div>
           <div className="data-table">
             <table>
               <thead>
                 <tr>
-                  <th>用户</th>
-                  <th>状态</th>
-                  <th>角色</th>
-                  <th>创建时间</th>
+                  <th>{t("users.user")}</th>
+                  <th>{t("users.status")}</th>
+                  <th>{t("users.role")}</th>
+                  <th>{t("common.createdAt")}</th>
                 </tr>
               </thead>
               <tbody>

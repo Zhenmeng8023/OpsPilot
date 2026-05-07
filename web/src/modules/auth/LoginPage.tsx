@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { useLanguageStore } from "../../i18n/language";
 import { useAuthStore } from "./store";
 
 type Mode = "login" | "register";
@@ -9,6 +10,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
   const register = useAuthStore((state) => state.register);
+  const t = useLanguageStore((state) => state.t);
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("admin");
   const [email, setEmail] = useState("");
@@ -28,7 +30,7 @@ export function LoginPage() {
       }
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "请求失败");
+      setError(err instanceof Error ? err.message : t("auth.requestFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -36,33 +38,33 @@ export function LoginPage() {
 
   return (
     <form className="login-card" onSubmit={handleSubmit}>
-      <p className="eyebrow">OpsPilot Account</p>
-      <h2>{mode === "login" ? "登录 OpsPilot" : "注册账号"}</h2>
-      <p className="muted">使用数据库中的真实账号访问控制台。</p>
+      <p className="eyebrow">{t("auth.account")}</p>
+      <h2>{mode === "login" ? t("auth.loginTitle") : t("auth.registerTitle")}</h2>
+      <p className="muted">{t("auth.description")}</p>
 
       <div className="auth-mode" role="tablist" aria-label="auth mode">
         <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>
-          登录
+          {t("auth.login")}
         </button>
         <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>
-          注册
+          {t("auth.register")}
         </button>
       </div>
 
       <label>
-        用户名
+        {t("auth.username")}
         <input value={username} autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
       </label>
 
       {mode === "register" ? (
         <label>
-          邮箱
+          {t("auth.email")}
           <input value={email} autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
         </label>
       ) : null}
 
       <label>
-        密码
+        {t("auth.password")}
         <input
           value={password}
           type="password"
@@ -74,7 +76,7 @@ export function LoginPage() {
       {error ? <p className="form-error">{error}</p> : null}
 
       <button type="submit" disabled={submitting}>
-        {submitting ? "提交中..." : mode === "login" ? "登录" : "创建账号"}
+        {submitting ? t("common.submit") : mode === "login" ? t("auth.login") : t("auth.createAccount")}
       </button>
     </form>
   );

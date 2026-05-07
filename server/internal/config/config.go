@@ -52,6 +52,7 @@ type AgentConfig struct {
 	APIBaseURL        string
 	BootstrapSecret   string
 	HeartbeatInterval time.Duration
+	TokenFile         string
 }
 
 type BootstrapConfig struct {
@@ -95,6 +96,7 @@ func Load() (Config, error) {
 			APIBaseURL:        getEnv("AGENT_API_BASE_URL", "http://localhost:8080"),
 			BootstrapSecret:   getEnv("AGENT_BOOTSTRAP_SECRET", "dev-agent-bootstrap-secret"),
 			HeartbeatInterval: getEnvDuration("AGENT_HEARTBEAT_INTERVAL", 30*time.Second),
+			TokenFile:         getEnv("AGENT_TOKEN_FILE", ".tmp/agent-token"),
 		},
 		Bootstrap: BootstrapConfig{
 			WorkspaceName: getEnv("BOOTSTRAP_WORKSPACE_NAME", "Default Workspace"),

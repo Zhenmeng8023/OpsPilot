@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -13,8 +14,26 @@ import (
 
 const claimsKey = "auth.claims"
 
+type ServiceContract interface {
+	JWTManager() jwtplatform.Manager
+	Register(context.Context, RegisterInput) (AuthResult, *apperror.Error)
+	Login(context.Context, LoginInput) (AuthResult, *apperror.Error)
+	Refresh(context.Context, RefreshInput) (AuthResult, *apperror.Error)
+	Logout(context.Context, LogoutInput) *apperror.Error
+	Me(context.Context, string) (UserProfile, *apperror.Error)
+	ListUsers(context.Context, string, string) ([]UserSummary, *apperror.Error)
+	CreateUser(context.Context, CreateUserInput) (UserSummary, *apperror.Error)
+	UpdateUserStatus(context.Context, UpdateUserStatusInput) *apperror.Error
+	UpdateUserRoles(context.Context, UpdateUserRolesInput) (UserSummary, *apperror.Error)
+	ListPermissions(context.Context) ([]PermissionSummary, *apperror.Error)
+	ListRoles(context.Context) ([]RoleSummary, *apperror.Error)
+	CreateRole(context.Context, CreateRoleInput) (RoleSummary, *apperror.Error)
+	UpdateRolePermissions(context.Context, UpdateRolePermissionsInput) (RoleSummary, *apperror.Error)
+	HasPermission(context.Context, string, string) (bool, error)
+}
+
 type Handler struct {
-	service *Service
+	service ServiceContract
 }
 
 type registerRequest struct {
@@ -62,7 +81,7 @@ type updateRolePermissionsRequest struct {
 	Permissions []string `json:"permissions"`
 }
 
-func NewHandler(service *Service) *Handler {
+func NewHandler(service ServiceContract) *Handler {
 	return &Handler{service: service}
 }
 

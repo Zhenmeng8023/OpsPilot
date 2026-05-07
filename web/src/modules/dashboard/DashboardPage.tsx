@@ -2,27 +2,29 @@ import { useQuery } from "@tanstack/react-query";
 
 import { request } from "../../api/request";
 import type { HealthData } from "../../api/types";
+import { useLanguageStore } from "../../i18n/language";
 import { StatusBadge } from "../../shared/components/StatusBadge";
 
-const cards = [
-  { label: "在线 Agent", value: "0", hint: "T2 阶段接入注册和心跳" },
-  { label: "今日任务", value: "0", hint: "T3 阶段接入任务执行" },
-  { label: "失败任务", value: "0", hint: "状态机已在方案中定义" },
-  { label: "最近告警", value: "0", hint: "T7 阶段接入监控告警" }
-];
-
 export function DashboardPage() {
+  const t = useLanguageStore((state) => state.t);
   const healthQuery = useQuery({
     queryKey: ["health"],
     queryFn: () => request<HealthData>("/health", { skipAuth: true })
   });
+
+  const cards = [
+    { label: t("dashboard.onlineAgents"), value: "0", hint: t("dashboard.agentHint") },
+    { label: t("dashboard.todayTasks"), value: "0", hint: t("dashboard.taskHint") },
+    { label: t("dashboard.failedTasks"), value: "0", hint: t("dashboard.failedHint") },
+    { label: t("dashboard.recentAlerts"), value: "0", hint: t("dashboard.alertHint") }
+  ];
 
   return (
     <main className="page">
       <section className="page-heading">
         <div>
           <p className="eyebrow">Overview</p>
-          <h1>系统运行概览</h1>
+          <h1>{t("dashboard.title")}</h1>
         </div>
         <StatusBadge status={healthQuery.data?.status ?? "checking"} />
       </section>
@@ -40,27 +42,27 @@ export function DashboardPage() {
       <section className="panel-grid">
         <article className="panel">
           <div className="panel-title">
-            <h3>API 健康检查</h3>
-            <span>{healthQuery.isFetching ? "刷新中" : "实时"}</span>
+            <h3>{t("dashboard.apiHealth")}</h3>
+            <span>{healthQuery.isFetching ? t("common.loading") : t("dashboard.realtime")}</span>
           </div>
           {healthQuery.isError ? (
-            <p className="error-text">无法连接后端，请确认 `go run ./cmd/api` 已启动。</p>
+            <p className="error-text">{t("dashboard.connectError")}</p>
           ) : (
             <dl className="health-list">
               <div>
-                <dt>服务</dt>
+                <dt>{t("dashboard.service")}</dt>
                 <dd>{healthQuery.data?.service ?? "-"}</dd>
               </div>
               <div>
-                <dt>环境</dt>
+                <dt>{t("dashboard.env")}</dt>
                 <dd>{healthQuery.data?.env ?? "-"}</dd>
               </div>
               <div>
-                <dt>版本</dt>
+                <dt>{t("common.version")}</dt>
                 <dd>{healthQuery.data?.version ?? "-"}</dd>
               </div>
               <div>
-                <dt>时间</dt>
+                <dt>{t("dashboard.time")}</dt>
                 <dd>{healthQuery.data?.time ?? "-"}</dd>
               </div>
             </dl>
@@ -69,7 +71,7 @@ export function DashboardPage() {
 
         <article className="panel terminal-panel">
           <div className="panel-title">
-            <h3>后续开发主线</h3>
+            <h3>{t("dashboard.devFlow")}</h3>
             <span>MVP</span>
           </div>
           <pre>{`login -> agent register -> script template

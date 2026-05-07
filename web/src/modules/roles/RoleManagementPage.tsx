@@ -3,11 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { request } from "../../api/request";
 import type { Permission, Role } from "../../api/types";
+import { useLanguageStore } from "../../i18n/language";
 
 type PermissionState = Record<string, string[]>;
 
 export function RoleManagementPage() {
   const queryClient = useQueryClient();
+  const t = useLanguageStore((state) => state.t);
   const [newRole, setNewRole] = useState({ code: "", name: "", description: "" });
   const [selected, setSelected] = useState<PermissionState>({});
   const permissionsQuery = useQuery({
@@ -90,26 +92,26 @@ export function RoleManagementPage() {
       <section className="page-heading">
         <div>
           <p className="eyebrow">RBAC</p>
-          <h1>权限管理</h1>
+          <h1>{t("roles.title")}</h1>
         </div>
       </section>
 
       <section className="management-grid">
         <form className="panel management-form" onSubmit={submit}>
           <div className="panel-title">
-            <h3>创建角色</h3>
-            <span>{createRole.isPending ? "保存中" : "Custom"}</span>
+            <h3>{t("roles.create")}</h3>
+            <span>{createRole.isPending ? t("common.saving") : t("common.custom")}</span>
           </div>
           <label>
-            角色编码
+            {t("roles.code")}
             <input value={newRole.code} onChange={(event) => setNewRole({ ...newRole, code: event.target.value })} />
           </label>
           <label>
-            名称
+            {t("roles.name")}
             <input value={newRole.name} onChange={(event) => setNewRole({ ...newRole, name: event.target.value })} />
           </label>
           <label>
-            描述
+            {t("roles.description")}
             <input
               value={newRole.description}
               onChange={(event) => setNewRole({ ...newRole, description: event.target.value })}
@@ -117,14 +119,16 @@ export function RoleManagementPage() {
           </label>
           {createRole.isError ? <p className="form-error">{String(createRole.error.message)}</p> : null}
           <button type="submit" disabled={createRole.isPending}>
-            创建角色
+            {t("roles.create")}
           </button>
         </form>
 
         <section className="panel permission-catalog">
           <div className="panel-title">
-            <h3>权限目录</h3>
-            <span>{permissionsQuery.data?.length ?? 0} permissions</span>
+            <h3>{t("roles.catalog")}</h3>
+            <span>
+              {permissionsQuery.data?.length ?? 0} {t("roles.permissions")}
+            </span>
           </div>
           <div className="permission-groups">
             {permissionsByModule.map(([module, permissions]) => (
@@ -149,10 +153,10 @@ export function RoleManagementPage() {
                 <h3>
                   {role.name} <small>{role.code}</small>
                 </h3>
-                <p className="muted">{role.description || (role.builtIn ? "内置角色" : "自定义角色")}</p>
+                <p className="muted">{role.description || (role.builtIn ? t("roles.builtIn") : t("common.custom"))}</p>
               </div>
               <button type="button" disabled={role.code === "admin"} onClick={() => savePermissions.mutate(role)}>
-                保存权限
+                {t("roles.savePermissions")}
               </button>
             </div>
             <div className="permission-checks">
