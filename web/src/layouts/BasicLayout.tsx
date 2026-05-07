@@ -7,7 +7,9 @@ const navItems = [
   { to: "/dashboard", labelKey: "nav.dashboard" },
   { to: "/users", labelKey: "nav.users" },
   { to: "/roles", labelKey: "nav.roles" },
-  { to: "/agents", labelKey: "nav.agents" }
+  { to: "/agents", labelKey: "nav.agents" },
+  { to: "/scripts", labelKey: "nav.scripts" },
+  { to: "/tasks", labelKey: "nav.tasks" }
 ] as const;
 
 export function BasicLayout() {

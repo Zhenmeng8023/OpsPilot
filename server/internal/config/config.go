@@ -49,10 +49,18 @@ type JWTConfig struct {
 }
 
 type AgentConfig struct {
-	APIBaseURL        string
-	BootstrapSecret   string
-	HeartbeatInterval time.Duration
-	TokenFile         string
+	APIBaseURL          string
+	Token               string
+	BootstrapSecret     string
+	Hostname            string
+	Workspace           string
+	PollInterval        time.Duration
+	HeartbeatInterval   time.Duration
+	MaxConcurrentTasks  int
+	WorkDir             string
+	TokenFile           string
+	RegistrationEnabled bool
+	OfflineScanInterval time.Duration
 }
 
 type BootstrapConfig struct {
@@ -93,10 +101,18 @@ func Load() (Config, error) {
 			RefreshTTL:    getEnvDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
 		},
 		Agent: AgentConfig{
-			APIBaseURL:        getEnv("AGENT_API_BASE_URL", "http://localhost:8080"),
-			BootstrapSecret:   getEnv("AGENT_BOOTSTRAP_SECRET", "dev-agent-bootstrap-secret"),
-			HeartbeatInterval: getEnvDuration("AGENT_HEARTBEAT_INTERVAL", 30*time.Second),
-			TokenFile:         getEnv("AGENT_TOKEN_FILE", ".tmp/agent-token"),
+			APIBaseURL:          getEnv("AGENT_API_BASE_URL", "http://localhost:8080"),
+			Token:               getEnv("AGENT_TOKEN", ""),
+			BootstrapSecret:     getEnv("AGENT_BOOTSTRAP_SECRET", "dev-agent-bootstrap-secret"),
+			Hostname:            getEnv("AGENT_HOSTNAME", ""),
+			Workspace:           getEnv("AGENT_WORKSPACE", "default"),
+			PollInterval:        getEnvDurationSeconds("AGENT_POLL_INTERVAL_SECONDS", getEnvDuration("AGENT_POLL_INTERVAL", 5*time.Second)),
+			HeartbeatInterval:   getEnvDurationSeconds("AGENT_HEARTBEAT_INTERVAL_SECONDS", getEnvDuration("AGENT_HEARTBEAT_INTERVAL", 30*time.Second)),
+			MaxConcurrentTasks:  getEnvInt("AGENT_MAX_CONCURRENT_TASKS", 2),
+			WorkDir:             getEnv("AGENT_WORK_DIR", ".tmp/agent-work"),
+			TokenFile:           getEnv("AGENT_TOKEN_FILE", ".tmp/agent-token"),
+			RegistrationEnabled: getEnvBool("AGENT_REGISTRATION_ENABLED", true),
+			OfflineScanInterval: getEnvDurationSeconds("AGENT_OFFLINE_SCAN_INTERVAL_SECONDS", getEnvDuration("AGENT_OFFLINE_SCAN_INTERVAL", 45*time.Second)),
 		},
 		Bootstrap: BootstrapConfig{
 			WorkspaceName: getEnv("BOOTSTRAP_WORKSPACE_NAME", "Default Workspace"),
@@ -112,6 +128,12 @@ func Load() (Config, error) {
 	}
 	if cfg.HTTP.Addr == "" {
 		return Config{}, errors.New("HTTP_ADDR cannot be empty")
+	}
+	if cfg.App.Env == "prod" && strings.TrimSpace(cfg.HTTP.AllowOrigin) == "*" {
+		return Config{}, errors.New("HTTP_ALLOW_ORIGIN cannot be * in prod")
+	}
+	if cfg.Agent.MaxConcurrentTasks <= 0 {
+		cfg.Agent.MaxConcurrentTasks = 1
 	}
 
 	return cfg, nil
@@ -136,6 +158,18 @@ func getEnvInt(key string, fallback int) int {
 	return parsed
 }
 
+func getEnvBool(key string, fallback bool) bool {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
 func getEnvDuration(key string, fallback time.Duration) time.Duration {
 	value, ok := os.LookupEnv(key)
 	if !ok || strings.TrimSpace(value) == "" {
@@ -146,6 +180,18 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+func getEnvDurationSeconds(key string, fallback time.Duration) time.Duration {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func loadDotEnv(path string) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,15 +12,19 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/platform/logger"
+	"opspilot/server/internal/shared/security"
 )
 
 type apiClient struct {
@@ -40,21 +45,67 @@ type apiError struct {
 }
 
 type agentPayload struct {
-	BootstrapSecret string `json:"bootstrapSecret,omitempty"`
-	Name            string `json:"name,omitempty"`
-	Hostname        string `json:"hostname,omitempty"`
-	IP              string `json:"ip,omitempty"`
-	OS              string `json:"os,omitempty"`
-	OSType          string `json:"osType,omitempty"`
-	OSName          string `json:"osName,omitempty"`
-	Arch            string `json:"arch,omitempty"`
-	Version         string `json:"version,omitempty"`
-	Status          string `json:"status,omitempty"`
+	BootstrapSecret string                 `json:"bootstrapSecret,omitempty"`
+	EnrollmentToken string                 `json:"enrollmentToken,omitempty"`
+	Name            string                 `json:"name,omitempty"`
+	Hostname        string                 `json:"hostname,omitempty"`
+	IP              string                 `json:"ip,omitempty"`
+	OS              string                 `json:"os,omitempty"`
+	OSType          string                 `json:"osType,omitempty"`
+	OSName          string                 `json:"osName,omitempty"`
+	Arch            string                 `json:"arch,omitempty"`
+	Version         string                 `json:"version,omitempty"`
+	Status          string                 `json:"status,omitempty"`
+	RunningTasks    int64                  `json:"runningTasks,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type registerData struct {
 	Token       string `json:"token"`
 	TokenPrefix string `json:"tokenPrefix"`
+}
+
+type agentTask struct {
+	TargetID       string `json:"targetId"`
+	RunID          string `json:"runId"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	ScriptType     string `json:"scriptType"`
+	Command        string `json:"command"`
+	TimeoutSeconds uint   `json:"timeoutSeconds"`
+}
+
+type logPayload struct {
+	Sequence  uint64 `json:"sequence"`
+	Stream    string `json:"stream"`
+	Chunk     string `json:"chunk"`
+	Timestamp string `json:"timestamp"`
+}
+
+type resultPayload struct {
+	Status       string `json:"status"`
+	ExitCode     *int   `json:"exitCode"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+	StartedAt    string `json:"startedAt"`
+	FinishedAt   string `json:"finishedAt"`
+}
+
+type executor struct {
+	cfg     config.Config
+	client  apiClient
+	token   string
+	log     *slog.Logger
+	sem     chan struct{}
+	running sync.Map
+	active  atomic.Int64
+}
+
+type commandResult struct {
+	Status       string
+	ExitCode     *int
+	ErrorMessage string
+	StartedAt    time.Time
+	FinishedAt   time.Time
 }
 
 func (e apiError) Error() string {
@@ -67,19 +118,20 @@ func main() {
 		slog.Error("load config failed", "error", err)
 		os.Exit(1)
 	}
-
 	log := logger.New(cfg.App.Env)
-	client := apiClient{
-		baseURL: strings.TrimRight(cfg.Agent.APIBaseURL, "/"),
-		http: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+	if err := os.MkdirAll(cfg.Agent.WorkDir, 0o700); err != nil {
+		log.Error("create agent work dir failed", "error", err)
+		os.Exit(1)
 	}
 
+	client := apiClient{
+		baseURL: strings.TrimRight(cfg.Agent.APIBaseURL, "/"),
+		http:    &http.Client{Timeout: 20 * time.Second},
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	token, err := readToken(cfg.Agent.TokenFile)
+	token, err := loadAgentToken(cfg)
 	if err != nil {
 		log.Error("read agent token failed", "error", err)
 		os.Exit(1)
@@ -97,12 +149,20 @@ func main() {
 		log.Info("agent registered", "token_file", cfg.Agent.TokenFile)
 	}
 
-	if err := heartbeat(ctx, client, cfg, token); err != nil {
+	exec := &executor{
+		cfg:    cfg,
+		client: client,
+		token:  token,
+		log:    log,
+		sem:    make(chan struct{}, cfg.Agent.MaxConcurrentTasks),
+	}
+	if err := exec.heartbeat(ctx); err != nil {
 		var apiErr apiError
-		if errors.As(err, &apiErr) && apiErr.status == http.StatusUnauthorized {
+		if errors.As(err, &apiErr) && apiErr.status == http.StatusUnauthorized && cfg.Agent.BootstrapSecret != "" {
 			token, err = register(ctx, client, cfg)
 			if err == nil {
 				err = writeToken(cfg.Agent.TokenFile, token)
+				exec.token = token
 			}
 		}
 		if err != nil {
@@ -111,31 +171,154 @@ func main() {
 		}
 	}
 
-	interval := cfg.Agent.HeartbeatInterval
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		exec.heartbeatLoop(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		exec.pollLoop(ctx)
+	}()
+
+	log.Info("opspilot agent running", "api_base_url", cfg.Agent.APIBaseURL, "max_concurrent_tasks", cfg.Agent.MaxConcurrentTasks)
+	<-ctx.Done()
+	wg.Wait()
+	log.Info("opspilot agent stopped")
+}
+
+func (e *executor) heartbeatLoop(ctx context.Context) {
+	interval := e.cfg.Agent.HeartbeatInterval
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-
-	log.Info("opspilot agent running", "api_base_url", cfg.Agent.APIBaseURL, "heartbeat_interval", interval.String())
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("opspilot agent stopped")
 			return
 		case <-ticker.C:
-			if err := heartbeat(ctx, client, cfg, token); err != nil {
-				log.Warn("heartbeat failed", "error", err)
+			if err := e.heartbeat(ctx); err != nil {
+				e.log.Warn("heartbeat failed", "error", security.Redact(err.Error()))
 			}
 		}
 	}
 }
 
+func (e *executor) pollLoop(ctx context.Context) {
+	interval := e.cfg.Agent.PollInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			e.pollOnce(ctx)
+		}
+	}
+}
+
+func (e *executor) pollOnce(ctx context.Context) {
+	capacity := cap(e.sem) - len(e.sem)
+	if capacity <= 0 {
+		return
+	}
+	tasks, err := getJSON[[]agentTask](ctx, e.client, fmt.Sprintf("/api/v1/agent/tasks/poll?limit=%d", capacity), e.token)
+	if err != nil {
+		e.log.Warn("poll tasks failed", "error", security.Redact(err.Error()))
+		return
+	}
+	for _, task := range tasks {
+		if task.TargetID == "" || task.Command == "" || task.TimeoutSeconds == 0 {
+			continue
+		}
+		if _, loaded := e.running.LoadOrStore(task.TargetID, true); loaded {
+			continue
+		}
+		select {
+		case e.sem <- struct{}{}:
+		default:
+			e.running.Delete(task.TargetID)
+			return
+		}
+		e.active.Add(1)
+		go e.runTarget(ctx, task)
+	}
+}
+
+func (e *executor) runTarget(parent context.Context, task agentTask) {
+	defer func() {
+		<-e.sem
+		e.active.Add(-1)
+		e.running.Delete(task.TargetID)
+	}()
+	claimed, err := postJSON[agentTask](parent, e.client, "/api/v1/agent/tasks/"+task.TargetID+"/claim", e.token, map[string]string{})
+	if err != nil {
+		e.log.Warn("claim task failed", "target_id", task.TargetID, "error", security.Redact(err.Error()))
+		return
+	}
+	sequence := atomic.Uint64{}
+	upload := func(stream, chunk string) {
+		payload := logPayload{
+			Sequence:  sequence.Add(1),
+			Stream:    stream,
+			Chunk:     chunk,
+			Timestamp: time.Now().Format(time.RFC3339Nano),
+		}
+		if err := e.uploadLog(parent, claimed.TargetID, payload); err != nil {
+			e.log.Warn("upload task log failed", "target_id", claimed.TargetID, "error", security.Redact(err.Error()))
+		}
+	}
+	upload("system", "task claimed by agent\n")
+	result := runCommand(parent, claimed, e.cfg.Agent.WorkDir, upload)
+	payload := resultPayload{
+		Status:       result.Status,
+		ExitCode:     result.ExitCode,
+		ErrorMessage: security.Redact(result.ErrorMessage),
+		StartedAt:    result.StartedAt.Format(time.RFC3339Nano),
+		FinishedAt:   result.FinishedAt.Format(time.RFC3339Nano),
+	}
+	if err := e.reportResult(parent, claimed.TargetID, payload); err != nil {
+		e.log.Warn("report task result failed", "target_id", claimed.TargetID, "error", security.Redact(err.Error()))
+	}
+}
+
+func (e *executor) uploadLog(ctx context.Context, targetID string, payload logPayload) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		_, err := postJSON[json.RawMessage](ctx, e.client, "/api/v1/agent/tasks/"+targetID+"/logs", e.token, payload)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+	}
+	return lastErr
+}
+
+func (e *executor) reportResult(ctx context.Context, targetID string, payload resultPayload) error {
+	_, err := postJSON[json.RawMessage](ctx, e.client, "/api/v1/agent/tasks/"+targetID+"/result", e.token, payload)
+	return err
+}
+
+func (e *executor) heartbeat(ctx context.Context) error {
+	payload := collectHostInfo(e.cfg)
+	payload.Status = "online"
+	payload.RunningTasks = e.active.Load()
+	_, err := postJSON[json.RawMessage](ctx, e.client, "/api/v1/agents/heartbeat", e.token, payload)
+	return err
+}
+
 func register(ctx context.Context, client apiClient, cfg config.Config) (string, error) {
 	payload := collectHostInfo(cfg)
 	payload.BootstrapSecret = cfg.Agent.BootstrapSecret
-
+	payload.EnrollmentToken = os.Getenv("AGENT_ENROLLMENT_TOKEN")
 	data, err := postJSON[registerData](ctx, client, "/api/v1/agents/register", "", payload)
 	if err != nil {
 		return "", err
@@ -146,11 +329,108 @@ func register(ctx context.Context, client apiClient, cfg config.Config) (string,
 	return data.Token, nil
 }
 
-func heartbeat(ctx context.Context, client apiClient, cfg config.Config, token string) error {
-	payload := collectHostInfo(cfg)
-	payload.Status = "online"
-	_, err := postJSON[json.RawMessage](ctx, client, "/api/v1/agents/heartbeat", token, payload)
-	return err
+func runCommand(parent context.Context, task agentTask, workDir string, onLog func(stream, chunk string)) commandResult {
+	startedAt := time.Now()
+	timeout := time.Duration(task.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	cmd := commandFor(ctx, task.ScriptType, task.Command)
+	cmd.Dir = workDir
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return failedResult(startedAt, err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return failedResult(startedAt, err)
+	}
+	if err := cmd.Start(); err != nil {
+		return failedResult(startedAt, err)
+	}
+
+	var readers sync.WaitGroup
+	readers.Add(2)
+	go streamOutput(&readers, stdout, "stdout", onLog)
+	go streamOutput(&readers, stderr, "stderr", onLog)
+	waitErr := cmd.Wait()
+	readers.Wait()
+
+	finishedAt := time.Now()
+	exitCode := 0
+	if cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return commandResult{Status: "timeout", ExitCode: &exitCode, ErrorMessage: "command timed out", StartedAt: startedAt, FinishedAt: finishedAt}
+	}
+	if waitErr != nil || exitCode != 0 {
+		message := ""
+		if waitErr != nil {
+			message = waitErr.Error()
+		}
+		return commandResult{Status: "failed", ExitCode: &exitCode, ErrorMessage: message, StartedAt: startedAt, FinishedAt: finishedAt}
+	}
+	return commandResult{Status: "success", ExitCode: &exitCode, StartedAt: startedAt, FinishedAt: finishedAt}
+}
+
+func commandFor(ctx context.Context, scriptType, command string) *exec.Cmd {
+	scriptType = strings.ToLower(strings.TrimSpace(scriptType))
+	if runtime.GOOS == "windows" {
+		if scriptType == "powershell" {
+			return exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command)
+		}
+		return exec.CommandContext(ctx, "cmd.exe", "/C", command)
+	}
+	if scriptType == "powershell" {
+		if _, err := exec.LookPath("pwsh"); err == nil {
+			return exec.CommandContext(ctx, "pwsh", "-NoProfile", "-Command", command)
+		}
+		return exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
+	}
+	if scriptType == "bash" {
+		return exec.CommandContext(ctx, "/bin/bash", "-lc", command)
+	}
+	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
+}
+
+func streamOutput(wg *sync.WaitGroup, reader io.Reader, stream string, onLog func(stream, chunk string)) {
+	defer wg.Done()
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 4096), 1024*1024)
+	for scanner.Scan() {
+		onLog(stream, scanner.Text()+"\n")
+	}
+	if err := scanner.Err(); err != nil {
+		onLog("system", "read "+stream+" failed: "+security.Redact(err.Error())+"\n")
+	}
+}
+
+func failedResult(startedAt time.Time, err error) commandResult {
+	finishedAt := time.Now()
+	exitCode := -1
+	return commandResult{
+		Status:       "failed",
+		ExitCode:     &exitCode,
+		ErrorMessage: security.Redact(err.Error()),
+		StartedAt:    startedAt,
+		FinishedAt:   finishedAt,
+	}
+}
+
+func getJSON[T any](ctx context.Context, client apiClient, path, token string) (T, error) {
+	var zero T
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, client.baseURL+path, nil)
+	if err != nil {
+		return zero, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return doJSON[T](client, req)
 }
 
 func postJSON[T any](ctx context.Context, client apiClient, path, token string, payload interface{}) (T, error) {
@@ -167,13 +447,16 @@ func postJSON[T any](ctx context.Context, client apiClient, path, token string, 
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	return doJSON[T](client, req)
+}
 
+func doJSON[T any](client apiClient, req *http.Request) (T, error) {
+	var zero T
 	resp, err := client.http.Do(req)
 	if err != nil {
 		return zero, err
 	}
 	defer resp.Body.Close()
-
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return zero, err
@@ -193,7 +476,10 @@ func postJSON[T any](ctx context.Context, client apiClient, path, token string, 
 }
 
 func collectHostInfo(cfg config.Config) agentPayload {
-	hostname, _ := os.Hostname()
+	hostname := strings.TrimSpace(cfg.Agent.Hostname)
+	if hostname == "" {
+		hostname, _ = os.Hostname()
+	}
 	return agentPayload{
 		Name:     hostname,
 		Hostname: hostname,
@@ -203,6 +489,10 @@ func collectHostInfo(cfg config.Config) agentPayload {
 		OSName:   runtime.GOOS,
 		Arch:     runtime.GOARCH,
 		Version:  cfg.App.Version,
+		Metadata: map[string]interface{}{
+			"workspace": cfg.Agent.Workspace,
+			"workDir":   cfg.Agent.WorkDir,
+		},
 	}
 }
 
@@ -212,12 +502,18 @@ func localIP() string {
 		return ""
 	}
 	defer conn.Close()
-
 	addr, ok := conn.LocalAddr().(*net.UDPAddr)
 	if !ok {
 		return ""
 	}
 	return addr.IP.String()
+}
+
+func loadAgentToken(cfg config.Config) (string, error) {
+	if token := strings.TrimSpace(cfg.Agent.Token); token != "" {
+		return token, nil
+	}
+	return readToken(cfg.Agent.TokenFile)
 }
 
 func readToken(path string) (string, error) {

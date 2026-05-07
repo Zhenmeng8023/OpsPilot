@@ -297,9 +297,11 @@ func (h *Handler) updateRolePermissions(c *gin.Context) {
 		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
 		return
 	}
+	claims, _ := ClaimsFromContext(c)
 	role, appErr := h.service.UpdateRolePermissions(c.Request.Context(), UpdateRolePermissionsInput{
 		RoleID:      c.Param("id"),
 		Permissions: req.Permissions,
+		Actor:       claims.UserID,
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)

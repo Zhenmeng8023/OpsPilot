@@ -26,17 +26,33 @@ var basePermissions = []permissionSeed{
 	{"role.write", "role", "Write roles", "Manage roles and permissions"},
 	{"agent.read", "agent", "Read agents", "View agents and hosts"},
 	{"agent.disable", "agent", "Disable agents", "Disable or revoke agents"},
+	{"agent:read", "agent", "Read agents", "View agents"},
+	{"agent:write", "agent", "Write agents", "Disable agents and revoke tokens"},
+	{"host:read", "host", "Read hosts", "View hosts"},
+	{"host:write", "host", "Write hosts", "Manage hosts"},
 	{"script.read", "script", "Read scripts", "View script templates and versions"},
 	{"script.write", "script", "Write scripts", "Create and update scripts"},
 	{"script.approve", "script", "Approve scripts", "Approve high risk scripts"},
+	{"script:read", "script", "Read scripts", "View script templates and versions"},
+	{"script:write", "script", "Write scripts", "Create and update scripts"},
+	{"script:approve", "script", "Approve scripts", "Approve high risk scripts"},
 	{"task.read", "task", "Read tasks", "View task definitions and runs"},
 	{"task.run", "task", "Run tasks", "Run automation tasks"},
 	{"task.cancel", "task", "Cancel tasks", "Cancel running tasks"},
 	{"log.read", "log", "Read logs", "View task execution logs"},
+	{"task:read", "task", "Read tasks", "View task runs"},
+	{"task:write", "task", "Write tasks", "Manage task definitions"},
+	{"task:execute", "task", "Execute tasks", "Create and run tasks"},
+	{"task:cancel", "task", "Cancel tasks", "Cancel queued tasks"},
+	{"task:log:read", "task", "Read task logs", "View and stream task logs"},
 	{"schedule.write", "schedule", "Write schedules", "Manage schedules"},
+	{"schedule:read", "schedule", "Read schedules", "View task schedules"},
+	{"schedule:write", "schedule", "Write schedules", "Create and manage task schedules"},
 	{"metric.read", "metric", "Read metrics", "View metrics and service checks"},
 	{"alert.write", "alert", "Write alerts", "Manage alert rules and alert state"},
 	{"webhook.manage", "webhook", "Manage webhooks", "Manage webhook sources and rules"},
+	{"webhook:read", "webhook", "Read webhooks", "View webhook sources and rules"},
+	{"webhook:manage", "webhook", "Manage webhooks", "Manage webhook sources and trigger rules"},
 	{"notification.write", "notification", "Write notifications", "Manage notification channels"},
 	{"audit.read", "audit", "Read audit logs", "View audit log entries"},
 }
@@ -62,7 +78,7 @@ func Seed(ctx context.Context, db *gorm.DB, cfg config.Config) error {
 		if err := assignPermissions(ctx, tx, adminRoleID, permissionIDs); err != nil {
 			return err
 		}
-		memberPermissions := filterPermissions(permissionIDs, "workspace.read", "agent.read", "script.read", "task.read", "log.read", "metric.read")
+		memberPermissions := filterPermissions(permissionIDs, "workspace.read", "agent.read", "agent:read", "host:read", "script.read", "script:read", "task.read", "task:read", "log.read", "task:log:read", "metric.read")
 		if err := assignPermissions(ctx, tx, memberRoleID, memberPermissions); err != nil {
 			return err
 		}

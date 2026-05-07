@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"opspilot/server/internal/shared/apperror"
+	"opspilot/server/internal/shared/audit"
 )
 
 type UserSummary struct {
@@ -68,6 +69,7 @@ type CreateRoleInput struct {
 type UpdateRolePermissionsInput struct {
 	RoleID      string
 	Permissions []string
+	Actor       string
 }
 
 func (s *Service) ListUsers(ctx context.Context, keyword, status string) ([]UserSummary, *apperror.Error) {
@@ -381,6 +383,17 @@ func (s *Service) UpdateRolePermissions(ctx context.Context, input UpdateRolePer
 			Status:      role.Status,
 		}
 		updated.Permissions, err = permissionsByRole(ctx, tx, role.ID)
+		actorID, actorErr := audit.UserIDByUID(ctx, tx, input.Actor)
+		if actorErr != nil {
+			return actorErr
+		}
+		audit.Write(ctx, tx, audit.Event{
+			ActorUserID:  actorID,
+			Action:       "role.permissions.update",
+			ResourceType: "role",
+			ResourceID:   sql.NullInt64{Int64: int64(role.ID), Valid: true},
+			After:        updated,
+		})
 		return err
 	})
 	if txErr != nil {

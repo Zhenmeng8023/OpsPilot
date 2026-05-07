@@ -1,42 +1,434 @@
 openapi: 3.1.0
 info:
   title: OpsPilot API
-  version: 0.1.0
-  description: OpsPilot T0 scaffold API contract. Business APIs will be added from T1.
+  version: 0.3.0
+  description: OpsPilot auth, RBAC, Agent, Host, script, task execution, logs, and SSE API.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
 paths:
   /health:
     get:
+      security: []
       summary: Health check
       responses:
+        "200": { description: OK }
+  /api/v1/auth/register:
+    post:
+      security: []
+      summary: Register user
+      responses:
+        "200": { description: Auth response }
+  /api/v1/auth/login:
+    post:
+      security: []
+      summary: Login user
+      responses:
+        "200": { description: Auth response }
+  /api/v1/auth/refresh:
+    post:
+      security: []
+      summary: Refresh JWT
+      responses:
+        "200": { description: Auth response }
+  /api/v1/auth/logout:
+    post:
+      security: []
+      summary: Logout and revoke refresh token
+      responses:
+        "200": { description: OK }
+  /api/v1/me:
+    get:
+      summary: Current user profile
+      responses:
+        "200": { description: User profile }
+  /api/v1/users:
+    get:
+      summary: List users
+      description: Requires `user.read`.
+      responses:
+        "200": { description: User list }
+    post:
+      summary: Create user
+      description: Requires `user.write`.
+      responses:
+        "200": { description: Created user }
+  /api/v1/users/{id}/status:
+    patch:
+      summary: Update user status
+      description: Requires `user.write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/users/{id}/roles:
+    put:
+      summary: Update user roles
+      description: Requires `role.write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: User }
+  /api/v1/permissions:
+    get:
+      summary: List permissions
+      description: Requires `role.read`.
+      responses:
+        "200": { description: Permission list }
+  /api/v1/roles:
+    get:
+      summary: List roles
+      description: Requires `role.read`.
+      responses:
+        "200": { description: Role list }
+    post:
+      summary: Create role
+      description: Requires `role.write`.
+      responses:
+        "200": { description: Role }
+  /api/v1/roles/{id}/permissions:
+    put:
+      summary: Update role permissions
+      description: Requires `role.write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Role }
+  /api/v1/agents/register:
+    post:
+      security: []
+      summary: Register Agent with bootstrap secret
+      responses:
+        "200": { description: Agent and one-time plaintext token }
+  /api/v1/agents/heartbeat:
+    post:
+      security:
+        - agentTokenAuth: []
+      summary: Agent heartbeat
+      responses:
+        "200": { description: Heartbeat result }
+  /api/v1/agents:
+    get:
+      summary: List Agents
+      description: Requires `agent:read`.
+      parameters:
+        - $ref: "#/components/parameters/keyword"
+        - $ref: "#/components/parameters/status"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": { description: Paged Agent list }
+  /api/v1/agents/offline-scan:
+    post:
+      summary: Scan Agents and Hosts offline
+      description: Requires `agent:write`.
+      responses:
+        "200": { description: Offline scan result }
+  /api/v1/agents/{id}/disable:
+    post:
+      summary: Disable Agent
+      description: Requires `agent:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/agents/{id}/revoke-token:
+    post:
+      summary: Revoke active Agent Token
+      description: Requires `agent:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/hosts:
+    get:
+      summary: List Hosts
+      description: Requires `host:read`.
+      responses:
+        "200": { description: Paged Host list }
+  /api/v1/agent-enrollment-tokens:
+    get:
+      summary: List Agent enrollment tokens
+      description: Requires `agent:read`.
+      responses:
+        "200": { description: Enrollment token list }
+    post:
+      summary: Create one-time Agent enrollment token
+      description: Requires `agent:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollmentTokenPayload"
+      responses:
+        "200": { description: Enrollment token detail with one-time plaintext token }
+  /api/v1/agent-enrollment-tokens/{id}/revoke:
+    post:
+      summary: Revoke Agent enrollment token
+      description: Requires `agent:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/scripts:
+    get:
+      summary: List script templates
+      description: Requires `script:read`.
+      responses:
+        "200": { description: Script list }
+    post:
+      summary: Create script template
+      description: Requires `script:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptPayload"
+      responses:
+        "200": { description: Script detail }
+  /api/v1/scripts/{id}:
+    get:
+      summary: Get script detail
+      description: Requires `script:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Script detail }
+    put:
+      summary: Update script template and create new revision if content changes
+      description: Requires `script:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Script detail }
+  /api/v1/scripts/{id}/disable:
+    post:
+      summary: Disable script template
+      description: Requires `script:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/scripts/{id}/approval:
+    post:
+      summary: Request script approval for latest revision
+      description: Requires `script:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Approval summary }
+  /api/v1/script-approvals:
+    get:
+      summary: List script approvals
+      description: Requires `script:read`.
+      parameters:
+        - $ref: "#/components/parameters/status"
+      responses:
+        "200": { description: Approval list }
+  /api/v1/script-approvals/{id}/approve:
+    post:
+      summary: Approve pending script approval
+      description: Requires `script:approve`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Approval summary }
+  /api/v1/script-approvals/{id}/reject:
+    post:
+      summary: Reject pending script approval
+      description: Requires `script:approve`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Approval summary }
+  /api/v1/tasks:
+    get:
+      summary: List task runs
+      description: Requires `task:read`.
+      responses:
+        "200": { description: Task run list }
+    post:
+      summary: Create task run
+      description: Requires `task:execute`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskPayload"
+      responses:
+        "200": { description: Task detail }
+  /api/v1/tasks/{id}:
+    get:
+      summary: Get task detail
+      description: Requires `task:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Task detail }
+  /api/v1/tasks/{id}/cancel:
+    post:
+      summary: Cancel pending or queued task
+      description: Requires `task:cancel`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: OK }
+  /api/v1/tasks/{id}/targets:
+    get:
+      summary: List task targets
+      description: Requires `task:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Target list }
+  /api/v1/tasks/{id}/logs:
+    get:
+      summary: Query task logs
+      description: Requires `task:log:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - $ref: "#/components/parameters/afterSequence"
+      responses:
+        "200": { description: Task logs }
+  /api/v1/tasks/{id}/targets/{targetId}/logs:
+    get:
+      summary: Query target logs
+      description: Requires `task:log:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: targetId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/afterSequence"
+      responses:
+        "200": { description: Target logs }
+  /api/v1/tasks/{id}/logs/stream:
+    get:
+      summary: Stream task logs with SSE
+      description: Requires `task:log:read`. Emits `ready`, `heartbeat`, `log`, and `error` events.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: targetId
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/afterSequence"
+      responses:
         "200":
-          description: Service health status
+          description: text/event-stream
           content:
-            application/json:
+            text/event-stream:
               schema:
-                type: object
-                required: [code, message, data, traceId]
-                properties:
-                  code:
-                    type: integer
-                    example: 0
-                  message:
-                    type: string
-                    example: success
-                  traceId:
-                    type: string
-                    example: trc_0123456789abcdef
-                  data:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        example: ok
-                      service:
-                        type: string
-                        example: OpsPilot
-                      version:
-                        type: string
-                        example: dev
-                      env:
-                        type: string
-                        example: local
+                type: string
+  /api/v1/agent/tasks/poll:
+    get:
+      security:
+        - agentTokenAuth: []
+      summary: Agent polls queued targets
+      responses:
+        "200": { description: Agent task list }
+  /api/v1/agent/tasks/{targetId}/claim:
+    post:
+      security:
+        - agentTokenAuth: []
+      summary: Agent claims target execution
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Agent task }
+  /api/v1/agent/tasks/{targetId}/logs:
+    post:
+      security:
+        - agentTokenAuth: []
+      summary: Agent uploads task log chunk
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: OK }
+  /api/v1/agent/tasks/{targetId}/result:
+    post:
+      security:
+        - agentTokenAuth: []
+      summary: Agent reports target result
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: OK }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    agentTokenAuth:
+      type: http
+      scheme: bearer
+      description: Agent Token, not user JWT.
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    keyword:
+      name: keyword
+      in: query
+      schema: { type: string }
+    status:
+      name: status
+      in: query
+      schema: { type: string }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    pageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    afterSequence:
+      name: afterSequence
+      in: query
+      schema: { type: integer, minimum: 0 }
+  schemas:
+    ScriptPayload:
+      type: object
+      required: [name, content]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        scriptType: { type: string, enum: [shell, bash, powershell] }
+        content: { type: string }
+        changeSummary: { type: string }
+    CreateTaskPayload:
+      type: object
+      required: [name, timeoutSeconds]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        scriptId: { type: string }
+        command: { type: string }
+        scriptType: { type: string, enum: [shell, bash, powershell] }
+        timeoutSeconds: { type: integer, minimum: 1 }
+        targetAgentIds:
+          type: array
+          items: { type: string }
+        targetHostIds:
+          type: array
+          items: { type: string }
+    EnrollmentTokenPayload:
+      type: object
+      properties:
+        maxUses: { type: integer, minimum: 1, default: 1 }
+        expiresInSeconds: { type: integer, minimum: 60, default: 3600 }
+        bindWorkspaceSlug: { type: string }

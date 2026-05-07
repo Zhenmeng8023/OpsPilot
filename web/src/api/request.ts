@@ -34,4 +34,52 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return body.data;
 }
 
-export { REFRESH_TOKEN_KEY, TOKEN_KEY };
+export async function streamSSE(
+  path: string,
+  handlers: {
+    onEvent: (event: string, data: string) => void;
+    onError?: (error: Error) => void;
+    signal?: AbortSignal;
+  }
+) {
+  const headers = new Headers();
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers,
+    signal: handlers.signal
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Stream failed with status ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+    for (const chunk of chunks) {
+      const event = chunk
+        .split("\n")
+        .find((line) => line.startsWith("event:"))
+        ?.slice(6)
+        .trim() ?? "message";
+      const data = chunk
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      handlers.onEvent(event, data);
+    }
+  }
+}
+
+export { API_BASE_URL, REFRESH_TOKEN_KEY, TOKEN_KEY };

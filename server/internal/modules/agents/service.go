@@ -16,6 +16,7 @@ import (
 
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/shared/apperror"
+	"opspilot/server/internal/shared/audit"
 )
 
 type Service struct {
@@ -38,6 +39,8 @@ type HostInfoInput struct {
 
 type RegisterInput struct {
 	BootstrapSecret string
+	EnrollmentToken string
+	Audit           AuditContext
 	HostInfoInput
 }
 
@@ -53,6 +56,60 @@ type AgentIdentity struct {
 	HostID      uint64
 	Name        string
 	Status      string
+}
+
+type AuditContext struct {
+	ActorUID      string
+	IP            string
+	UserAgent     string
+	TraceID       string
+	RequestMethod string
+	RequestPath   string
+}
+
+type ListInput struct {
+	Keyword  string
+	Status   string
+	Page     int
+	PageSize int
+}
+
+type AgentListResult struct {
+	Items    []AgentSummary `json:"items"`
+	Total    int64          `json:"total"`
+	Page     int            `json:"page"`
+	PageSize int            `json:"pageSize"`
+}
+
+type HostListResult struct {
+	Items    []HostSummary `json:"items"`
+	Total    int64         `json:"total"`
+	Page     int           `json:"page"`
+	PageSize int           `json:"pageSize"`
+}
+
+type EnrollmentTokenSummary struct {
+	ID                string `json:"id"`
+	TokenPrefix       string `json:"tokenPrefix"`
+	Status            string `json:"status"`
+	MaxUses           uint   `json:"maxUses"`
+	UsedCount         uint   `json:"usedCount"`
+	BindWorkspaceSlug string `json:"bindWorkspaceSlug,omitempty"`
+	ExpiresAt         string `json:"expiresAt"`
+	CreatedBy         string `json:"createdBy,omitempty"`
+	CreatedAt         string `json:"createdAt"`
+}
+
+type EnrollmentTokenDetail struct {
+	EnrollmentTokenSummary
+	Token string `json:"token,omitempty"`
+}
+
+type CreateEnrollmentTokenInput struct {
+	MaxUses           uint
+	ExpiresInSeconds  uint
+	BindWorkspaceSlug string
+	Audit             AuditContext
 }
 
 type AgentSummary struct {
@@ -145,11 +202,17 @@ func NewService(db *gorm.DB, cfg config.Config) *Service {
 }
 
 func (s *Service) Register(ctx context.Context, input RegisterInput) (RegistrationResult, *apperror.Error) {
-	if strings.TrimSpace(input.BootstrapSecret) == "" || input.BootstrapSecret != s.cfg.Agent.BootstrapSecret {
-		return RegistrationResult{}, apperror.New(http.StatusUnauthorized, 401010, "invalid agent bootstrap secret")
-	}
-
 	input = normalizeRegisterInput(input)
+	enrollmentHash := hashToken(input.EnrollmentToken)
+	useEnrollment := strings.TrimSpace(input.EnrollmentToken) != ""
+	if !useEnrollment {
+		if !s.cfg.Agent.RegistrationEnabled {
+			return RegistrationResult{}, apperror.New(http.StatusForbidden, 403102, "agent registration is disabled")
+		}
+		if strings.TrimSpace(input.BootstrapSecret) == "" || input.BootstrapSecret != s.cfg.Agent.BootstrapSecret {
+			return RegistrationResult{}, apperror.New(http.StatusUnauthorized, 401010, "invalid agent bootstrap secret")
+		}
+	}
 	agentName := input.Name
 	if agentName == "" {
 		agentName = input.Hostname
@@ -171,6 +234,12 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (Registrati
 		}
 		if workspace.ID == 0 {
 			return apperror.New(http.StatusInternalServerError, 500102, "default workspace is not initialized")
+		}
+
+		if useEnrollment {
+			if err := s.consumeEnrollmentToken(ctx, tx, workspace.ID, enrollmentHash); err != nil {
+				return err
+			}
 		}
 
 		host, err := s.ensureHost(ctx, tx, workspace.ID, input.HostInfoInput, 0)
@@ -226,6 +295,20 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (Registrati
 		if err := s.writeHeartbeat(ctx, tx, agent.ID, host.ID, "online", input.HostInfoInput); err != nil {
 			return err
 		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorType:     "agent",
+			ActorAgentID:  sql.NullInt64{Int64: int64(agent.ID), Valid: true},
+			Action:        "agent.register",
+			ResourceType:  "agent",
+			ResourceID:    sql.NullInt64{Int64: int64(agent.ID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         input.HostInfoInput,
+		})
 
 		summary, err := s.agentSummaryByID(ctx, tx, agent.ID)
 		if err != nil {
@@ -340,13 +423,36 @@ func (s *Service) Heartbeat(ctx context.Context, identity AgentIdentity, input H
 	return result, nil
 }
 
-func (s *Service) ListAgents(ctx context.Context) ([]AgentSummary, *apperror.Error) {
+func (s *Service) ListAgents(ctx context.Context, input ListInput) (AgentListResult, *apperror.Error) {
 	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
 	if appErr != nil {
-		return nil, appErr
+		return AgentListResult{}, appErr
 	}
-	_, _ = s.MarkOffline(ctx)
+	input = normalizeListInput(input)
 
+	args := []interface{}{workspace.ID}
+	where := "WHERE a.workspace_id = ? AND a.deleted_at IS NULL"
+	if strings.TrimSpace(input.Keyword) != "" {
+		where += " AND (a.name LIKE ? OR a.uid LIKE ? OR h.name LIKE ? OR h.hostname LIKE ? OR a.ip LIKE ?)"
+		like := "%" + strings.TrimSpace(input.Keyword) + "%"
+		args = append(args, like, like, like, like, like)
+	}
+	if strings.TrimSpace(input.Status) != "" {
+		where += " AND a.status = ?"
+		args = append(args, strings.TrimSpace(input.Status))
+	}
+	var total int64
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT COUNT(*)
+		   FROM agents a
+		   LEFT JOIN hosts h ON h.id = a.host_id
+		  `+where,
+		args...,
+	).Scan(&total).Error; err != nil {
+		return AgentListResult{}, apperror.Wrap(http.StatusInternalServerError, 500105, "count agents failed", err)
+	}
+	queryArgs := append([]interface{}{}, args...)
+	queryArgs = append(queryArgs, input.PageSize, (input.Page-1)*input.PageSize)
 	var rows []struct {
 		AgentUID        string
 		AgentName       string
@@ -379,11 +485,12 @@ func (s *Service) ListAgents(ctx context.Context) ([]AgentSummary, *apperror.Err
 		        DATE_FORMAT(h.created_at, '%Y-%m-%d %H:%i:%s') AS host_created_at
 		   FROM agents a
 		   LEFT JOIN hosts h ON h.id = a.host_id
-		  WHERE a.workspace_id = ? AND a.deleted_at IS NULL
-		  ORDER BY a.last_heartbeat_at DESC, a.created_at DESC`,
-		workspace.ID,
+		  `+where+`
+		  ORDER BY a.last_heartbeat_at DESC, a.created_at DESC
+		  LIMIT ? OFFSET ?`,
+		queryArgs...,
 	).Scan(&rows).Error; err != nil {
-		return nil, apperror.Wrap(http.StatusInternalServerError, 500105, "list agents failed", err)
+		return AgentListResult{}, apperror.Wrap(http.StatusInternalServerError, 500105, "list agents failed", err)
 	}
 
 	agents := make([]AgentSummary, 0, len(rows))
@@ -415,16 +522,33 @@ func (s *Service) ListAgents(ctx context.Context) ([]AgentSummary, *apperror.Err
 		}
 		agents = append(agents, agent)
 	}
-	return agents, nil
+	return AgentListResult{Items: agents, Total: total, Page: input.Page, PageSize: input.PageSize}, nil
 }
 
-func (s *Service) ListHosts(ctx context.Context) ([]HostSummary, *apperror.Error) {
+func (s *Service) ListHosts(ctx context.Context, input ListInput) (HostListResult, *apperror.Error) {
 	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
 	if appErr != nil {
-		return nil, appErr
+		return HostListResult{}, appErr
 	}
-	_, _ = s.MarkOffline(ctx)
+	input = normalizeListInput(input)
 
+	args := []interface{}{workspace.ID}
+	where := "WHERE h.workspace_id = ? AND h.deleted_at IS NULL"
+	if strings.TrimSpace(input.Keyword) != "" {
+		where += " AND (h.name LIKE ? OR h.uid LIKE ? OR h.hostname LIKE ? OR h.primary_ip LIKE ?)"
+		like := "%" + strings.TrimSpace(input.Keyword) + "%"
+		args = append(args, like, like, like, like)
+	}
+	if strings.TrimSpace(input.Status) != "" {
+		where += " AND h.status = ?"
+		args = append(args, strings.TrimSpace(input.Status))
+	}
+	var total int64
+	if err := s.db.WithContext(ctx).Raw("SELECT COUNT(*) FROM hosts h "+where, args...).Scan(&total).Error; err != nil {
+		return HostListResult{}, apperror.Wrap(http.StatusInternalServerError, 500106, "count hosts failed", err)
+	}
+	queryArgs := append([]interface{}{}, args...)
+	queryArgs = append(queryArgs, input.PageSize, (input.Page-1)*input.PageSize)
 	var rows []struct {
 		UID              string
 		Name             string
@@ -446,12 +570,13 @@ func (s *Service) ListHosts(ctx context.Context) ([]HostSummary, *apperror.Error
 		        DATE_FORMAT(h.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
 		   FROM hosts h
 		   LEFT JOIN agents a ON a.host_id = h.id AND a.deleted_at IS NULL
-		  WHERE h.workspace_id = ? AND h.deleted_at IS NULL
+		  `+where+`
 		  GROUP BY h.id, h.uid, h.name, h.hostname, h.primary_ip, h.os_name, h.os_type, h.arch, h.status, h.created_at
-		  ORDER BY MAX(a.last_heartbeat_at) DESC, h.created_at DESC`,
-		workspace.ID,
+		  ORDER BY MAX(a.last_heartbeat_at) DESC, h.created_at DESC
+		  LIMIT ? OFFSET ?`,
+		queryArgs...,
 	).Scan(&rows).Error; err != nil {
-		return nil, apperror.Wrap(http.StatusInternalServerError, 500106, "list hosts failed", err)
+		return HostListResult{}, apperror.Wrap(http.StatusInternalServerError, 500106, "list hosts failed", err)
 	}
 
 	hosts := make([]HostSummary, 0, len(rows))
@@ -470,7 +595,7 @@ func (s *Service) ListHosts(ctx context.Context) ([]HostSummary, *apperror.Error
 			CreatedAt:        row.CreatedAt,
 		})
 	}
-	return hosts, nil
+	return HostListResult{Items: hosts, Total: total, Page: input.Page, PageSize: input.PageSize}, nil
 }
 
 func (s *Service) DisableAgent(ctx context.Context, agentUID, actorUID string) *apperror.Error {
@@ -509,10 +634,16 @@ func (s *Service) DisableAgent(ctx context.Context, agentUID, actorUID string) *
 			return err
 		}
 		if row.HostID.Valid {
-			if err := tx.WithContext(ctx).Exec("UPDATE hosts SET status = 'disabled' WHERE id = ?", row.HostID.Int64).Error; err != nil {
+			if err := s.refreshHostStatus(ctx, tx, uint64(row.HostID.Int64)); err != nil {
 				return err
 			}
 		}
+		audit.Write(ctx, tx, audit.Event{
+			ActorUserID:  actorID,
+			Action:       "agent.disable",
+			ResourceType: "agent",
+			ResourceID:   sql.NullInt64{Int64: int64(row.ID), Valid: true},
+		})
 		return nil
 	})
 	if txErr != nil {
@@ -520,6 +651,203 @@ func (s *Service) DisableAgent(ctx context.Context, agentUID, actorUID string) *
 			return appErr
 		}
 		return apperror.Wrap(http.StatusInternalServerError, 500107, "disable agent failed", txErr)
+	}
+	return nil
+}
+
+func (s *Service) RevokeAgentToken(ctx context.Context, agentUID, actorUID string) *apperror.Error {
+	agentUID = strings.TrimSpace(agentUID)
+	if agentUID == "" {
+		return apperror.New(http.StatusBadRequest, 400001, "agent id is required")
+	}
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row struct {
+			ID uint64
+		}
+		if err := tx.WithContext(ctx).Raw("SELECT id FROM agents WHERE uid = ? AND deleted_at IS NULL LIMIT 1", agentUID).Scan(&row).Error; err != nil {
+			return err
+		}
+		if row.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404101, "agent not found")
+		}
+		actorID, err := s.userIDByUID(ctx, tx, actorUID)
+		if err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			"UPDATE agent_tokens SET status = 'revoked', revoked_at = NOW(3) WHERE agent_id = ? AND status = 'active'",
+			row.ID,
+		).Error; err != nil {
+			return err
+		}
+		audit.Write(ctx, tx, audit.Event{
+			ActorUserID:  actorID,
+			Action:       "agent.token.revoke",
+			ResourceType: "agent",
+			ResourceID:   sql.NullInt64{Int64: int64(row.ID), Valid: true},
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return appErr
+		}
+		return apperror.Wrap(http.StatusInternalServerError, 500109, "revoke agent token failed", txErr)
+	}
+	return nil
+}
+
+func (s *Service) ListEnrollmentTokens(ctx context.Context) ([]EnrollmentTokenSummary, *apperror.Error) {
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	var rows []struct {
+		UID               string
+		TokenPrefix       sql.NullString
+		Status            string
+		MaxUses           uint
+		UsedCount         uint
+		BindWorkspaceSlug sql.NullString
+		ExpiresAt         string
+		CreatedBy         sql.NullString
+		CreatedAt         string
+	}
+	err := s.db.WithContext(ctx).Raw(
+		`SELECT e.uid, e.token_prefix, e.status, e.max_uses, e.used_count, e.bind_workspace_slug,
+		        DATE_FORMAT(e.expires_at, '%Y-%m-%d %H:%i:%s') AS expires_at,
+		        u.username AS created_by,
+		        DATE_FORMAT(e.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM agent_enrollment_tokens e
+		   LEFT JOIN users u ON u.id = e.created_by
+		  WHERE e.workspace_id = ?
+		  ORDER BY e.created_at DESC
+		  LIMIT 100`,
+		workspace.ID,
+	).Scan(&rows).Error
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500110, "list enrollment tokens failed", err)
+	}
+	out := make([]EnrollmentTokenSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, EnrollmentTokenSummary{
+			ID:                row.UID,
+			TokenPrefix:       row.TokenPrefix.String,
+			Status:            row.Status,
+			MaxUses:           row.MaxUses,
+			UsedCount:         row.UsedCount,
+			BindWorkspaceSlug: row.BindWorkspaceSlug.String,
+			ExpiresAt:         row.ExpiresAt,
+			CreatedBy:         row.CreatedBy.String,
+			CreatedAt:         row.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) CreateEnrollmentToken(ctx context.Context, input CreateEnrollmentTokenInput) (EnrollmentTokenDetail, *apperror.Error) {
+	if input.MaxUses == 0 {
+		input.MaxUses = 1
+	}
+	if input.ExpiresInSeconds == 0 {
+		input.ExpiresInSeconds = 3600
+	}
+	token, tokenHash, tokenPrefix, err := newEnrollmentToken()
+	if err != nil {
+		return EnrollmentTokenDetail{}, apperror.Wrap(http.StatusInternalServerError, 500111, "issue enrollment token failed", err)
+	}
+	var created EnrollmentTokenDetail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := s.defaultWorkspace(ctx, tx)
+		if err != nil {
+			return err
+		}
+		actorID, err := s.userIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		enrollmentUID, err := newUID()
+		if err != nil {
+			return err
+		}
+		expiresAt := time.Now().Add(time.Duration(input.ExpiresInSeconds) * time.Second)
+		if err := tx.WithContext(ctx).Exec(
+			`INSERT INTO agent_enrollment_tokens(uid, workspace_id, token_hash, token_prefix, status, max_uses, used_count, bind_workspace_slug, expires_at, created_by)
+			 VALUES (?, ?, ?, ?, 'active', ?, 0, ?, ?, ?)`,
+			enrollmentUID, workspace.ID, tokenHash, tokenPrefix, input.MaxUses, nullString(input.BindWorkspaceSlug), expiresAt, actorID,
+		).Error; err != nil {
+			return err
+		}
+		created = EnrollmentTokenDetail{
+			EnrollmentTokenSummary: EnrollmentTokenSummary{
+				ID:                enrollmentUID,
+				TokenPrefix:       tokenPrefix,
+				Status:            "active",
+				MaxUses:           input.MaxUses,
+				UsedCount:         0,
+				BindWorkspaceSlug: strings.TrimSpace(input.BindWorkspaceSlug),
+				ExpiresAt:         expiresAt.Format("2006-01-02 15:04:05"),
+			},
+			Token: token,
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "agent.enrollment.create",
+			ResourceType:  "agent_enrollment_token",
+			After:         map[string]interface{}{"uid": enrollmentUID, "tokenPrefix": tokenPrefix, "maxUses": input.MaxUses},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+		})
+		return nil
+	})
+	if txErr != nil {
+		return EnrollmentTokenDetail{}, apperror.Wrap(http.StatusInternalServerError, 500112, "create enrollment token failed", txErr)
+	}
+	return created, nil
+}
+
+func (s *Service) RevokeEnrollmentToken(ctx context.Context, uidValue, actorUID string) *apperror.Error {
+	uidValue = strings.TrimSpace(uidValue)
+	if uidValue == "" {
+		return apperror.New(http.StatusBadRequest, 400110, "enrollment token id is required")
+	}
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := s.defaultWorkspace(ctx, tx)
+		if err != nil {
+			return err
+		}
+		actorID, err := s.userIDByUID(ctx, tx, actorUID)
+		if err != nil {
+			return err
+		}
+		var row struct{ ID uint64 }
+		if err := tx.WithContext(ctx).Raw("SELECT id FROM agent_enrollment_tokens WHERE workspace_id = ? AND uid = ? LIMIT 1", workspace.ID, uidValue).Scan(&row).Error; err != nil {
+			return err
+		}
+		if row.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404110, "enrollment token not found")
+		}
+		if err := tx.WithContext(ctx).Exec("UPDATE agent_enrollment_tokens SET status = 'revoked', revoked_at = NOW(3) WHERE id = ?", row.ID).Error; err != nil {
+			return err
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:  workspace.ID,
+			ActorUserID:  actorID,
+			Action:       "agent.enrollment.revoke",
+			ResourceType: "agent_enrollment_token",
+			ResourceID:   sql.NullInt64{Int64: int64(row.ID), Valid: true},
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return appErr
+		}
+		return apperror.Wrap(http.StatusInternalServerError, 500113, "revoke enrollment token failed", txErr)
 	}
 	return nil
 }
@@ -546,21 +874,13 @@ func (s *Service) MarkOffline(ctx context.Context) (OfflineScanResult, *apperror
 	}
 	hostRes := s.db.WithContext(ctx).Exec(
 		`UPDATE hosts h
-		    SET h.status = 'offline'
-		  WHERE h.workspace_id = ?
-		    AND h.status = 'online'
-		    AND EXISTS (
-		      SELECT 1 FROM agents a
-		       WHERE a.host_id = h.id
-		         AND a.status = 'offline'
-		         AND a.deleted_at IS NULL
-		    )
-		    AND NOT EXISTS (
-		      SELECT 1 FROM agents a
-		       WHERE a.host_id = h.id
-		         AND a.status = 'online'
-		         AND a.deleted_at IS NULL
-		    )`,
+		    SET h.status = CASE
+		      WHEN EXISTS (SELECT 1 FROM agents a WHERE a.host_id = h.id AND a.status IN ('online', 'upgrading') AND a.deleted_at IS NULL) THEN 'online'
+		      WHEN EXISTS (SELECT 1 FROM agents a WHERE a.host_id = h.id AND a.status IN ('registered', 'offline') AND a.deleted_at IS NULL) THEN 'offline'
+		      WHEN EXISTS (SELECT 1 FROM agents a WHERE a.host_id = h.id AND a.status = 'disabled' AND a.deleted_at IS NULL) THEN 'disabled'
+		      ELSE 'unknown'
+		    END
+		  WHERE h.workspace_id = ?`,
 		workspace.ID,
 	)
 	if hostRes.Error != nil {
@@ -571,6 +891,55 @@ func (s *Service) MarkOffline(ctx context.Context) (OfflineScanResult, *apperror
 		OfflineHosts:     hostRes.RowsAffected,
 		ThresholdSeconds: seconds,
 	}, nil
+}
+
+func (s *Service) refreshHostStatus(ctx context.Context, tx *gorm.DB, hostID uint64) error {
+	return tx.WithContext(ctx).Exec(
+		`UPDATE hosts h
+		    SET h.status = CASE
+		      WHEN EXISTS (SELECT 1 FROM agents a WHERE a.host_id = h.id AND a.status IN ('online', 'upgrading') AND a.deleted_at IS NULL) THEN 'online'
+		      WHEN EXISTS (SELECT 1 FROM agents a WHERE a.host_id = h.id AND a.status IN ('registered', 'offline') AND a.deleted_at IS NULL) THEN 'offline'
+		      WHEN EXISTS (SELECT 1 FROM agents a WHERE a.host_id = h.id AND a.status = 'disabled' AND a.deleted_at IS NULL) THEN 'disabled'
+		      ELSE 'unknown'
+		    END
+		  WHERE h.id = ?`,
+		hostID,
+	).Error
+}
+
+func (s *Service) consumeEnrollmentToken(ctx context.Context, tx *gorm.DB, workspaceID uint64, tokenHash string) error {
+	var row struct {
+		ID                uint64
+		Status            string
+		MaxUses           uint
+		UsedCount         uint
+		BindWorkspaceSlug sql.NullString
+	}
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT id, status, max_uses, used_count, bind_workspace_slug
+		   FROM agent_enrollment_tokens
+		  WHERE workspace_id = ?
+		    AND token_hash = ?
+		    AND status = 'active'
+		    AND expires_at > NOW(3)
+		  LIMIT 1
+		  FOR UPDATE`,
+		workspaceID, tokenHash,
+	).Scan(&row).Error; err != nil {
+		return err
+	}
+	if row.ID == 0 {
+		return apperror.New(http.StatusUnauthorized, 401013, "invalid enrollment token")
+	}
+	nextUsed := row.UsedCount + 1
+	nextStatus := "active"
+	if nextUsed >= row.MaxUses {
+		nextStatus = "used"
+	}
+	return tx.WithContext(ctx).Exec(
+		"UPDATE agent_enrollment_tokens SET used_count = ?, status = ? WHERE id = ?",
+		nextUsed, nextStatus, row.ID,
+	).Error
 }
 
 func (s *Service) defaultWorkspaceForAPI(ctx context.Context) (workspaceRecord, *apperror.Error) {
@@ -753,6 +1122,21 @@ func (s *Service) offlineThreshold() time.Duration {
 	return threshold
 }
 
+func normalizeListInput(input ListInput) ListInput {
+	if input.Page <= 0 {
+		input.Page = 1
+	}
+	if input.PageSize <= 0 {
+		input.PageSize = 20
+	}
+	if input.PageSize > 100 {
+		input.PageSize = 100
+	}
+	input.Keyword = strings.TrimSpace(input.Keyword)
+	input.Status = strings.TrimSpace(input.Status)
+	return input
+}
+
 func agentSummaryFrom(agent agentRecord) AgentSummary {
 	return AgentSummary{
 		ID:              agent.UID,
@@ -839,6 +1223,17 @@ func newAgentToken() (token string, tokenHash string, tokenPrefix string, err er
 		return "", "", "", err
 	}
 	token = "opagt_" + base64.RawURLEncoding.EncodeToString(bytes)
+	tokenHash = hashToken(token)
+	tokenPrefix = limit(token, 16)
+	return token, tokenHash, tokenPrefix, nil
+}
+
+func newEnrollmentToken() (token string, tokenHash string, tokenPrefix string, err error) {
+	bytes := make([]byte, 32)
+	if _, err = rand.Read(bytes); err != nil {
+		return "", "", "", err
+	}
+	token = "openr_" + base64.RawURLEncoding.EncodeToString(bytes)
 	tokenHash = hashToken(token)
 	tokenPrefix = limit(token, 16)
 	return token, tokenHash, tokenPrefix, nil

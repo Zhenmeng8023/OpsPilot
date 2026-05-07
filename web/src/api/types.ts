@@ -98,3 +98,105 @@ export interface OfflineScanResult {
   offlineHosts: number;
   thresholdSeconds: number;
 }
+
+export interface EnrollmentTokenSummary {
+  id: string;
+  tokenPrefix: string;
+  status: string;
+  maxUses: number;
+  usedCount: number;
+  bindWorkspaceSlug?: string;
+  expiresAt: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface EnrollmentTokenDetail extends EnrollmentTokenSummary {
+  token?: string;
+}
+
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface Script {
+  id: string;
+  name: string;
+  description?: string;
+  scriptType: string;
+  status: string;
+  version: number;
+  content?: string;
+  changeSummary?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScriptApprovalSummary {
+  id: number;
+  versionId: string;
+  scriptId: string;
+  scriptName: string;
+  version: number;
+  status: string;
+  comment?: string;
+  approver?: string;
+  approvedAt?: string;
+  createdAt: string;
+}
+
+export interface TaskSummary {
+  id: string;
+  taskId: string;
+  name: string;
+  description?: string;
+  status: string;
+  timeoutSeconds: number;
+  targetCount: number;
+  successCount: number;
+  failedCount: number;
+  canceledCount: number;
+  runningCount: number;
+  queuedCount: number;
+  createdBy?: string;
+  createdAt: string;
+  queuedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  errorMessage?: string;
+}
+
+export interface TaskTarget {
+  id: string;
+  status: string;
+  agentId?: string;
+  agentName?: string;
+  agentStatus?: string;
+  hostId?: string;
+  hostName?: string;
+  exitCode?: number;
+  errorMessage?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  createdAt: string;
+}
+
+export interface TaskDetail extends TaskSummary {
+  targets?: TaskTarget[];
+}
+
+export interface TaskLogEntry {
+  id: number;
+  runId: string;
+  targetId: string;
+  sequence: number;
+  stream: "stdout" | "stderr" | "system";
+  content: string;
+  createdAt: string;
+  agentName?: string;
+  hostName?: string;
+}

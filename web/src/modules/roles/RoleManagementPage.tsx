@@ -50,7 +50,7 @@ export function RoleManagementPage() {
         method: "POST",
         body: JSON.stringify({
           ...newRole,
-          permissions: permissionsQuery.data?.filter((permission) => permission.code.endsWith(".read")).map((p) => p.code) ?? []
+          permissions: permissionsQuery.data?.filter((permission) => permission.code.endsWith(".read") || permission.code.endsWith(":read")).map((p) => p.code) ?? []
         })
       }),
     onSuccess: async () => {

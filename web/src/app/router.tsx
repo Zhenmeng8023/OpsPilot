@@ -8,6 +8,11 @@ import { AgentManagementPage } from "../modules/agents/AgentManagementPage";
 import { DashboardPage } from "../modules/dashboard/DashboardPage";
 import { RoleManagementPage } from "../modules/roles/RoleManagementPage";
 import { UserManagementPage } from "../modules/users/UserManagementPage";
+import { ScriptEditorPage } from "../modules/scripts/ScriptEditorPage";
+import { ScriptListPage } from "../modules/scripts/ScriptListPage";
+import { TaskCreatePage } from "../modules/tasks/TaskCreatePage";
+import { TaskDetailPage } from "../modules/tasks/TaskDetailPage";
+import { TaskListPage } from "../modules/tasks/TaskListPage";
 
 function ProtectedRoute() {
   const token = useAuthStore((state) => state.token);
@@ -37,7 +42,12 @@ export const router = createBrowserRouter([
           { path: "dashboard", element: <DashboardPage /> },
           { path: "users", element: <UserManagementPage /> },
           { path: "roles", element: <RoleManagementPage /> },
-          { path: "agents", element: <AgentManagementPage /> }
+          { path: "agents", element: <AgentManagementPage /> },
+          { path: "scripts", element: <ScriptListPage /> },
+          { path: "scripts/:id", element: <ScriptEditorPage /> },
+          { path: "tasks", element: <TaskListPage /> },
+          { path: "tasks/new", element: <TaskCreatePage /> },
+          { path: "tasks/:id", element: <TaskDetailPage /> }
         ]
       }
     ]

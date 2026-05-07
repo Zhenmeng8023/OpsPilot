@@ -12,6 +12,7 @@ import (
 
 	"opspilot/server/internal/app"
 	"opspilot/server/internal/config"
+	"opspilot/server/internal/modules/agents"
 	"opspilot/server/internal/modules/auth"
 	"opspilot/server/internal/platform/db"
 	"opspilot/server/internal/platform/logger"
@@ -45,6 +46,9 @@ func main() {
 		log.Error("bootstrap auth data failed", "error", err)
 		os.Exit(1)
 	}
+	scannerCtx, scannerCancel := context.WithCancel(context.Background())
+	defer scannerCancel()
+	startOfflineScanner(scannerCtx, log, agents.NewService(dbHandle, cfg), cfg.Agent.OfflineScanInterval)
 
 	redisClient := redisplatform.NewClient(cfg.Redis)
 	if err := redisplatform.Ping(startupCtx, redisClient); err != nil {
@@ -74,6 +78,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	<-ctx.Done()
+	scannerCancel()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -83,4 +88,29 @@ func main() {
 	}
 
 	log.Info("opspilot api stopped")
+}
+
+func startOfflineScanner(ctx context.Context, log *slog.Logger, service *agents.Service, interval time.Duration) {
+	if interval <= 0 {
+		interval = 45 * time.Second
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				result, appErr := service.MarkOffline(ctx)
+				if appErr != nil {
+					log.Warn("agent offline scan failed", "error", appErr)
+					continue
+				}
+				if result.OfflineAgents > 0 || result.OfflineHosts > 0 {
+					log.Info("agent offline scan completed", "offline_agents", result.OfflineAgents, "offline_hosts", result.OfflineHosts)
+				}
+			}
+		}
+	}()
 }

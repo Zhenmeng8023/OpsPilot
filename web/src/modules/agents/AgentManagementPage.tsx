@@ -1,8 +1,16 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import { request } from "../../api/request";
-import type { Agent, Host, OfflineScanResult } from "../../api/types";
+import {
+  createEnrollmentToken,
+  disableAgent,
+  listAgents,
+  listEnrollmentTokens,
+  listHosts,
+  markOffline,
+  revokeEnrollmentToken
+} from "../../api/agents";
+import type { Agent, EnrollmentTokenDetail } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 
 const statusOrder = ["online", "offline", "disabled", "registered", "upgrading"];
@@ -10,34 +18,74 @@ const statusOrder = ["online", "offline", "disabled", "registered", "upgrading"]
 export function AgentManagementPage() {
   const queryClient = useQueryClient();
   const t = useLanguageStore((state) => state.t);
+  const [createForm, setCreateForm] = useState({
+    maxUses: 1,
+    expiresInSeconds: 3600,
+    bindWorkspaceSlug: ""
+  });
+  const [issuedToken, setIssuedToken] = useState<EnrollmentTokenDetail | null>(null);
+  const [copyMessage, setCopyMessage] = useState("");
+
   const agentsQuery = useQuery({
     queryKey: ["agents"],
-    queryFn: () => request<Agent[]>("/api/v1/agents")
+    queryFn: () => listAgents()
   });
   const hostsQuery = useQuery({
     queryKey: ["hosts"],
-    queryFn: () => request<Host[]>("/api/v1/hosts")
+    queryFn: () => listHosts()
+  });
+  const enrollmentQuery = useQuery({
+    queryKey: ["agentEnrollmentTokens"],
+    queryFn: () => listEnrollmentTokens()
   });
 
-  const disableAgent = useMutation({
-    mutationFn: (agent: Agent) =>
-      request<{ ok: boolean }>(`/api/v1/agents/${agent.id}/disable`, {
-        method: "POST"
-      }),
+  const disableAgentMutation = useMutation({
+    mutationFn: (agent: Agent) => disableAgent(agent.id),
     onSuccess: () => refreshLists(queryClient)
   });
 
-  const scanOffline = useMutation({
+  const scanOfflineMutation = useMutation({
+    mutationFn: () => markOffline(),
+    onSuccess: () => refreshLists(queryClient)
+  });
+
+  const createEnrollmentMutation = useMutation({
     mutationFn: () =>
-      request<OfflineScanResult>("/api/v1/agents/offline-scan", {
-        method: "POST"
+      createEnrollmentToken({
+        maxUses: Math.max(1, createForm.maxUses),
+        expiresInSeconds: Math.max(60, createForm.expiresInSeconds),
+        bindWorkspaceSlug: createForm.bindWorkspaceSlug.trim() || undefined
       }),
-    onSuccess: () => refreshLists(queryClient)
+    onSuccess: (detail) => {
+      setIssuedToken(detail);
+      setCopyMessage("");
+      void refreshLists(queryClient, true);
+    }
   });
 
-  const agents = agentsQuery.data ?? [];
-  const hosts = hostsQuery.data ?? [];
+  const revokeEnrollmentMutation = useMutation({
+    mutationFn: (id: string) => revokeEnrollmentToken(id),
+    onSuccess: () => {
+      if (issuedToken && issuedToken.status === "active") {
+        setIssuedToken({ ...issuedToken, status: "revoked" });
+      }
+      void refreshLists(queryClient, true);
+    }
+  });
+
+  const agents = agentsQuery.data?.items ?? [];
+  const hosts = hostsQuery.data?.items ?? [];
+  const enrollmentTokens = enrollmentQuery.data ?? [];
   const counts = useMemo(() => summarizeAgents(agents), [agents]);
+
+  async function copyToken(token: string) {
+    try {
+      await navigator.clipboard.writeText(token);
+      setCopyMessage("Copied");
+    } catch {
+      setCopyMessage("Copy failed");
+    }
+  }
 
   return (
     <main className="page">
@@ -46,7 +94,7 @@ export function AgentManagementPage() {
           <p className="eyebrow">Control Plane</p>
           <h1>{t("agents.title")}</h1>
         </div>
-        <button className="ghost-button" type="button" onClick={() => scanOffline.mutate()} disabled={scanOffline.isPending}>
+        <button className="ghost-button" type="button" onClick={() => scanOfflineMutation.mutate()} disabled={scanOfflineMutation.isPending}>
           {t("agents.scanOffline")}
         </button>
       </section>
@@ -103,8 +151,8 @@ export function AgentManagementPage() {
                       <button
                         className="danger-button"
                         type="button"
-                        disabled={agent.status === "disabled" || disableAgent.isPending}
-                        onClick={() => disableAgent.mutate(agent)}
+                        disabled={agent.status === "disabled" || disableAgentMutation.isPending}
+                        onClick={() => disableAgentMutation.mutate(agent)}
                       >
                         {t("agents.disable")}
                       </button>
@@ -115,7 +163,7 @@ export function AgentManagementPage() {
             </table>
           </div>
           {agentsQuery.isError ? <p className="form-error">{String(agentsQuery.error.message)}</p> : null}
-          {disableAgent.isError ? <p className="form-error">{String(disableAgent.error.message)}</p> : null}
+          {disableAgentMutation.isError ? <p className="form-error">{String(disableAgentMutation.error.message)}</p> : null}
         </section>
 
         <section className="panel table-panel">
@@ -165,7 +213,126 @@ export function AgentManagementPage() {
             </table>
           </div>
           {hostsQuery.isError ? <p className="form-error">{String(hostsQuery.error.message)}</p> : null}
-          {scanOffline.isError ? <p className="form-error">{String(scanOffline.error.message)}</p> : null}
+          {scanOfflineMutation.isError ? <p className="form-error">{String(scanOfflineMutation.error.message)}</p> : null}
+        </section>
+
+        <section className="panel table-panel">
+          <div className="panel-title">
+            <h3>Enrollment Tokens</h3>
+            <span>{enrollmentTokens.length} total</span>
+          </div>
+          <div className="enrollment-form">
+            <div className="form-grid">
+              <label>
+                Max uses
+                <input
+                  type="number"
+                  min={1}
+                  value={createForm.maxUses}
+                  onChange={(event) =>
+                    setCreateForm((current) => ({ ...current, maxUses: Number(event.target.value) || 1 }))
+                  }
+                />
+              </label>
+              <label>
+                Expires in seconds
+                <input
+                  type="number"
+                  min={60}
+                  value={createForm.expiresInSeconds}
+                  onChange={(event) =>
+                    setCreateForm((current) => ({ ...current, expiresInSeconds: Number(event.target.value) || 60 }))
+                  }
+                />
+              </label>
+            </div>
+            <label>
+              Bind workspace slug (optional)
+              <input
+                value={createForm.bindWorkspaceSlug}
+                onChange={(event) => setCreateForm((current) => ({ ...current, bindWorkspaceSlug: event.target.value }))}
+                placeholder="default"
+              />
+            </label>
+            <div className="enrollment-actions">
+              <button
+                className="ghost-button"
+                type="button"
+                disabled={createEnrollmentMutation.isPending}
+                onClick={() => createEnrollmentMutation.mutate()}
+              >
+                {createEnrollmentMutation.isPending ? "Creating" : "Create token"}
+              </button>
+              {issuedToken?.token ? (
+                <button className="ghost-button" type="button" onClick={() => copyToken(issuedToken.token ?? "")}>
+                  Copy token
+                </button>
+              ) : null}
+            </div>
+            {issuedToken?.token ? (
+              <div className="token-secret">
+                <strong>{issuedToken.token}</strong>
+                <span>
+                  Save this now. It is only returned once. {copyMessage}
+                </span>
+              </div>
+            ) : null}
+          </div>
+          <div className="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Prefix</th>
+                  <th>Status</th>
+                  <th>Usage</th>
+                  <th>Expires</th>
+                  <th>Created by</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {enrollmentTokens.map((token) => (
+                  <tr key={token.id}>
+                    <td>
+                      <strong>{token.tokenPrefix}</strong>
+                      <small>{token.id}</small>
+                    </td>
+                    <td>
+                      <StatusChip status={token.status} />
+                    </td>
+                    <td>
+                      <strong>
+                        {token.usedCount}/{token.maxUses}
+                      </strong>
+                      <small>{token.bindWorkspaceSlug || "any workspace"}</small>
+                    </td>
+                    <td>{token.expiresAt}</td>
+                    <td>{token.createdBy || "-"}</td>
+                    <td>
+                      <button
+                        className="danger-button"
+                        type="button"
+                        disabled={token.status !== "active" || revokeEnrollmentMutation.isPending}
+                        onClick={() => revokeEnrollmentMutation.mutate(token.id)}
+                      >
+                        Revoke
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!enrollmentQuery.isLoading && enrollmentTokens.length === 0 ? (
+            <p className="empty-state">No enrollment tokens found.</p>
+          ) : null}
+          {enrollmentQuery.isError ? <p className="form-error">{String(enrollmentQuery.error.message)}</p> : null}
+          {createEnrollmentMutation.isError ? (
+            <p className="form-error">{String(createEnrollmentMutation.error.message)}</p>
+          ) : null}
+          {revokeEnrollmentMutation.isError ? (
+            <p className="form-error">{String(revokeEnrollmentMutation.error.message)}</p>
+          ) : null}
         </section>
       </section>
     </main>
@@ -183,9 +350,13 @@ function summarizeAgents(agents: Agent[]) {
   }, {});
 }
 
-async function refreshLists(queryClient: QueryClient) {
-  await Promise.all([
+async function refreshLists(queryClient: QueryClient, includeEnrollment?: boolean) {
+  const tasks = [
     queryClient.invalidateQueries({ queryKey: ["agents"] }),
     queryClient.invalidateQueries({ queryKey: ["hosts"] })
-  ]);
+  ];
+  if (includeEnrollment) {
+    tasks.push(queryClient.invalidateQueries({ queryKey: ["agentEnrollmentTokens"] }));
+  }
+  await Promise.all(tasks);
 }

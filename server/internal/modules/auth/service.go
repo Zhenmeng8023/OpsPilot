@@ -16,6 +16,7 @@ import (
 	"opspilot/server/internal/config"
 	jwtplatform "opspilot/server/internal/platform/jwt"
 	"opspilot/server/internal/shared/apperror"
+	"opspilot/server/internal/shared/audit"
 )
 
 type Service struct {
@@ -202,6 +203,15 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (AuthResult, *app
 	}
 	if user.ID == 0 || user.Status != "active" || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)) != nil {
 		s.writeLoginLog(ctx, nil, identifier, "failed", "invalid_credentials", input.IP, input.UserAgent, input.TraceID)
+		audit.Write(ctx, s.db, audit.Event{
+			ActorType: "user",
+			Action:    "user.login",
+			Result:    "failed",
+			IP:        input.IP,
+			UserAgent: input.UserAgent,
+			TraceID:   input.TraceID,
+			Metadata:  map[string]string{"identifier": identifier},
+		})
 		return AuthResult{}, apperror.New(http.StatusUnauthorized, 401001, "invalid username or password")
 	}
 
@@ -227,6 +237,17 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (AuthResult, *app
 	}
 
 	s.writeLoginLog(ctx, &user.ID, user.Username, "success", "", input.IP, input.UserAgent, input.TraceID)
+	audit.Write(ctx, s.db, audit.Event{
+		WorkspaceID:  workspace.ID,
+		ActorType:    "user",
+		ActorUserID:  sql.NullInt64{Int64: int64(user.ID), Valid: true},
+		Action:       "user.login",
+		ResourceType: "user",
+		ResourceID:   sql.NullInt64{Int64: int64(user.ID), Valid: true},
+		IP:           input.IP,
+		UserAgent:    input.UserAgent,
+		TraceID:      input.TraceID,
+	})
 	return result, nil
 }
 

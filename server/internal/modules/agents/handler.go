@@ -21,6 +21,7 @@ type Handler struct {
 
 type registerRequest struct {
 	BootstrapSecret string                 `json:"bootstrapSecret"`
+	EnrollmentToken string                 `json:"enrollmentToken"`
 	Name            string                 `json:"name"`
 	Hostname        string                 `json:"hostname"`
 	IP              string                 `json:"ip"`
@@ -33,18 +34,25 @@ type registerRequest struct {
 	Metadata        map[string]interface{} `json:"metadata"`
 }
 
+type createEnrollmentTokenRequest struct {
+	MaxUses           uint   `json:"maxUses"`
+	ExpiresInSeconds  uint   `json:"expiresInSeconds"`
+	BindWorkspaceSlug string `json:"bindWorkspaceSlug"`
+}
+
 type heartbeatRequest struct {
-	Status    string                 `json:"status"`
-	Name      string                 `json:"name"`
-	Hostname  string                 `json:"hostname"`
-	IP        string                 `json:"ip"`
-	OS        string                 `json:"os"`
-	OSType    string                 `json:"osType"`
-	OSName    string                 `json:"osName"`
-	OSVersion string                 `json:"osVersion"`
-	Arch      string                 `json:"arch"`
-	Version   string                 `json:"version"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Status       string                 `json:"status"`
+	RunningTasks int                    `json:"runningTasks"`
+	Name         string                 `json:"name"`
+	Hostname     string                 `json:"hostname"`
+	IP           string                 `json:"ip"`
+	OS           string                 `json:"os"`
+	OSType       string                 `json:"osType"`
+	OSName       string                 `json:"osName"`
+	OSVersion    string                 `json:"osVersion"`
+	Arch         string                 `json:"arch"`
+	Version      string                 `json:"version"`
+	Metadata     map[string]interface{} `json:"metadata"`
 }
 
 func NewHandler(service *Service) *Handler {
@@ -57,10 +65,14 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 
 	protected := api.Group("")
 	protected.Use(userAuth)
-	protected.GET("/agents", requirePermission("agent.read"), h.listAgents)
-	protected.GET("/hosts", requirePermission("agent.read"), h.listHosts)
-	protected.POST("/agents/offline-scan", requirePermission("agent.disable"), h.markOffline)
-	protected.POST("/agents/:id/disable", requirePermission("agent.disable"), h.disableAgent)
+	protected.GET("/agents", requirePermission("agent:read"), h.listAgents)
+	protected.GET("/hosts", requirePermission("host:read"), h.listHosts)
+	protected.POST("/agents/offline-scan", requirePermission("agent:write"), h.markOffline)
+	protected.POST("/agents/:id/disable", requirePermission("agent:write"), h.disableAgent)
+	protected.POST("/agents/:id/revoke-token", requirePermission("agent:write"), h.revokeAgentToken)
+	protected.GET("/agent-enrollment-tokens", requirePermission("agent:read"), h.listEnrollmentTokens)
+	protected.POST("/agent-enrollment-tokens", requirePermission("agent:write"), h.createEnrollmentToken)
+	protected.POST("/agent-enrollment-tokens/:id/revoke", requirePermission("agent:write"), h.revokeEnrollmentToken)
 }
 
 func (h *Handler) register(c *gin.Context) {
@@ -77,7 +89,15 @@ func (h *Handler) register(c *gin.Context) {
 	}
 	result, appErr := h.service.Register(c.Request.Context(), RegisterInput{
 		BootstrapSecret: req.BootstrapSecret,
-		HostInfoInput:   hostInfoFromRegister(req),
+		EnrollmentToken: req.EnrollmentToken,
+		Audit: AuditContext{
+			IP:            c.ClientIP(),
+			UserAgent:     c.Request.UserAgent(),
+			TraceID:       traceID(c),
+			RequestMethod: c.Request.Method,
+			RequestPath:   c.Request.URL.Path,
+		},
+		HostInfoInput: hostInfoFromRegister(req),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)
@@ -112,7 +132,7 @@ func (h *Handler) heartbeat(c *gin.Context) {
 }
 
 func (h *Handler) listAgents(c *gin.Context) {
-	agents, appErr := h.service.ListAgents(c.Request.Context())
+	agents, appErr := h.service.ListAgents(c.Request.Context(), listInput(c))
 	if appErr != nil {
 		writeAppError(c, appErr)
 		return
@@ -121,12 +141,75 @@ func (h *Handler) listAgents(c *gin.Context) {
 }
 
 func (h *Handler) listHosts(c *gin.Context) {
-	hosts, appErr := h.service.ListHosts(c.Request.Context())
+	hosts, appErr := h.service.ListHosts(c.Request.Context(), listInput(c))
 	if appErr != nil {
 		writeAppError(c, appErr)
 		return
 	}
 	response.Success(c, hosts)
+}
+
+func (h *Handler) revokeAgentToken(c *gin.Context) {
+	actorID := ""
+	if claims, ok := auth.ClaimsFromContext(c); ok {
+		actorID = claims.UserID
+	}
+	if appErr := h.service.RevokeAgentToken(c.Request.Context(), c.Param("id"), actorID); appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *Handler) listEnrollmentTokens(c *gin.Context) {
+	tokens, appErr := h.service.ListEnrollmentTokens(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, tokens)
+}
+
+func (h *Handler) createEnrollmentToken(c *gin.Context) {
+	var req createEnrollmentTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	actorID := ""
+	if claims, ok := auth.ClaimsFromContext(c); ok {
+		actorID = claims.UserID
+	}
+	token, appErr := h.service.CreateEnrollmentToken(c.Request.Context(), CreateEnrollmentTokenInput{
+		MaxUses:           req.MaxUses,
+		ExpiresInSeconds:  req.ExpiresInSeconds,
+		BindWorkspaceSlug: req.BindWorkspaceSlug,
+		Audit: AuditContext{
+			ActorUID:      actorID,
+			IP:            c.ClientIP(),
+			UserAgent:     c.Request.UserAgent(),
+			TraceID:       traceID(c),
+			RequestMethod: c.Request.Method,
+			RequestPath:   c.Request.URL.Path,
+		},
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, token)
+}
+
+func (h *Handler) revokeEnrollmentToken(c *gin.Context) {
+	actorID := ""
+	if claims, ok := auth.ClaimsFromContext(c); ok {
+		actorID = claims.UserID
+	}
+	if appErr := h.service.RevokeEnrollmentToken(c.Request.Context(), c.Param("id"), actorID); appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
 }
 
 func (h *Handler) disableAgent(c *gin.Context) {
@@ -195,6 +278,11 @@ func hostInfoFromRegister(req registerRequest) HostInfoInput {
 }
 
 func hostInfoFromHeartbeat(req heartbeatRequest) HostInfoInput {
+	metadata := req.Metadata
+	if metadata == nil {
+		metadata = map[string]interface{}{}
+	}
+	metadata["runningTasks"] = req.RunningTasks
 	return HostInfoInput{
 		Name:      req.Name,
 		Hostname:  req.Hostname,
@@ -205,8 +293,37 @@ func hostInfoFromHeartbeat(req heartbeatRequest) HostInfoInput {
 		OSVersion: req.OSVersion,
 		Arch:      req.Arch,
 		Version:   req.Version,
-		Metadata:  req.Metadata,
+		Metadata:  metadata,
 	}
+}
+
+func listInput(c *gin.Context) ListInput {
+	return ListInput{
+		Keyword:  c.Query("keyword"),
+		Status:   c.Query("status"),
+		Page:     parseInt(c.DefaultQuery("page", "1")),
+		PageSize: parseInt(c.DefaultQuery("pageSize", "20")),
+	}
+}
+
+func parseInt(value string) int {
+	parsed := 0
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return 0
+		}
+		parsed = parsed*10 + int(ch-'0')
+	}
+	return parsed
+}
+
+func traceID(c *gin.Context) string {
+	value, exists := c.Get("traceId")
+	if !exists {
+		return ""
+	}
+	traceID, _ := value.(string)
+	return traceID
 }
 
 func writeAppError(c *gin.Context, appErr *apperror.Error) {

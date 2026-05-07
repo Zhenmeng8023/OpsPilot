@@ -14,6 +14,8 @@ import (
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/modules/agents"
 	"opspilot/server/internal/modules/auth"
+	"opspilot/server/internal/modules/scripts"
+	"opspilot/server/internal/modules/tasks"
 	"opspilot/server/internal/shared/response"
 )
 
@@ -55,8 +57,14 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 		authHandler := auth.NewHandler(authService)
 		authHandler.RegisterRoutes(api)
 
+		userAuth := auth.AuthMiddleware(authService.JWTManager())
 		agentHandler := agents.NewHandler(agents.NewService(deps.DB, cfg))
 		agentHandler.RegisterRoutes(api, auth.AuthMiddleware(authService.JWTManager()), authHandler.RequirePermission)
+
+		scripts.NewHandler(scripts.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
+		taskHandler := tasks.NewHandler(tasks.NewService(deps.DB, cfg))
+		taskHandler.RegisterRoutes(api, userAuth, authHandler.RequirePermission)
+		taskHandler.RegisterAgentRoutes(api, agentHandler.AgentAuthMiddleware())
 	}
 
 	router.NoRoute(func(c *gin.Context) {
