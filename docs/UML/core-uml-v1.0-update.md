@@ -25,7 +25,7 @@
 
 以下变化已经超出旧图表达范围：
 
-1. 新增 `Workflow` 模块，已包含定义、独立版本、发布、禁用、复制、手动输入运行、节点、事件、取消、重试、审批节点处理、DAG 推进等后端能力。
+1. 新增 `Workflow` 模块，已包含定义、独立版本、发布、禁用、复制、手动输入运行、节点、事件、取消、整 run 重试、节点级重试、节点超时、失败策略、审批节点处理、DAG 推进等后端能力。
 2. 新增 `Incident` 模块，告警不再只停留在 `alert` 层，而是形成 `incident + incident_events` 的运营视角。
 3. 触发链路从“主要触发 Task”扩展为“Manual / Schedule / Webhook / Incident 可驱动 Workflow”，Webhook 还新增 matcher simulation 与 event replay。
 4. 前端信息架构已经加入 `Workflows` 和 `Incidents`，不再是旧版仅任务/调度/告警的导航结构。
@@ -77,6 +77,7 @@ flowchart LR
 flowchart LR
   Definition["workflow_definitions"] --> Version["workflow_versions"]
   Version --> Publish["publish / disable / copy"]
+  Version --> Policy["failurePolicy + timeoutSeconds"]
 
   Manual["Manual Run + JSON Input"] --> Trigger["Workflow Trigger Layer"]
   Schedule["Cron Schedule"] --> Trigger
@@ -86,6 +87,7 @@ flowchart LR
   Trigger --> Run["workflow_runs"]
   Version --> Run
   Run --> Nodes["workflow_run_nodes"]
+  Policy --> Nodes
   Nodes --> Condition{"condition"}
 
   Condition -->|true| TaskNode["task node"]
@@ -96,6 +98,8 @@ flowchart LR
   Approval -->|approve / reject| Reconcile
   Nodes --> WebhookCall["webhook-call node"]
   WebhookCall --> Reconcile
+  Nodes --> RetryNode["retry failed node + downstream"]
+  RetryNode --> Reconcile
   TaskNode --> TaskRun["task_runs"]
   TaskRun --> Agent["Agent execution"]
   Agent --> TaskEvent["task_run_events / logs"]
@@ -111,6 +115,8 @@ flowchart LR
 - 旧图主要表达 `Schedule/Webhook -> Task`，这里改为 `Trigger -> Workflow -> Node -> Task/Wait/Condition`。
 - 已体现当前仓库中存在的 `workflow_versions`、`workflow_runs`、`workflow_run_nodes`、`task_runs` 以及 reconcile 推进过程。
 - 手动触发现在支持 JSON 输入；运行时仍保存 definition snapshot，以保证历史 run 不被后续 definition 修改影响。
+- 运行时现在会扫描 `timeoutSeconds`，超时节点标记失败；`failurePolicy` 支持 `stop_on_failure`、`stop_workflow`、`skip_downstream` 与 `continue`。
+- 节点级 retry 会重置目标失败/取消节点及其下游节点，并在同一条 workflow run 内继续推进。
 
 ## 6. 更新图三：V1.0 告警到事件的运营链路
 

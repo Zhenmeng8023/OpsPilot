@@ -15,6 +15,7 @@ import {
   listWorkflows,
   publishWorkflow,
   rejectWorkflowNode,
+  retryWorkflowNode,
   retryWorkflowRun,
   runWorkflow,
   updateWorkflow
@@ -33,7 +34,7 @@ import { useAuthStore } from "../auth/store";
 
 const sampleDefinition = JSON.stringify({
   nodes: [
-    { id: "collect", type: "task", name: "Collect diagnostics", config: { taskId: "replace-with-task-id" } },
+    { id: "collect", type: "task", name: "Collect diagnostics", timeoutSeconds: 900, config: { taskId: "replace-with-task-id" } },
     { id: "gate", type: "condition", name: "Prod gate", config: { path: "environment", operator: "equals", value: "prod", onFalse: "skip" } },
     { id: "callback", type: "webhook-call", name: "POST callback", config: { url: "https://example.com/hooks/${payload.service}", method: "POST", bodyPath: "payload", headers: { "X-Env": "${payload.environment}" } } },
     { id: "cooldown", type: "wait", name: "Cooldown", config: { seconds: 30 } },
@@ -46,7 +47,7 @@ const sampleDefinition = JSON.stringify({
     { from: "cooldown", to: "notify" }
   ],
   maxParallel: 2,
-  failurePolicy: "stop_on_failure"
+  failurePolicy: "skip_downstream"
 }, null, 2);
 
 type PendingAction =
@@ -56,6 +57,7 @@ type PendingAction =
   | { type: "run"; workflow: WorkflowDefinitionSummary }
   | { type: "cancel"; run: WorkflowRunSummary }
   | { type: "retry"; run: WorkflowRunSummary }
+  | { type: "retryNode"; runId: string; nodeId: string }
   | { type: "approve"; runId: string; nodeId: string }
   | { type: "reject"; runId: string; nodeId: string };
 
@@ -196,7 +198,16 @@ export function WorkflowPage() {
       queryClient.invalidateQueries({ queryKey: ["workflowRun", run.id] });
     }
   });
-  const currentError = saveMutation.error ?? publishMutation.error ?? disableMutation.error ?? copyMutation.error ?? runMutation.error ?? cancelMutation.error ?? retryMutation.error ?? approveMutation.error ?? rejectMutation.error;
+  const retryNodeMutation = useMutation({
+    mutationFn: ({ runId, nodeId }: { runId: string; nodeId: string }) => retryWorkflowNode(runId, nodeId),
+    onSuccess: (run) => {
+      notify(t("workflows.nodeRetryToast"), "success");
+      setSelectedRunId(run.id);
+      queryClient.invalidateQueries({ queryKey: ["workflowRuns"] });
+      queryClient.invalidateQueries({ queryKey: ["workflowRun", run.id] });
+    }
+  });
+  const currentError = saveMutation.error ?? publishMutation.error ?? disableMutation.error ?? copyMutation.error ?? runMutation.error ?? cancelMutation.error ?? retryMutation.error ?? retryNodeMutation.error ?? approveMutation.error ?? rejectMutation.error;
 
   return (
     <main className="page">
@@ -397,6 +408,7 @@ export function WorkflowPage() {
                           <td><span className={`status-chip status-${node.status}`}>{statusText(node.status)}</span></td>
                           <td className="action-cell">
                             {node.taskRunId ? <Link to={`/tasks/${node.taskRunId}`}>{node.taskRunId}</Link> : "-"}
+                            {canExecute && retryableNode(node.status) ? <button type="button" disabled={retryNodeMutation.isPending} onClick={() => setPendingAction({ type: "retryNode", runId: selectedRun.id, nodeId: node.nodeId })}>{t("workflows.retryNode")}</button> : null}
                             {canExecute && node.nodeType === "approval" && node.status === "running" ? <button type="button" onClick={() => setPendingAction({ type: "approve", runId: selectedRun.id, nodeId: node.nodeId })}>{t("incidents.acknowledge")}</button> : null}
                             {canExecute && node.nodeType === "approval" && node.status === "running" ? <button type="button" onClick={() => setPendingAction({ type: "reject", runId: selectedRun.id, nodeId: node.nodeId })}>{t("common.cancel")}</button> : null}
                           </td>
@@ -462,6 +474,7 @@ export function WorkflowPage() {
           if (pendingAction?.type === "run") runMutation.mutate({ workflow: pendingAction.workflow, input: runInput });
           if (pendingAction?.type === "cancel") cancelMutation.mutate(pendingAction.run);
           if (pendingAction?.type === "retry") retryMutation.mutate(pendingAction.run);
+          if (pendingAction?.type === "retryNode") retryNodeMutation.mutate({ runId: pendingAction.runId, nodeId: pendingAction.nodeId });
           if (pendingAction?.type === "approve") approveMutation.mutate({ runId: pendingAction.runId, nodeId: pendingAction.nodeId });
           if (pendingAction?.type === "reject") rejectMutation.mutate({ runId: pendingAction.runId, nodeId: pendingAction.nodeId });
           setPendingAction(null);
@@ -494,6 +507,10 @@ function retryable(status: string) {
   return ["failed", "canceled"].includes(status);
 }
 
+function retryableNode(status: string) {
+  return ["failed", "canceled"].includes(status);
+}
+
 function confirmTitle(action: PendingAction | null, t: (key: string) => string) {
   if (!action) return "";
   if (action.type === "publish") return t("workflows.confirmPublish");
@@ -501,6 +518,7 @@ function confirmTitle(action: PendingAction | null, t: (key: string) => string) 
   if (action.type === "copy") return t("workflows.confirmCopy");
   if (action.type === "run") return t("workflows.confirmRun");
   if (action.type === "retry") return t("workflows.confirmRun");
+  if (action.type === "retryNode") return t("workflows.confirmRetryNode");
   if (action.type === "approve") return t("incidents.confirmAcknowledge");
   if (action.type === "reject") return t("workflows.confirmCancel");
   return t("workflows.confirmCancel");

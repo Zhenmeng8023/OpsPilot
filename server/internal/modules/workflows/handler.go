@@ -26,6 +26,7 @@ type ServiceContract interface {
 	GetRun(context.Context, string) (RunDetail, *apperror.Error)
 	CancelRun(context.Context, CancelInput) (RunDetail, *apperror.Error)
 	RetryRun(context.Context, RetryInput) (RunDetail, *apperror.Error)
+	RetryNode(context.Context, RetryNodeInput) (RunDetail, *apperror.Error)
 	ApproveNode(context.Context, ApprovalInput) (RunDetail, *apperror.Error)
 	RejectNode(context.Context, ApprovalInput) (RunDetail, *apperror.Error)
 }
@@ -81,6 +82,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	runs.GET("/:id", requirePermission("workflow:read"), h.getRun)
 	runs.POST("/:id/cancel", requirePermission("workflow:manage"), h.cancelRun)
 	runs.POST("/:id/retry", requirePermission("workflow:execute"), h.retryRun)
+	runs.POST("/:id/nodes/:nodeId/retry", requirePermission("workflow:execute"), h.retryNode)
 	runs.POST("/:id/nodes/:nodeId/approve", requirePermission("workflow:execute"), h.approveNode)
 	runs.POST("/:id/nodes/:nodeId/reject", requirePermission("workflow:execute"), h.rejectNode)
 }
@@ -248,6 +250,19 @@ func (h *Handler) retryRun(c *gin.Context) {
 	item, appErr := h.service.RetryRun(c.Request.Context(), RetryInput{
 		ID:    c.Param("id"),
 		Audit: auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) retryNode(c *gin.Context) {
+	item, appErr := h.service.RetryNode(c.Request.Context(), RetryNodeInput{
+		RunID:  c.Param("id"),
+		NodeID: c.Param("nodeId"),
+		Audit:  auditContext(c),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)

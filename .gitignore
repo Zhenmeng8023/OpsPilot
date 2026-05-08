@@ -36,6 +36,7 @@ web/pnpm-debug.log*
 data/
 logs/
 artifacts/edge-*/
+artifacts/*.png
 
 # Local developer docs
 docs/*.local.*

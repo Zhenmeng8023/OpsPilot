@@ -53,6 +53,16 @@ func TestRetryApproveAndRejectHandlersPassNodeContext(t *testing.T) {
 		t.Fatalf("unexpected retry input: %#v", service.retryInput)
 	}
 
+	retryNodeReq := httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs/run-1/nodes/collect/retry", nil)
+	retryNodeResp := httptest.NewRecorder()
+	router.ServeHTTP(retryNodeResp, retryNodeReq)
+	if retryNodeResp.Code != http.StatusOK {
+		t.Fatalf("expected retry node 200, got %d", retryNodeResp.Code)
+	}
+	if service.retryNode.RunID != "run-1" || service.retryNode.NodeID != "collect" {
+		t.Fatalf("unexpected retry node input: %#v", service.retryNode)
+	}
+
 	approveReq := httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs/run-1/nodes/gate/approve", bytes.NewBufferString(`{"comment":"ship it"}`))
 	approveReq.Header.Set("Content-Type", "application/json")
 	approveResp := httptest.NewRecorder()
@@ -79,6 +89,7 @@ func TestRetryApproveAndRejectHandlersPassNodeContext(t *testing.T) {
 type captureWorkflowService struct {
 	runInput      RunInput
 	retryInput    RetryInput
+	retryNode     RetryNodeInput
 	approvalInput ApprovalInput
 	rejectInput   ApprovalInput
 }
@@ -135,6 +146,11 @@ func (s *captureWorkflowService) CancelRun(context.Context, CancelInput) (RunDet
 func (s *captureWorkflowService) RetryRun(_ context.Context, input RetryInput) (RunDetail, *apperror.Error) {
 	s.retryInput = input
 	return RunDetail{RunSummary: RunSummary{ID: "run-2"}}, nil
+}
+
+func (s *captureWorkflowService) RetryNode(_ context.Context, input RetryNodeInput) (RunDetail, *apperror.Error) {
+	s.retryNode = input
+	return RunDetail{RunSummary: RunSummary{ID: input.RunID}}, nil
 }
 
 func (s *captureWorkflowService) ApproveNode(_ context.Context, input ApprovalInput) (RunDetail, *apperror.Error) {

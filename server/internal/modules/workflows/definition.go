@@ -57,8 +57,8 @@ func normalizeAndValidateDefinition(raw string) (Definition, string, error) {
 	if def.FailurePolicy == "" {
 		def.FailurePolicy = defaultFailurePolicy
 	}
-	if def.FailurePolicy != "stop_on_failure" && def.FailurePolicy != "continue" {
-		return Definition{}, "", errors.New("failurePolicy must be stop_on_failure or continue")
+	if def.FailurePolicy != "stop_on_failure" && def.FailurePolicy != "stop_workflow" && def.FailurePolicy != "skip_downstream" && def.FailurePolicy != "continue" {
+		return Definition{}, "", errors.New("failurePolicy must be stop_on_failure, stop_workflow, skip_downstream, or continue")
 	}
 
 	nodes := make(map[string]Node, len(def.Nodes))
@@ -79,6 +79,9 @@ func normalizeAndValidateDefinition(raw string) (Definition, string, error) {
 		}
 		if !validNodeType(node.Type) {
 			return Definition{}, "", fmt.Errorf("unsupported node type: %s", node.Type)
+		}
+		if node.TimeoutSeconds > maxWaitSeconds {
+			return Definition{}, "", fmt.Errorf("node %s timeoutSeconds cannot exceed %d", node.ID, maxWaitSeconds)
 		}
 		if err := validateNodeConfig(*node); err != nil {
 			return Definition{}, "", err

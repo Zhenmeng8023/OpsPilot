@@ -92,6 +92,12 @@ export function retryWorkflowRun(id: string) {
   });
 }
 
+export function retryWorkflowNode(runId: string, nodeId: string) {
+  return request<WorkflowRunDetail>(`/api/v1/workflow-runs/${runId}/nodes/${nodeId}/retry`, {
+    method: "POST"
+  });
+}
+
 export function approveWorkflowNode(runId: string, nodeId: string, comment?: string) {
   return request<WorkflowRunDetail>(`/api/v1/workflow-runs/${runId}/nodes/${nodeId}/approve`, {
     method: "POST",

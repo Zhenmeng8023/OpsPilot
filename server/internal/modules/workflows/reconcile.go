@@ -11,6 +11,7 @@ import (
 
 	"opspilot/server/internal/modules/execution"
 	"opspilot/server/internal/modules/notifications"
+	"opspilot/server/internal/modules/tasks"
 )
 
 type workflowRunNodeState struct {
@@ -20,6 +21,7 @@ type workflowRunNodeState struct {
 	Status     string
 	TaskRunID  sql.NullInt64
 	TaskStatus sql.NullString
+	QueuedAt   sql.NullTime
 	StartedAt  sql.NullTime
 }
 
@@ -67,6 +69,9 @@ func reconcileRunByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, run
 		if err := syncTaskNodeStates(ctx, tx, run.ID); err != nil {
 			return err
 		}
+		if err := syncTimedOutNodeStates(ctx, tx, run.ID, def); err != nil {
+			return err
+		}
 		if err := syncRuntimeNodeStates(ctx, tx, run.ID, def); err != nil {
 			return err
 		}
@@ -89,7 +94,7 @@ func syncTaskNodeStates(ctx context.Context, tx *gorm.DB, runID uint64) error {
 		return err
 	}
 	for _, node := range nodes {
-		if !node.TaskRunID.Valid || !node.TaskStatus.Valid {
+		if terminalWorkflowNodeStatus(node.Status) || !node.TaskRunID.Valid || !node.TaskStatus.Valid {
 			continue
 		}
 		next := workflowStatusFromTask(node.TaskStatus.String)
@@ -145,6 +150,61 @@ func syncRuntimeNodeStates(ctx context.Context, tx *gorm.DB, runID uint64, def D
 			return err
 		}
 		if err := writeWorkflowEvent(ctx, tx, runID, node.NodeID, "node_success", "Wait node completed", sql.NullInt64{}, map[string]int{"seconds": int(waitFor / time.Second)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func syncTimedOutNodeStates(ctx context.Context, tx *gorm.DB, runID uint64, def Definition) error {
+	nodes, err := workflowNodeStates(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
+	definitionNodes := make(map[string]Node, len(def.Nodes))
+	for _, node := range def.Nodes {
+		definitionNodes[node.ID] = node
+	}
+	now := time.Now()
+	for _, state := range nodes {
+		if state.Status != "queued" && state.Status != "running" {
+			continue
+		}
+		node, ok := definitionNodes[state.NodeID]
+		if !ok {
+			continue
+		}
+		timeout := nodeTimeoutDuration(node)
+		if timeout <= 0 {
+			continue
+		}
+		startedAt := state.StartedAt
+		if !startedAt.Valid {
+			startedAt = state.QueuedAt
+		}
+		if !startedAt.Valid || startedAt.Time.Add(timeout).After(now) {
+			continue
+		}
+		if state.TaskRunID.Valid {
+			if err := tasks.CancelRunByIDTx(ctx, tx, uint64(state.TaskRunID.Int64), sql.NullInt64{}, "workflow node timed out"); err != nil {
+				return err
+			}
+		}
+		payload := map[string]interface{}{
+			"timeoutSeconds": int(timeout / time.Second),
+			"timedOutAt":     now.Format(time.RFC3339),
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`UPDATE workflow_run_nodes
+			    SET status = 'failed', output = ?, error_message = ?, finished_at = COALESCE(finished_at, NOW(3))
+			  WHERE id = ? AND status IN ('queued', 'running')`,
+			jsonStringOrNull(payload),
+			nullString("workflow node timed out"),
+			state.ID,
+		).Error; err != nil {
+			return err
+		}
+		if err := writeWorkflowEvent(ctx, tx, runID, state.NodeID, "node_failed", "Workflow node timed out", sql.NullInt64{}, payload); err != nil {
 			return err
 		}
 	}
@@ -374,7 +434,7 @@ func refreshWorkflowRunAggregate(ctx context.Context, tx *gorm.DB, runID uint64)
 func workflowNodeStates(ctx context.Context, tx *gorm.DB, runID uint64) ([]workflowRunNodeState, error) {
 	var nodes []workflowRunNodeState
 	err := tx.WithContext(ctx).Raw(
-		`SELECT wrn.id, wrn.node_id, wrn.node_type, wrn.status, wrn.task_run_id, tr.status AS task_status, wrn.started_at
+		`SELECT wrn.id, wrn.node_id, wrn.node_type, wrn.status, wrn.task_run_id, tr.status AS task_status, wrn.queued_at, wrn.started_at
 		   FROM workflow_run_nodes wrn
 		   LEFT JOIN task_runs tr ON tr.id = wrn.task_run_id
 		  WHERE wrn.run_id = ?

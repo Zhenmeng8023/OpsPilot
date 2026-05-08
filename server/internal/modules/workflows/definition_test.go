@@ -144,6 +144,59 @@ func TestWorkflowDependenciesReadyContinuePolicy(t *testing.T) {
 	}
 }
 
+func TestNormalizeAndValidateDefinitionAcceptsV10FailurePolicies(t *testing.T) {
+	for _, policy := range []string{"stop_on_failure", "stop_workflow", "skip_downstream", "continue"} {
+		_, normalized, err := normalizeAndValidateDefinition(`{
+			"nodes":[{"id":"a","type":"task","config":{"taskId":"task-a"}},{"id":"b","type":"task","config":{"taskId":"task-b"}}],
+			"edges":[{"from":"a","to":"b"}],
+			"failurePolicy":"` + policy + `"
+		}`)
+		if err != nil {
+			t.Fatalf("expected %s policy to be valid: %v", policy, err)
+		}
+		if normalized == "" {
+			t.Fatalf("expected %s policy to produce normalized definition", policy)
+		}
+	}
+}
+
+func TestNormalizeAndValidateDefinitionRejectsExcessiveNodeTimeout(t *testing.T) {
+	_, _, err := normalizeAndValidateDefinition(`{
+		"nodes":[{"id":"a","type":"task","timeoutSeconds":86401,"config":{"taskId":"task-a"}}],
+		"edges":[]
+	}`)
+	if err == nil {
+		t.Fatal("expected excessive node timeout to be rejected")
+	}
+}
+
+func TestNodeTimeoutDuration(t *testing.T) {
+	if timeout := nodeTimeoutDuration(Node{TimeoutSeconds: 15}); timeout.Seconds() != 15 {
+		t.Fatalf("expected 15 second timeout, got %s", timeout)
+	}
+	if timeout := nodeTimeoutDuration(Node{}); timeout != 0 {
+		t.Fatalf("expected empty timeout, got %s", timeout)
+	}
+}
+
+func TestDownstreamNodeIDs(t *testing.T) {
+	def, _, err := normalizeAndValidateDefinition(`{
+		"nodes":[
+			{"id":"a","type":"task","config":{"taskId":"task-a"}},
+			{"id":"b","type":"task","config":{"taskId":"task-b"}},
+			{"id":"c","type":"notification","name":"Notify"}
+		],
+		"edges":[{"from":"a","to":"b"},{"from":"b","to":"c"}]
+	}`)
+	if err != nil {
+		t.Fatalf("expected definition to be valid: %v", err)
+	}
+	ids := downstreamNodeIDs(def, "b")
+	if len(ids) != 2 || ids[0] != "b" || ids[1] != "c" {
+		t.Fatalf("unexpected downstream ids: %#v", ids)
+	}
+}
+
 func TestWorkflowDependenciesSkipPropagation(t *testing.T) {
 	def, _, err := normalizeAndValidateDefinition(`{
 		"nodes":[{"id":"a","type":"condition"},{"id":"b","type":"task","config":{"taskId":"task-b"}}],

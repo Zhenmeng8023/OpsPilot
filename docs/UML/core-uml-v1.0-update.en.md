@@ -25,7 +25,7 @@ The conclusion is straightforward: once `Incident`, `Workflow`, and their relate
 
 The old diagrams no longer cover these changes:
 
-1. A new `Workflow` module now exists, including definition, independent versions, publish, disable, copy, manual runs with input, nodes, events, cancel, retry, approval node handling, and DAG progression behavior.
+1. A new `Workflow` module now exists, including definition, independent versions, publish, disable, copy, manual runs with input, nodes, events, cancel, whole-run retry, node-level retry, node timeout, failure policies, approval node handling, and DAG progression behavior.
 2. A new `Incident` module now exists, so alert handling is no longer only `alert`-level state.
 3. The trigger chain has expanded from "mainly trigger a Task" to "Manual / Schedule / Webhook / Incident can drive a Workflow"; Webhook also has matcher simulation and event replay.
 4. The frontend information architecture now includes `Workflows` and `Incidents`.
@@ -77,6 +77,7 @@ Applies to: `OpsPilot V1.0`
 flowchart LR
   Definition["workflow_definitions"] --> Version["workflow_versions"]
   Version --> Publish["publish / disable / copy"]
+  Version --> Policy["failurePolicy + timeoutSeconds"]
 
   Manual["Manual Run + JSON Input"] --> Trigger["Workflow Trigger Layer"]
   Schedule["Cron Schedule"] --> Trigger
@@ -86,6 +87,7 @@ flowchart LR
   Trigger --> Run["workflow_runs"]
   Version --> Run
   Run --> Nodes["workflow_run_nodes"]
+  Policy --> Nodes
   Nodes --> Condition{"condition"}
 
   Condition -->|true| TaskNode["task node"]
@@ -96,6 +98,8 @@ flowchart LR
   Approval -->|approve / reject| Reconcile
   Nodes --> WebhookCall["webhook-call node"]
   WebhookCall --> Reconcile
+  Nodes --> RetryNode["retry failed node + downstream"]
+  RetryNode --> Reconcile
   TaskNode --> TaskRun["task_runs"]
   TaskRun --> Agent["Agent execution"]
   Agent --> TaskEvent["task_run_events / logs"]
@@ -111,6 +115,8 @@ What changed:
 - The older model was mostly `Schedule/Webhook -> Task`.
 - The current model is `Trigger -> Workflow -> Node -> Task/Wait/Condition`, which matches the current implementation direction.
 - The diagram now includes `workflow_versions`, manual JSON input, approval handling, and webhook-call nodes. Runs still store a definition snapshot so historical runs are not affected by later definition edits.
+- The runtime now scans `timeoutSeconds` and fails timed-out nodes; `failurePolicy` supports `stop_on_failure`, `stop_workflow`, `skip_downstream`, and `continue`.
+- Node-level retry resets the target failed/canceled node and its downstream nodes, then resumes the same workflow run.
 
 ## 6. Updated Diagram 3: V1.0 Alert-to-Incident Operations Flow
 

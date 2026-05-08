@@ -148,6 +148,48 @@ func parseWaitDuration(node Node) (time.Duration, error) {
 	return time.Duration(seconds) * time.Second, nil
 }
 
+func nodeTimeoutDuration(node Node) time.Duration {
+	if node.TimeoutSeconds == 0 {
+		return 0
+	}
+	return time.Duration(node.TimeoutSeconds) * time.Second
+}
+
+func retryableNodeStatus(status string) bool {
+	switch status {
+	case "failed", "canceled":
+		return true
+	default:
+		return false
+	}
+}
+
+func downstreamNodeIDs(def Definition, rootID string) []string {
+	outgoing := make(map[string][]string, len(def.Nodes))
+	for _, edge := range def.Edges {
+		outgoing[edge.From] = append(outgoing[edge.From], edge.To)
+	}
+	selected := map[string]bool{}
+	var visit func(string)
+	visit = func(nodeID string) {
+		if selected[nodeID] {
+			return
+		}
+		selected[nodeID] = true
+		for _, next := range outgoing[nodeID] {
+			visit(next)
+		}
+	}
+	visit(rootID)
+	ids := make([]string, 0, len(selected))
+	for _, node := range def.Nodes {
+		if selected[node.ID] {
+			ids = append(ids, node.ID)
+		}
+	}
+	return ids
+}
+
 func resolveWorkflowValue(root interface{}, path string) (interface{}, bool) {
 	path = strings.TrimSpace(path)
 	if path == "" {

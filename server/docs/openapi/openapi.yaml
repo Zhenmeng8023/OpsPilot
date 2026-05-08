@@ -1126,6 +1126,18 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Workflow run detail }
+  /api/v1/workflow-runs/{id}/nodes/{nodeId}/retry:
+    post:
+      summary: Retry workflow node in-place
+      description: Requires `workflow:execute`. Resets the failed/canceled node and downstream nodes, then resumes the same workflow run.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: nodeId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Workflow run detail }
   /api/v1/workflow-runs/{id}/nodes/{nodeId}/approve:
     post:
       summary: Approve workflow approval node
@@ -1525,8 +1537,8 @@ components:
         description: { type: string }
         definition:
           type: string
-          description: JSON string containing nodes, edges, maxParallel, and failurePolicy.
-          example: '{"nodes":[{"id":"collect","type":"task","name":"Collect diagnostics"}],"edges":[],"maxParallel":1,"failurePolicy":"stop_on_failure"}'
+          description: JSON string containing nodes, edges, maxParallel, node timeoutSeconds, and failurePolicy (`stop_on_failure`, `stop_workflow`, `skip_downstream`, or `continue`).
+          example: '{"nodes":[{"id":"collect","type":"task","name":"Collect diagnostics","timeoutSeconds":900,"config":{"taskId":"task_01"}}],"edges":[],"maxParallel":1,"failurePolicy":"skip_downstream"}'
     WorkflowDefinitionSummary:
       type: object
       properties:

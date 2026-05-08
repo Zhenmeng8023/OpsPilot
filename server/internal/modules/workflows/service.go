@@ -86,6 +86,12 @@ type ApprovalInput struct {
 	Audit   AuditContext
 }
 
+type RetryNodeInput struct {
+	RunID  string
+	NodeID string
+	Audit  AuditContext
+}
+
 type DefinitionSummary struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -815,6 +821,129 @@ func (s *Service) RetryRun(ctx context.Context, input RetryInput) (RunDetail, *a
 		return RunDetail{}, wrapAppError(txErr, 501016, "retry workflow run failed")
 	}
 	return retried, nil
+}
+
+func (s *Service) RetryNode(ctx context.Context, input RetryNodeInput) (RunDetail, *apperror.Error) {
+	var detail RunDetail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		run, err := runByUID(ctx, tx, workspace.ID, strings.TrimSpace(input.RunID))
+		if err != nil {
+			return err
+		}
+		if run.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404002, "workflow run not found")
+		}
+		if activeWorkflowStatus(run.Status) {
+			return apperror.New(http.StatusConflict, 409011, "active workflow run node cannot be retried")
+		}
+		if !retryableWorkflowStatus(run.Status) {
+			return apperror.New(http.StatusConflict, 409012, "workflow run node is not retryable")
+		}
+		var def Definition
+		if err := json.Unmarshal([]byte(run.DefinitionSnapshot), &def); err != nil {
+			return err
+		}
+		targetNodeID := strings.TrimSpace(input.NodeID)
+		if targetNodeID == "" {
+			return apperror.New(http.StatusBadRequest, 401008, "workflow node id is required")
+		}
+		nodes, err := workflowNodeStates(ctx, tx, run.ID)
+		if err != nil {
+			return err
+		}
+		var target *workflowRunNodeState
+		for index := range nodes {
+			if nodes[index].NodeID == targetNodeID {
+				target = &nodes[index]
+				break
+			}
+		}
+		if target == nil {
+			return apperror.New(http.StatusNotFound, 404004, "workflow node not found")
+		}
+		if !retryableNodeStatus(target.Status) {
+			return apperror.New(http.StatusConflict, 409013, "workflow node is not retryable")
+		}
+		resetIDs := downstreamNodeIDs(def, targetNodeID)
+		if len(resetIDs) == 0 {
+			return apperror.New(http.StatusNotFound, 404004, "workflow node not found")
+		}
+		actorID, err := audit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`UPDATE workflow_run_nodes
+			    SET status = 'pending',
+			        task_run_id = NULL,
+			        input = NULL,
+			        output = NULL,
+			        error_message = NULL,
+			        queued_at = NULL,
+			        started_at = NULL,
+			        finished_at = NULL,
+			        duration_ms = NULL
+			  WHERE run_id = ? AND node_id IN ?`,
+			run.ID,
+			resetIDs,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`UPDATE workflow_runs
+			    SET status = 'queued', error_message = NULL, finished_at = NULL, duration_ms = NULL
+			  WHERE id = ?`,
+			run.ID,
+		).Error; err != nil {
+			return err
+		}
+		if err := writeWorkflowEvent(ctx, tx, run.ID, targetNodeID, "node_retry", "Workflow node retry requested", actorID, map[string]interface{}{"resetNodeIds": resetIDs}); err != nil {
+			return err
+		}
+		runInput, err := parseWorkflowInput(run.Input.String)
+		if err != nil {
+			return err
+		}
+		for index := 0; index <= len(def.Nodes); index++ {
+			changed, err := progressReadyNodes(ctx, tx, workspace.ID, run.ID, def, runInput)
+			if err != nil {
+				return err
+			}
+			if !changed {
+				break
+			}
+		}
+		if err := refreshWorkflowRunAggregate(ctx, tx, run.ID); err != nil {
+			return err
+		}
+		loaded, err := runDetailByUID(ctx, tx, workspace.ID, run.UID)
+		if err != nil {
+			return err
+		}
+		detail = loaded
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "workflow.node_retry",
+			ResourceType:  "workflow_run",
+			ResourceID:    sql.NullInt64{Int64: int64(run.ID), Valid: run.ID != 0},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         map[string]interface{}{"runId": run.UID, "nodeId": targetNodeID, "resetNodeIds": resetIDs},
+		})
+		return nil
+	})
+	if txErr != nil {
+		return RunDetail{}, wrapAppError(txErr, 501018, "retry workflow node failed")
+	}
+	return detail, nil
 }
 
 func (s *Service) ApproveNode(ctx context.Context, input ApprovalInput) (RunDetail, *apperror.Error) {
