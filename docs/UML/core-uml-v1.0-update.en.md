@@ -253,10 +253,13 @@ flowchart LR
   Operator["Operator"] --> UI["Admin UI"]
   UI --> WebhookAPI["Webhook Source / Rule API"]
   UI --> NotificationAPI["Notification Channel API"]
+  UI --> TemplateAPI["Notification Template API"]
   UI --> AuditAPI["Audit Export / Retention API"]
 
   WebhookAPI --> SecretCrypto["Secret JSON Crypto"]
   NotificationAPI --> SecretCrypto
+  TemplateAPI --> Templates["category + channelType templates"]
+  Templates --> NotificationAPI
   SecretCrypto --> DB[("Encrypted config / signing secret")]
 
   External["External Webhook Sender"] --> Ingest["Webhook Ingest"]
@@ -278,7 +281,7 @@ What changed:
 
 - Webhook source signing secrets and notification channel sensitive config now go through shared encrypted secret handling.
 - Webhook operations now include matcher simulation, event replay, and secret/token rotation.
-- Notification operations now include single and bulk failed-delivery retry.
+- Notification operations now include template / channel-specific template rendering, plus single and bulk failed-delivery retry.
 - Audit now includes advanced filters, export, and retention runs as V1.0 release governance behavior.
 
 ## 9. Recommended Baseline Strategy

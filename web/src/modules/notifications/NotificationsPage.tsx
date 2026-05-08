@@ -4,15 +4,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   bulkRetryNotificationDeliveries,
   createNotificationChannel,
+  createNotificationTemplate,
   listNotificationDeliveries,
   listNotificationChannels,
   listNotifications,
+  listNotificationTemplates,
   markNotificationRead,
   retryNotificationDelivery,
   testNotificationChannel,
-  updateNotificationChannel
+  updateNotificationChannel,
+  updateNotificationTemplate
 } from "../../api/notifications";
-import type { NotificationChannel } from "../../api/types";
+import type { NotificationChannel, NotificationTemplate } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { DataTable } from "../../shared/components/DataTable";
 import { FilterToolbar } from "../../shared/components/FilterToolbar";
@@ -26,9 +29,12 @@ export function NotificationsPage() {
   const canWrite = hasPermission(user, "notification:write");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [form, setForm] = useState({ name: "", channelType: "site", target: "", signingSecret: "" });
+  const [templateForm, setTemplateForm] = useState({ name: "", category: "alert", channelType: "any", titleTemplate: "{{title}}", contentTemplate: "{{content}}", status: "active" });
   const [editingChannel, setEditingChannel] = useState<NotificationChannel | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<NotificationTemplate | null>(null);
   const [deliveryFilters, setDeliveryFilters] = useState({ status: "", channelId: "", notificationId: "" });
   const channelsQuery = useQuery({ queryKey: ["notificationChannels"], queryFn: listNotificationChannels });
+  const templatesQuery = useQuery({ queryKey: ["notificationTemplates"], queryFn: listNotificationTemplates });
   const notificationsQuery = useQuery({
     queryKey: ["notifications", unreadOnly],
     queryFn: () => listNotifications({ unread: unreadOnly })
@@ -56,6 +62,21 @@ export function NotificationsPage() {
       queryClient.invalidateQueries({ queryKey: ["notificationChannels"] });
     }
   });
+  const createTemplateMutation = useMutation({
+    mutationFn: createNotificationTemplate,
+    onSuccess: () => {
+      resetTemplateForm();
+      queryClient.invalidateQueries({ queryKey: ["notificationTemplates"] });
+    }
+  });
+  const updateTemplateMutation = useMutation({
+    mutationFn: (payload: { id: string; name: string; category: string; channelType: string; titleTemplate: string; contentTemplate?: string; status?: string }) =>
+      updateNotificationTemplate(payload.id, payload),
+    onSuccess: () => {
+      resetTemplateForm();
+      queryClient.invalidateQueries({ queryKey: ["notificationTemplates"] });
+    }
+  });
   const readMutation = useMutation({
     mutationFn: (id: string) => markNotificationRead(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] })
@@ -76,6 +97,7 @@ export function NotificationsPage() {
     }
   });
   const channels = useMemo(() => channelsQuery.data ?? [], [channelsQuery.data]);
+  const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
   const notifications = useMemo(() => notificationsQuery.data ?? [], [notificationsQuery.data]);
   const deliveries = useMemo(() => deliveriesQuery.data ?? [], [deliveriesQuery.data]);
 
@@ -91,6 +113,23 @@ export function NotificationsPage() {
       channelType: channel.channelType,
       target: "",
       signingSecret: ""
+    });
+  }
+
+  function resetTemplateForm() {
+    setEditingTemplate(null);
+    setTemplateForm({ name: "", category: "alert", channelType: "any", titleTemplate: "{{title}}", contentTemplate: "{{content}}", status: "active" });
+  }
+
+  function startEditingTemplate(template: NotificationTemplate) {
+    setEditingTemplate(template);
+    setTemplateForm({
+      name: template.name,
+      category: template.category,
+      channelType: template.channelType,
+      titleTemplate: template.titleTemplate,
+      contentTemplate: template.contentTemplate ?? "",
+      status: template.status
     });
   }
 
@@ -184,6 +223,80 @@ export function NotificationsPage() {
           </form>
           {createMutation.isError ? <p className="form-error">{createMutation.error.message}</p> : null}
           {updateMutation.isError ? <p className="form-error">{updateMutation.error.message}</p> : null}
+        </section>
+      ) : null}
+
+      {canWrite ? (
+        <section className="panel table-panel">
+          <div className="panel-title">
+            <h3>{t("notifications.templates")}</h3>
+            <span>{t("notifications.templateHint")}</span>
+          </div>
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const payload = {
+                name: templateForm.name,
+                category: templateForm.category,
+                channelType: templateForm.channelType,
+                titleTemplate: templateForm.titleTemplate,
+                contentTemplate: templateForm.contentTemplate,
+                status: templateForm.status
+              };
+              if (editingTemplate) {
+                updateTemplateMutation.mutate({ id: editingTemplate.id, ...payload });
+                return;
+              }
+              createTemplateMutation.mutate(payload);
+            }}
+          >
+            <label>{t("common.name")}<input value={templateForm.name} onChange={(event) => setTemplateForm({ ...templateForm, name: event.target.value })} required /></label>
+            <label>{t("common.category")}<input value={templateForm.category} onChange={(event) => setTemplateForm({ ...templateForm, category: event.target.value })} required /></label>
+            <label>
+              {t("common.type")}
+              <select value={templateForm.channelType} onChange={(event) => setTemplateForm({ ...templateForm, channelType: event.target.value })}>
+                <option value="any">any</option>
+                <option value="site">site</option>
+                <option value="email">email</option>
+                <option value="webhook">webhook</option>
+                <option value="dingtalk">dingtalk</option>
+                <option value="wechat">wechat</option>
+                <option value="slack">slack</option>
+              </select>
+            </label>
+            <label>
+              {t("common.status")}
+              <select value={templateForm.status} onChange={(event) => setTemplateForm({ ...templateForm, status: event.target.value })}>
+                <option value="active">active</option>
+                <option value="disabled">disabled</option>
+                <option value="archived">archived</option>
+              </select>
+            </label>
+            <label>{t("notifications.titleTemplate")}<input value={templateForm.titleTemplate} onChange={(event) => setTemplateForm({ ...templateForm, titleTemplate: event.target.value })} required /></label>
+            <label>{t("notifications.contentTemplate")}<textarea value={templateForm.contentTemplate} onChange={(event) => setTemplateForm({ ...templateForm, contentTemplate: event.target.value })} /></label>
+            <button type="submit" disabled={createTemplateMutation.isPending || updateTemplateMutation.isPending}>{editingTemplate ? t("common.save") : t("common.create")}</button>
+            {editingTemplate ? <button type="button" className="ghost-button" onClick={resetTemplateForm}>{t("common.cancel")}</button> : null}
+          </form>
+          {createTemplateMutation.isError ? <p className="form-error">{createTemplateMutation.error.message}</p> : null}
+          {updateTemplateMutation.isError ? <p className="form-error">{updateTemplateMutation.error.message}</p> : null}
+          <DataTable loading={templatesQuery.isLoading} empty={templates.length === 0} emptyMessage={t("notifications.emptyTemplates")} error={templatesQuery.isError ? templatesQuery.error.message : null}>
+            <table>
+              <thead><tr><th>{t("common.name")}</th><th>{t("common.category")}</th><th>{t("common.type")}</th><th>{t("notifications.titleTemplate")}</th><th>{t("common.status")}</th><th>{t("common.action")}</th></tr></thead>
+              <tbody>
+                {templates.map((template) => (
+                  <tr key={template.id}>
+                    <td><strong>{template.name}</strong><small>{template.id}</small></td>
+                    <td>{template.category}</td>
+                    <td>{template.channelType}</td>
+                    <td><strong>{template.titleTemplate}</strong><small>{template.contentTemplate || "-"}</small></td>
+                    <td><span className={`status-chip status-${template.status}`}>{template.status}</span></td>
+                    <td className="action-cell"><button type="button" onClick={() => startEditingTemplate(template)}>{t("common.edit")}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </DataTable>
         </section>
       ) : null}
 

@@ -1213,6 +1213,35 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Test delivery result }
+  /api/v1/notification-templates:
+    get:
+      summary: List notification templates
+      description: Requires `notification:read`.
+      responses:
+        "200": { description: Notification template list }
+    post:
+      summary: Create notification template
+      description: Requires `notification:write`. Template placeholders include `{{title}}`, `{{content}}`, `{{severity}}`, `{{resourceType}}`, and `{{resourceId}}`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationTemplatePayload"
+      responses:
+        "200": { description: Notification template summary }
+  /api/v1/notification-templates/{id}:
+    put:
+      summary: Update notification template
+      description: Requires `notification:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationTemplatePayload"
+      responses:
+        "200": { description: Notification template summary }
   /api/v1/notification-deliveries:
     get:
       summary: List notification deliveries
@@ -1681,6 +1710,16 @@ components:
           type: object
           description: For `email`, use `email`; for outbound webhook-style channels, use `url` and optional `signingSecret`.
           additionalProperties: true
+    NotificationTemplatePayload:
+      type: object
+      required: [name, titleTemplate]
+      properties:
+        name: { type: string }
+        category: { type: string, default: system }
+        channelType: { type: string, enum: [any, site, email, webhook, dingtalk, wechat, slack], default: any }
+        titleTemplate: { type: string, example: "[{{severity}}] {{title}}" }
+        contentTemplate: { type: string, example: "{{content}}\nResource: {{resourceType}} #{{resourceId}}" }
+        status: { type: string, enum: [active, disabled, archived], default: active }
     AuditLogPage:
       type: object
       properties:

@@ -89,11 +89,32 @@ func TestTestChannelPassesID(t *testing.T) {
 	}
 }
 
+func TestCreateTemplatePassesPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureNotificationService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughNotificationAuth, passThroughNotificationPermission)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/notification-templates", bytes.NewBufferString(`{"name":"Alert email","category":"alert","channelType":"email","titleTemplate":"[{{severity}}] {{title}}","contentTemplate":"{{content}}"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.createTemplateInput.Name != "Alert email" || service.createTemplateInput.Category != "alert" || service.createTemplateInput.ChannelType != "email" {
+		t.Fatalf("unexpected create template input: %#v", service.createTemplateInput)
+	}
+}
+
 type captureNotificationService struct {
-	deliveryFilters ListDeliveriesInput
-	retryDeliveryID uint64
-	bulkRetryInput  BulkRetryDeliveriesInput
-	testChannelID   string
+	deliveryFilters     ListDeliveriesInput
+	retryDeliveryID     uint64
+	bulkRetryInput      BulkRetryDeliveriesInput
+	testChannelID       string
+	createTemplateInput CreateTemplateInput
 }
 
 func (s *captureNotificationService) ListChannels(context.Context) ([]ChannelSummary, *apperror.Error) {
@@ -102,6 +123,19 @@ func (s *captureNotificationService) ListChannels(context.Context) ([]ChannelSum
 
 func (s *captureNotificationService) CreateChannel(context.Context, CreateChannelInput) (ChannelSummary, *apperror.Error) {
 	return ChannelSummary{}, nil
+}
+
+func (s *captureNotificationService) ListTemplates(context.Context) ([]TemplateSummary, *apperror.Error) {
+	return nil, nil
+}
+
+func (s *captureNotificationService) CreateTemplate(_ context.Context, input CreateTemplateInput) (TemplateSummary, *apperror.Error) {
+	s.createTemplateInput = input
+	return TemplateSummary{ID: "tpl-1", Name: input.Name, Category: input.Category, ChannelType: input.ChannelType, TitleTemplate: input.TitleTemplate}, nil
+}
+
+func (s *captureNotificationService) UpdateTemplate(context.Context, UpdateTemplateInput) (TemplateSummary, *apperror.Error) {
+	return TemplateSummary{}, nil
 }
 
 func (s *captureNotificationService) UpdateChannel(context.Context, UpdateChannelInput) (ChannelSummary, *apperror.Error) {

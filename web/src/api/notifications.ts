@@ -1,5 +1,5 @@
 import { request } from "./request";
-import type { NotificationChannel, NotificationChannelTestResult, NotificationDelivery, NotificationSummary } from "./types";
+import type { NotificationChannel, NotificationChannelTestResult, NotificationDelivery, NotificationSummary, NotificationTemplate } from "./types";
 
 export function listNotificationChannels() {
   return request<NotificationChannel[]>("/api/v1/notification-channels");
@@ -22,6 +22,24 @@ export function updateNotificationChannel(id: string, payload: { name: string; c
 export function testNotificationChannel(id: string) {
   return request<NotificationChannelTestResult>(`/api/v1/notification-channels/${id}/test`, {
     method: "POST"
+  });
+}
+
+export function listNotificationTemplates() {
+  return request<NotificationTemplate[]>("/api/v1/notification-templates");
+}
+
+export function createNotificationTemplate(payload: { name: string; category?: string; channelType?: string; titleTemplate: string; contentTemplate?: string; status?: string }) {
+  return request<NotificationTemplate>("/api/v1/notification-templates", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateNotificationTemplate(id: string, payload: { name: string; category?: string; channelType?: string; titleTemplate: string; contentTemplate?: string; status?: string }) {
+  return request<NotificationTemplate>(`/api/v1/notification-templates/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
   });
 }
 

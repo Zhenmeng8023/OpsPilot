@@ -554,6 +554,19 @@ export interface NotificationChannelTestResult {
   errorMessage?: string;
 }
 
+export interface NotificationTemplate {
+  id: string;
+  name: string;
+  category: string;
+  channelType: string;
+  titleTemplate: string;
+  contentTemplate?: string;
+  status: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface NotificationSummary {
   id: string;
   title: string;

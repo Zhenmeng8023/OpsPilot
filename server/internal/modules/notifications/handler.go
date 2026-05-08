@@ -14,6 +14,9 @@ import (
 
 type ServiceContract interface {
 	ListChannels(context.Context) ([]ChannelSummary, *apperror.Error)
+	ListTemplates(context.Context) ([]TemplateSummary, *apperror.Error)
+	CreateTemplate(context.Context, CreateTemplateInput) (TemplateSummary, *apperror.Error)
+	UpdateTemplate(context.Context, UpdateTemplateInput) (TemplateSummary, *apperror.Error)
 	CreateChannel(context.Context, CreateChannelInput) (ChannelSummary, *apperror.Error)
 	UpdateChannel(context.Context, UpdateChannelInput) (ChannelSummary, *apperror.Error)
 	TestChannel(context.Context, string, AuditContext) (ChannelTestResult, *apperror.Error)
@@ -34,6 +37,15 @@ type createChannelRequest struct {
 	Config      map[string]interface{} `json:"config"`
 }
 
+type templateRequest struct {
+	Name            string `json:"name" binding:"required"`
+	Category        string `json:"category"`
+	ChannelType     string `json:"channelType"`
+	TitleTemplate   string `json:"titleTemplate" binding:"required"`
+	ContentTemplate string `json:"contentTemplate"`
+	Status          string `json:"status"`
+}
+
 type bulkRetryDeliveriesRequest struct {
 	Status         string `json:"status"`
 	ChannelID      string `json:"channelId"`
@@ -52,6 +64,9 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.POST("/notification-channels", requirePermission("notification:write"), h.createChannel)
 	protected.PUT("/notification-channels/:id", requirePermission("notification:write"), h.updateChannel)
 	protected.POST("/notification-channels/:id/test", requirePermission("notification:write"), h.testChannel)
+	protected.GET("/notification-templates", requirePermission("notification:read"), h.listTemplates)
+	protected.POST("/notification-templates", requirePermission("notification:write"), h.createTemplate)
+	protected.PUT("/notification-templates/:id", requirePermission("notification:write"), h.updateTemplate)
 	protected.GET("/notifications", requirePermission("notification:read"), h.listNotifications)
 	protected.POST("/notifications/:id/read", requirePermission("notification:read"), h.markRead)
 	protected.GET("/notification-deliveries", requirePermission("notification:read"), h.listDeliveries)
@@ -85,6 +100,60 @@ func (h *Handler) createChannel(c *gin.Context) {
 		return
 	}
 	response.Success(c, channel)
+}
+
+func (h *Handler) listTemplates(c *gin.Context) {
+	items, appErr := h.service.ListTemplates(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) createTemplate(c *gin.Context) {
+	var req templateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.CreateTemplate(c.Request.Context(), CreateTemplateInput{
+		Name:            req.Name,
+		Category:        req.Category,
+		ChannelType:     req.ChannelType,
+		TitleTemplate:   req.TitleTemplate,
+		ContentTemplate: req.ContentTemplate,
+		Status:          req.Status,
+		Audit:           auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) updateTemplate(c *gin.Context) {
+	var req templateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.UpdateTemplate(c.Request.Context(), UpdateTemplateInput{
+		ID:              c.Param("id"),
+		Name:            req.Name,
+		Category:        req.Category,
+		ChannelType:     req.ChannelType,
+		TitleTemplate:   req.TitleTemplate,
+		ContentTemplate: req.ContentTemplate,
+		Status:          req.Status,
+		Audit:           auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
 }
 
 func (h *Handler) updateChannel(c *gin.Context) {

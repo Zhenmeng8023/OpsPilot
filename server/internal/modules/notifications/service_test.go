@@ -45,10 +45,28 @@ func TestMaskChannelTarget(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			if got := maskChannelTarget(tt.channelType, configMapFromRaw(tt.raw)); got != tt.want {
 				t.Fatalf("maskChannelTarget() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRenderNotificationTemplateText(t *testing.T) {
+	values := notificationTemplateValues("CPU high", "node-a is above threshold", "alert", "email", "critical", "alert", 42)
+	got := renderNotificationTemplateText("[{{severity}}] {{title}} #{{resourceId}}", values)
+	if got != "[critical] CPU high #42" {
+		t.Fatalf("renderNotificationTemplateText() = %q", got)
+	}
+}
+
+func TestNormalizeTemplateInput(t *testing.T) {
+	got, appErr := normalizeTemplateInput("Alert", "alert", "", "{{title}}", "{{content}}", "")
+	if appErr != nil {
+		t.Fatalf("expected template input to be valid: %v", appErr)
+	}
+	if got.ChannelType != "any" || got.Status != "active" {
+		t.Fatalf("unexpected defaults: %#v", got)
 	}
 }

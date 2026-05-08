@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -45,6 +47,27 @@ type UpdateChannelInput struct {
 	Audit       AuditContext
 }
 
+type CreateTemplateInput struct {
+	Name            string
+	Category        string
+	ChannelType     string
+	TitleTemplate   string
+	ContentTemplate string
+	Status          string
+	Audit           AuditContext
+}
+
+type UpdateTemplateInput struct {
+	ID              string
+	Name            string
+	Category        string
+	ChannelType     string
+	TitleTemplate   string
+	ContentTemplate string
+	Status          string
+	Audit           AuditContext
+}
+
 type ChannelTestResult struct {
 	ChannelID      string `json:"channelId"`
 	NotificationID string `json:"notificationId"`
@@ -79,6 +102,19 @@ type ChannelSummary struct {
 	Status      string `json:"status"`
 	CreatedBy   string `json:"createdBy,omitempty"`
 	CreatedAt   string `json:"createdAt"`
+}
+
+type TemplateSummary struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Category        string `json:"category"`
+	ChannelType     string `json:"channelType"`
+	TitleTemplate   string `json:"titleTemplate"`
+	ContentTemplate string `json:"contentTemplate,omitempty"`
+	Status          string `json:"status"`
+	CreatedBy       string `json:"createdBy,omitempty"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
 }
 
 type NotificationSummary struct {
@@ -137,6 +173,20 @@ type channelDispatchRecord struct {
 	Status      string
 }
 
+type templateRecord struct {
+	ID              uint64
+	UID             string
+	Name            string
+	Category        string
+	ChannelType     string
+	TitleTemplate   string
+	ContentTemplate sql.NullString
+	Status          string
+	CreatedBy       sql.NullString
+	CreatedAt       string
+	UpdatedAt       string
+}
+
 type notificationRecord struct {
 	ID           uint64
 	UID          string
@@ -192,6 +242,154 @@ func (s *Service) ListChannels(ctx context.Context) ([]ChannelSummary, *apperror
 		out = append(out, channelSummary(row, s.channelConfigMap(row.Config)))
 	}
 	return out, nil
+}
+
+func (s *Service) ListTemplates(ctx context.Context) ([]TemplateSummary, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	var rows []templateRecord
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT nt.id, nt.uid, nt.name, nt.category, nt.channel_type, nt.title_template, nt.content_template,
+		        nt.status, u.username AS created_by,
+		        DATE_FORMAT(nt.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+		        DATE_FORMAT(nt.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		   FROM notification_templates nt
+		   LEFT JOIN users u ON u.id = nt.created_by
+		  WHERE nt.workspace_id = ? AND nt.deleted_at IS NULL
+		  ORDER BY nt.category ASC, nt.channel_type ASC, nt.created_at DESC`,
+		workspace.ID,
+	).Scan(&rows).Error; err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500809, "list notification templates failed", err)
+	}
+	out := make([]TemplateSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, templateSummary(row))
+	}
+	return out, nil
+}
+
+func (s *Service) CreateTemplate(ctx context.Context, input CreateTemplateInput) (TemplateSummary, *apperror.Error) {
+	normalized, appErr := normalizeTemplateInput(input.Name, input.Category, input.ChannelType, input.TitleTemplate, input.ContentTemplate, input.Status)
+	if appErr != nil {
+		return TemplateSummary{}, appErr
+	}
+	var created TemplateSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		actor, err := userByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		templateUID, err := uid.New()
+		if err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`INSERT INTO notification_templates(uid, workspace_id, name, category, channel_type, title_template, content_template, status, created_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			templateUID, workspace.ID, normalized.Name, normalized.Category, normalized.ChannelType, normalized.TitleTemplate, nullString(normalized.ContentTemplate), normalized.Status, nullID(actor.ID),
+		).Error; err != nil {
+			return err
+		}
+		row, err := templateByUID(ctx, tx, workspace.ID, templateUID)
+		if err != nil {
+			return err
+		}
+		created = templateSummary(row)
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   nullID(actor.ID),
+			Action:        "notification.template.create",
+			ResourceType:  "notification_template",
+			ResourceID:    nullID(row.ID),
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         created,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return TemplateSummary{}, apperror.New(http.StatusConflict, 409802, "notification template already exists")
+		}
+		return TemplateSummary{}, apperror.Wrap(http.StatusInternalServerError, 500810, "create notification template failed", txErr)
+	}
+	return created, nil
+}
+
+func (s *Service) UpdateTemplate(ctx context.Context, input UpdateTemplateInput) (TemplateSummary, *apperror.Error) {
+	id := strings.TrimSpace(input.ID)
+	if id == "" {
+		return TemplateSummary{}, apperror.New(http.StatusBadRequest, 400809, "notification template id is required")
+	}
+	normalized, appErr := normalizeTemplateInput(input.Name, input.Category, input.ChannelType, input.TitleTemplate, input.ContentTemplate, input.Status)
+	if appErr != nil {
+		return TemplateSummary{}, appErr
+	}
+	var updated TemplateSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		actor, err := userByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		before, err := templateByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		if before.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404805, "notification template not found")
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`UPDATE notification_templates
+			    SET name = ?, category = ?, channel_type = ?, title_template = ?, content_template = ?, status = ?, updated_at = NOW(3)
+			  WHERE id = ?`,
+			normalized.Name, normalized.Category, normalized.ChannelType, normalized.TitleTemplate, nullString(normalized.ContentTemplate), normalized.Status, before.ID,
+		).Error; err != nil {
+			return err
+		}
+		after, err := templateByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		updated = templateSummary(after)
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   nullID(actor.ID),
+			Action:        "notification.template.update",
+			ResourceType:  "notification_template",
+			ResourceID:    nullID(before.ID),
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Before:        templateSummary(before),
+			After:         updated,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return TemplateSummary{}, appErr
+		}
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return TemplateSummary{}, apperror.New(http.StatusConflict, 409802, "notification template already exists")
+		}
+		return TemplateSummary{}, apperror.Wrap(http.StatusInternalServerError, 500811, "update notification template failed", txErr)
+	}
+	return updated, nil
 }
 
 func (s *Service) CreateChannel(ctx context.Context, input CreateChannelInput) (ChannelSummary, *apperror.Error) {
@@ -762,6 +960,10 @@ func EnqueueForAlert(ctx context.Context, tx *gorm.DB, workspaceID, alertID uint
 	if err != nil {
 		return err
 	}
+	title, content, err = renderNotificationTemplateTx(ctx, tx, workspaceID, "alert", "site", title, content, severity, "alert", alertID)
+	if err != nil {
+		return err
+	}
 	if err := tx.WithContext(ctx).Exec(
 		`INSERT INTO notifications(uid, workspace_id, title, content, category, severity, resource_type, resource_id)
 		 VALUES (?, ?, ?, ?, 'alert', ?, 'alert', ?)`,
@@ -817,6 +1019,10 @@ func EnqueueForWorkflow(ctx context.Context, tx *gorm.DB, workspaceID, workflowR
 	title = strings.TrimSpace(title)
 	if title == "" {
 		title = "Workflow notification"
+	}
+	title, content, err = renderNotificationTemplateTx(ctx, tx, workspaceID, "workflow", "site", title, content, severity, "workflow_run", workflowRunID)
+	if err != nil {
+		return "", err
 	}
 	if err := tx.WithContext(ctx).Exec(
 		`INSERT INTO notifications(uid, workspace_id, title, content, category, severity, resource_type, resource_id)
@@ -938,6 +1144,22 @@ func channelDispatchByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, 
 	return row, err
 }
 
+func templateByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, uid string) (templateRecord, error) {
+	var row templateRecord
+	err := db.WithContext(ctx).Raw(
+		`SELECT nt.id, nt.uid, nt.name, nt.category, nt.channel_type, nt.title_template, nt.content_template,
+		        nt.status, u.username AS created_by,
+		        DATE_FORMAT(nt.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+		        DATE_FORMAT(nt.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		   FROM notification_templates nt
+		   LEFT JOIN users u ON u.id = nt.created_by
+		  WHERE nt.workspace_id = ? AND nt.uid = ? AND nt.deleted_at IS NULL
+		  LIMIT 1`,
+		workspaceID, uid,
+	).Scan(&row).Error
+	return row, err
+}
+
 func channelSummary(row channelRecord, cfg map[string]interface{}) ChannelSummary {
 	return ChannelSummary{
 		ID:          row.UID,
@@ -947,6 +1169,21 @@ func channelSummary(row channelRecord, cfg map[string]interface{}) ChannelSummar
 		Status:      row.Status,
 		CreatedBy:   row.CreatedBy.String,
 		CreatedAt:   row.CreatedAt,
+	}
+}
+
+func templateSummary(row templateRecord) TemplateSummary {
+	return TemplateSummary{
+		ID:              row.UID,
+		Name:            row.Name,
+		Category:        row.Category,
+		ChannelType:     row.ChannelType,
+		TitleTemplate:   row.TitleTemplate,
+		ContentTemplate: row.ContentTemplate.String,
+		Status:          row.Status,
+		CreatedBy:       row.CreatedBy.String,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}
 }
 
@@ -1035,6 +1272,125 @@ func maskWebhookTarget(value string) string {
 		return ""
 	}
 	return scheme + host + "/..."
+}
+
+type normalizedTemplateInput struct {
+	Name            string
+	Category        string
+	ChannelType     string
+	TitleTemplate   string
+	ContentTemplate string
+	Status          string
+}
+
+var notificationTemplatePattern = regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}`)
+
+func normalizeTemplateInput(name, category, channelType, titleTemplate, contentTemplate, status string) (normalizedTemplateInput, *apperror.Error) {
+	out := normalizedTemplateInput{
+		Name:            strings.TrimSpace(name),
+		Category:        strings.TrimSpace(category),
+		ChannelType:     strings.TrimSpace(channelType),
+		TitleTemplate:   strings.TrimSpace(titleTemplate),
+		ContentTemplate: strings.TrimSpace(contentTemplate),
+		Status:          strings.TrimSpace(status),
+	}
+	if out.Category == "" {
+		out.Category = "system"
+	}
+	if out.ChannelType == "" {
+		out.ChannelType = "any"
+	}
+	if out.Status == "" {
+		out.Status = "active"
+	}
+	if out.Name == "" {
+		return out, apperror.New(http.StatusBadRequest, 400810, "notification template name is required")
+	}
+	if out.TitleTemplate == "" {
+		return out, apperror.New(http.StatusBadRequest, 400811, "notification template title is required")
+	}
+	if !validTemplateChannelType(out.ChannelType) {
+		return out, apperror.New(http.StatusBadRequest, 400812, "unsupported notification template channel type")
+	}
+	if out.Status != "active" && out.Status != "disabled" && out.Status != "archived" {
+		return out, apperror.New(http.StatusBadRequest, 400813, "unsupported notification template status")
+	}
+	return out, nil
+}
+
+func validTemplateChannelType(value string) bool {
+	return value == "any" || validChannelType(value)
+}
+
+func (s *Service) renderDeliveryTemplate(ctx context.Context, row pendingDelivery) pendingDelivery {
+	if row.WorkspaceID == 0 {
+		return row
+	}
+	title, content, err := renderNotificationTemplateTx(ctx, s.db, row.WorkspaceID, row.Category, row.ChannelType, row.Title, row.Content.String, row.Severity, row.ResourceType.String, uint64FromNull(row.ResourceID))
+	if err != nil {
+		return row
+	}
+	row.Title = title
+	row.Content = nullString(content)
+	return row
+}
+
+func renderNotificationTemplateTx(ctx context.Context, db *gorm.DB, workspaceID uint64, category, channelType, title, content, severity, resourceType string, resourceID uint64) (string, string, error) {
+	var row templateRecord
+	err := db.WithContext(ctx).Raw(
+		`SELECT id, uid, name, category, channel_type, title_template, content_template, status
+		   FROM notification_templates
+		  WHERE workspace_id = ?
+		    AND category = ?
+		    AND status = 'active'
+		    AND deleted_at IS NULL
+		    AND channel_type IN (?, 'any')
+		  ORDER BY CASE WHEN channel_type = ? THEN 0 ELSE 1 END, updated_at DESC
+		  LIMIT 1`,
+		workspaceID, strings.TrimSpace(category), strings.TrimSpace(channelType), strings.TrimSpace(channelType),
+	).Scan(&row).Error
+	if err != nil || row.ID == 0 {
+		return title, content, err
+	}
+	values := notificationTemplateValues(title, content, category, channelType, severity, resourceType, resourceID)
+	renderedTitle := renderNotificationTemplateText(row.TitleTemplate, values)
+	renderedContent := content
+	if row.ContentTemplate.Valid && strings.TrimSpace(row.ContentTemplate.String) != "" {
+		renderedContent = renderNotificationTemplateText(row.ContentTemplate.String, values)
+	}
+	return limitString(renderedTitle, 255), limitString(renderedContent, 2048), nil
+}
+
+func notificationTemplateValues(title, content, category, channelType, severity, resourceType string, resourceID uint64) map[string]string {
+	return map[string]string{
+		"title":        title,
+		"content":      content,
+		"category":     category,
+		"channelType":  channelType,
+		"severity":     severity,
+		"resourceType": resourceType,
+		"resourceId":   fmt.Sprint(resourceID),
+	}
+}
+
+func renderNotificationTemplateText(template string, values map[string]string) string {
+	return notificationTemplatePattern.ReplaceAllStringFunc(template, func(match string) string {
+		parts := notificationTemplatePattern.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		if value, ok := values[parts[1]]; ok {
+			return value
+		}
+		return ""
+	})
+}
+
+func uint64FromNull(value sql.NullInt64) uint64 {
+	if !value.Valid || value.Int64 <= 0 {
+		return 0
+	}
+	return uint64(value.Int64)
 }
 
 func validChannelType(value string) bool {

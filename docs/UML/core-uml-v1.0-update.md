@@ -253,10 +253,13 @@ flowchart LR
   Operator["Operator"] --> UI["Admin UI"]
   UI --> WebhookAPI["Webhook Source / Rule API"]
   UI --> NotificationAPI["Notification Channel API"]
+  UI --> TemplateAPI["Notification Template API"]
   UI --> AuditAPI["Audit Export / Retention API"]
 
   WebhookAPI --> SecretCrypto["Secret JSON Crypto"]
   NotificationAPI --> SecretCrypto
+  TemplateAPI --> Templates["category + channelType templates"]
+  Templates --> NotificationAPI
   SecretCrypto --> DB[("Encrypted config / signing secret")]
 
   External["External Webhook Sender"] --> Ingest["Webhook Ingest"]
@@ -278,7 +281,7 @@ flowchart LR
 
 - Webhook source signing secret 和 Notification channel sensitive config 进入共享密文处理，不再按明文配置理解。
 - Webhook 运营能力新增 matcher simulation、event replay、secret/token rotation。
-- Notification 运营能力新增单条和批量失败投递重试。
+- Notification 运营能力新增 template / channel-specific template 渲染，以及单条和批量失败投递重试。
 - Audit 新增高级过滤、导出和 retention run，属于 V1.0 发布治理面。
 
 ## 9. 建议的基线替换策略

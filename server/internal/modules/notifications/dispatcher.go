@@ -32,6 +32,7 @@ type DispatchResult struct {
 
 type pendingDelivery struct {
 	ID               uint64
+	WorkspaceID      uint64
 	Attempts         int
 	ChannelType      string
 	Config           sql.NullString
@@ -77,7 +78,7 @@ func (s *Service) DispatchPending(ctx context.Context, limit int) (DispatchResul
 	var rows []pendingDelivery
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.WithContext(ctx).Raw(
-			`SELECT nd.id, nd.attempts, nc.channel_type, nc.config, n.uid AS notification_uid,
+			`SELECT nd.id, n.workspace_id, nd.attempts, nc.channel_type, nc.config, n.uid AS notification_uid,
 			        n.title, n.content, n.category, n.severity, n.resource_type, n.resource_id,
 			        DATE_FORMAT(n.created_at, '%Y-%m-%d %H:%i:%s') AS notification_time
 			   FROM notification_deliveries nd
@@ -119,6 +120,7 @@ func (s *Service) DispatchPending(ctx context.Context, limit int) (DispatchResul
 }
 
 func (s *Service) sendDelivery(ctx context.Context, row pendingDelivery) error {
+	row = s.renderDeliveryTemplate(ctx, row)
 	switch row.ChannelType {
 	case "site":
 		return nil
