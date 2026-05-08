@@ -4,6 +4,7 @@ Release/security documents:
 - [安全权限矩阵](./docs/security-permission-matrix.md) / [Security Permission Matrix](./docs/security-permission-matrix.en.md)
 - [V0.7 安全发布检查清单](./docs/v0.7-security-release-checklist.md) / [V0.7 Security Release Checklist](./docs/v0.7-security-release-checklist.en.md)
 - [V0.7 发布说明](./docs/v0.7-release-notes.md) / [V0.7 Release Notes](./docs/v0.7-release-notes.en.md)
+- [V1.0 项目开发设计书](./docs/v1.0-product-development-design.md) / [V1.0 Product Development Design](./docs/v1.0-product-development-design.en.md)
 
 > 语言：简体中文（当前） | [English](./README.en.md)
 

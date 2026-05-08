@@ -168,3 +168,4 @@ Release/security documents:
 - [Security Permission Matrix](./docs/security-permission-matrix.en.md) / [安全权限矩阵](./docs/security-permission-matrix.md)
 - [V0.7 Security Release Checklist](./docs/v0.7-security-release-checklist.en.md) / [V0.7 安全发布检查清单](./docs/v0.7-security-release-checklist.md)
 - [V0.7 Release Notes](./docs/v0.7-release-notes.en.md) / [V0.7 发布说明](./docs/v0.7-release-notes.md)
+- [V1.0 Product Development Design](./docs/v1.0-product-development-design.en.md) / [V1.0 项目开发设计书](./docs/v1.0-product-development-design.md)
