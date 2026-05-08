@@ -21,6 +21,7 @@ type ServiceContract interface {
 	ListDeliveries(context.Context, ListDeliveriesInput) ([]DeliverySummary, *apperror.Error)
 	MarkRead(context.Context, string) *apperror.Error
 	RetryDelivery(context.Context, uint64, AuditContext) *apperror.Error
+	BulkRetryDeliveries(context.Context, BulkRetryDeliveriesInput, AuditContext) (BulkRetryDeliveriesResult, *apperror.Error)
 }
 
 type Handler struct {
@@ -31,6 +32,13 @@ type createChannelRequest struct {
 	Name        string                 `json:"name" binding:"required"`
 	ChannelType string                 `json:"channelType"`
 	Config      map[string]interface{} `json:"config"`
+}
+
+type bulkRetryDeliveriesRequest struct {
+	Status         string `json:"status"`
+	ChannelID      string `json:"channelId"`
+	NotificationID string `json:"notificationId"`
+	Limit          int    `json:"limit"`
 }
 
 func NewHandler(service ServiceContract) *Handler {
@@ -47,6 +55,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.GET("/notifications", requirePermission("notification:read"), h.listNotifications)
 	protected.POST("/notifications/:id/read", requirePermission("notification:read"), h.markRead)
 	protected.GET("/notification-deliveries", requirePermission("notification:read"), h.listDeliveries)
+	protected.POST("/notification-deliveries/bulk-retry", requirePermission("notification:write"), h.bulkRetryDeliveries)
 	protected.POST("/notification-deliveries/:id/retry", requirePermission("notification:write"), h.retryDelivery)
 }
 
@@ -144,6 +153,22 @@ func (h *Handler) retryDelivery(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *Handler) bulkRetryDeliveries(c *gin.Context) {
+	var req bulkRetryDeliveriesRequest
+	_ = c.ShouldBindJSON(&req)
+	result, appErr := h.service.BulkRetryDeliveries(c.Request.Context(), BulkRetryDeliveriesInput{
+		Status:         req.Status,
+		ChannelID:      req.ChannelID,
+		NotificationID: req.NotificationID,
+		Limit:          req.Limit,
+	}, auditContext(c))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
 }
 
 func auditContext(c *gin.Context) AuditContext {

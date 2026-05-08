@@ -1,6 +1,7 @@
 package notifications
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -49,6 +50,26 @@ func TestRetryDeliveryPassesID(t *testing.T) {
 	}
 }
 
+func TestBulkRetryDeliveriesPassesFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureNotificationService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughNotificationAuth, passThroughNotificationPermission)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/notification-deliveries/bulk-retry", bytes.NewBufferString(`{"status":"failed","channelId":"ch-1","notificationId":"ntf-1","limit":25}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.bulkRetryInput.Status != "failed" || service.bulkRetryInput.ChannelID != "ch-1" || service.bulkRetryInput.NotificationID != "ntf-1" || service.bulkRetryInput.Limit != 25 {
+		t.Fatalf("unexpected bulk retry input: %#v", service.bulkRetryInput)
+	}
+}
+
 func TestTestChannelPassesID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -71,6 +92,7 @@ func TestTestChannelPassesID(t *testing.T) {
 type captureNotificationService struct {
 	deliveryFilters ListDeliveriesInput
 	retryDeliveryID uint64
+	bulkRetryInput  BulkRetryDeliveriesInput
 	testChannelID   string
 }
 
@@ -107,6 +129,11 @@ func (s *captureNotificationService) MarkRead(context.Context, string) *apperror
 func (s *captureNotificationService) RetryDelivery(_ context.Context, id uint64, _ AuditContext) *apperror.Error {
 	s.retryDeliveryID = id
 	return nil
+}
+
+func (s *captureNotificationService) BulkRetryDeliveries(_ context.Context, input BulkRetryDeliveriesInput, _ AuditContext) (BulkRetryDeliveriesResult, *apperror.Error) {
+	s.bulkRetryInput = input
+	return BulkRetryDeliveriesResult{MatchedCount: 2, RetriedCount: 2}, nil
 }
 
 func passThroughNotificationAuth(c *gin.Context) {

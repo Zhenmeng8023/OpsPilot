@@ -271,12 +271,14 @@ flowchart LR
   AuditAPI --> AuditLogs["audit_logs filters"]
   AuditLogs --> Export["JSON / CSV export"]
   AuditLogs --> Retention["dry-run / execute retention"]
+  NotificationAPI --> DeliveryRetry["single / bulk failed delivery retry"]
 ```
 
 更新点：
 
 - Webhook source signing secret 和 Notification channel sensitive config 进入共享密文处理，不再按明文配置理解。
 - Webhook 运营能力新增 matcher simulation、event replay、secret/token rotation。
+- Notification 运营能力新增单条和批量失败投递重试。
 - Audit 新增高级过滤、导出和 retention run，属于 V1.0 发布治理面。
 
 ## 9. 建议的基线替换策略

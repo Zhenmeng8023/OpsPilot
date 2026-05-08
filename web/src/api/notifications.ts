@@ -46,3 +46,10 @@ export function listNotificationDeliveries(params: { status?: string; channelId?
 export function retryNotificationDelivery(id: number) {
   return request<{ ok: boolean }>(`/api/v1/notification-deliveries/${id}/retry`, { method: "POST" });
 }
+
+export function bulkRetryNotificationDeliveries(payload: { status?: string; channelId?: string; notificationId?: string; limit?: number }) {
+  return request<{ matchedCount: number; retriedCount: number }>("/api/v1/notification-deliveries/bulk-retry", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}

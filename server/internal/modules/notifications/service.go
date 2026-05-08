@@ -59,6 +59,18 @@ type ListDeliveriesInput struct {
 	NotificationID string
 }
 
+type BulkRetryDeliveriesInput struct {
+	Status         string
+	ChannelID      string
+	NotificationID string
+	Limit          int
+}
+
+type BulkRetryDeliveriesResult struct {
+	MatchedCount uint `json:"matchedCount"`
+	RetriedCount uint `json:"retriedCount"`
+}
+
 type ChannelSummary struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -650,6 +662,99 @@ func (s *Service) RetryDelivery(ctx context.Context, deliveryID uint64, auditCtx
 		return apperror.Wrap(http.StatusInternalServerError, 500805, "retry notification delivery failed", txErr)
 	}
 	return nil
+}
+
+func (s *Service) BulkRetryDeliveries(ctx context.Context, input BulkRetryDeliveriesInput, auditCtx AuditContext) (BulkRetryDeliveriesResult, *apperror.Error) {
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "failed"
+	}
+	if status != "failed" {
+		return BulkRetryDeliveriesResult{}, apperror.New(http.StatusBadRequest, 400808, "only failed deliveries can be bulk retried")
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	result := BulkRetryDeliveriesResult{}
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		args := []interface{}{workspace.ID, status}
+		where := "WHERE n.workspace_id = ? AND nd.status = ?"
+		if channelID := strings.TrimSpace(input.ChannelID); channelID != "" {
+			where += " AND nc.uid = ?"
+			args = append(args, channelID)
+		}
+		if notificationID := strings.TrimSpace(input.NotificationID); notificationID != "" {
+			where += " AND n.uid = ?"
+			args = append(args, notificationID)
+		}
+		var ids []uint64
+		selectArgs := append([]interface{}{}, args...)
+		selectArgs = append(selectArgs, limit)
+		if err := tx.WithContext(ctx).Raw(
+			`SELECT nd.id
+			   FROM notification_deliveries nd
+			   JOIN notifications n ON n.id = nd.notification_id
+			   LEFT JOIN notification_channels nc ON nc.id = nd.channel_id
+			  `+where+`
+			  ORDER BY nd.updated_at ASC, nd.id ASC
+			  LIMIT ?
+			  FOR UPDATE`,
+			selectArgs...,
+		).Scan(&ids).Error; err != nil {
+			return err
+		}
+		result.MatchedCount = uint(len(ids))
+		if len(ids) == 0 {
+			return nil
+		}
+		res := tx.WithContext(ctx).Exec(
+			`UPDATE notification_deliveries
+			    SET status = 'pending', next_retry_at = NULL, error_message = NULL, delivered_at = NULL, updated_at = NOW(3)
+			  WHERE id IN ?`,
+			ids,
+		)
+		if res.Error != nil {
+			return res.Error
+		}
+		result.RetriedCount = uint(res.RowsAffected)
+		actor, err := userByUID(ctx, tx, auditCtx.ActorUID)
+		if err != nil {
+			return err
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   nullID(actor.ID),
+			Action:        "notification.delivery.bulk_retry",
+			ResourceType:  "notification_delivery",
+			IP:            auditCtx.IP,
+			UserAgent:     auditCtx.UserAgent,
+			TraceID:       auditCtx.TraceID,
+			RequestMethod: auditCtx.RequestMethod,
+			RequestPath:   auditCtx.RequestPath,
+			After:         result,
+			Metadata: map[string]interface{}{
+				"channelId":      strings.TrimSpace(input.ChannelID),
+				"notificationId": strings.TrimSpace(input.NotificationID),
+				"limit":          limit,
+			},
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return BulkRetryDeliveriesResult{}, appErr
+		}
+		return BulkRetryDeliveriesResult{}, apperror.Wrap(http.StatusInternalServerError, 500808, "bulk retry notification deliveries failed", txErr)
+	}
+	return result, nil
 }
 
 func EnqueueForAlert(ctx context.Context, tx *gorm.DB, workspaceID, alertID uint64, title, content, severity string) error {

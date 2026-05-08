@@ -1237,6 +1237,22 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: OK }
+  /api/v1/notification-deliveries/bulk-retry:
+    post:
+      summary: Bulk retry failed notification deliveries
+      description: Requires `notification:write`. Resets matching failed deliveries to pending for dispatcher retry.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [failed], default: failed }
+                channelId: { type: string }
+                notificationId: { type: string }
+                limit: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200": { description: Bulk retry result }
   /api/v1/notifications:
     get:
       summary: List notifications

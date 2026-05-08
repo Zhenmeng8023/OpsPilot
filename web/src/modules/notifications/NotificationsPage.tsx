@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  bulkRetryNotificationDeliveries,
   createNotificationChannel,
   listNotificationDeliveries,
   listNotificationChannels,
@@ -61,6 +62,10 @@ export function NotificationsPage() {
   });
   const retryMutation = useMutation({
     mutationFn: (id: number) => retryNotificationDelivery(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notificationDeliveries"] })
+  });
+  const bulkRetryMutation = useMutation({
+    mutationFn: () => bulkRetryNotificationDeliveries({ ...deliveryFilters, status: "failed", limit: 100 }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notificationDeliveries"] })
   });
   const testChannelMutation = useMutation({
@@ -203,6 +208,7 @@ export function NotificationsPage() {
             onChange={(event) => setDeliveryFilters((current) => ({ ...current, notificationId: event.target.value }))}
           />
           <button type="button" onClick={() => deliveriesQuery.refetch()}>{t("common.refresh")}</button>
+          {canWrite ? <button type="button" disabled={bulkRetryMutation.isPending} onClick={() => bulkRetryMutation.mutate()}>{t("notifications.bulkRetryFailed")}</button> : null}
         </FilterToolbar>
         <DataTable loading={deliveriesQuery.isLoading} empty={deliveries.length === 0} emptyMessage={t("notifications.emptyDeliveries")} error={deliveriesQuery.isError ? deliveriesQuery.error.message : null}>
           <table>
@@ -225,6 +231,8 @@ export function NotificationsPage() {
           </table>
         </DataTable>
         {retryMutation.isError ? <p className="form-error">{retryMutation.error.message}</p> : null}
+        {bulkRetryMutation.data ? <p className="empty-state">{t("notifications.bulkRetryResult", { count: bulkRetryMutation.data.retriedCount })}</p> : null}
+        {bulkRetryMutation.isError ? <p className="form-error">{bulkRetryMutation.error.message}</p> : null}
       </section>
 
       <section className="panel table-panel">

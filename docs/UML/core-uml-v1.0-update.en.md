@@ -271,12 +271,14 @@ flowchart LR
   AuditAPI --> AuditLogs["audit_logs filters"]
   AuditLogs --> Export["JSON / CSV export"]
   AuditLogs --> Retention["dry-run / execute retention"]
+  NotificationAPI --> DeliveryRetry["single / bulk failed delivery retry"]
 ```
 
 What changed:
 
 - Webhook source signing secrets and notification channel sensitive config now go through shared encrypted secret handling.
 - Webhook operations now include matcher simulation, event replay, and secret/token rotation.
+- Notification operations now include single and bulk failed-delivery retry.
 - Audit now includes advanced filters, export, and retention runs as V1.0 release governance behavior.
 
 ## 9. Recommended Baseline Strategy
