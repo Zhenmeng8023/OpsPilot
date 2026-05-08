@@ -71,7 +71,7 @@ What changed:
 - `Workflow Engine` and `Incidents` are now first-class modules in the system context.
 - `Workflow` now interacts with tasks, notifications, webhooks, and incidents instead of the platform being only task-centric.
 - Secret encryption and rotation are now shared governance capabilities for webhook sources, notification channels, and similar sensitive configuration.
-- Agent management now includes tags/groups, diagnostic snapshots, version inventory, and maintenance windows as the Fleet operations baseline; maintenance windows now suppress alert notifications and skip schedule firing.
+- Agent management now includes tags/groups, diagnostic snapshots, version inventory, maintenance windows, and Host Group batch operations as the Fleet operations baseline; maintenance windows now support all/agent/host/group scopes and suppress alert notifications and skip schedule firing.
 
 ## 5. Updated Diagram 2: V1.0 Trigger and Orchestration Flow
 
@@ -324,6 +324,7 @@ erDiagram
     varchar scope_type
     bigint agent_id
     bigint host_id
+    bigint host_group_id
     datetime starts_at
     datetime ends_at
     varchar status
@@ -339,7 +340,7 @@ What changed:
 - `host_metric_rollups / metric_dashboards` come from `000011_v10_metrics_lifecycle.up.sql`.
 - `alert_suppression_rules / alert_routing_policies` come from `000012_v10_alert_routing_suppression.up.sql`; `host_group_uid` matching fields come from `000014_v10_alert_host_group_matching.up.sql`.
 - `tags / resource_tags / host_groups / host_group_members` are Fleet organization tables from the initial schema; this round adds API/UI coverage.
-- `agent_diagnostics / maintenance_windows` come from `000013_v10_agent_fleet_operations.up.sql`.
+- `agent_diagnostics / maintenance_windows` come from `000013_v10_agent_fleet_operations.up.sql`; `maintenance_windows.host_group_id` comes from `000015_v10_maintenance_host_group_scope.up.sql`.
 
 ## 8. Updated Diagram 5: V1.0 Secret, Webhook, and Audit Governance Flow
 

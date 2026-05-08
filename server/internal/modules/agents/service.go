@@ -51,15 +51,16 @@ type HeartbeatInput struct {
 }
 
 type MaintenanceWindowInput struct {
-	Name      string `json:"name"`
-	ScopeType string `json:"scopeType"`
-	AgentID   string `json:"agentId"`
-	HostID    string `json:"hostId"`
-	Reason    string `json:"reason"`
-	StartsAt  string `json:"startsAt"`
-	EndsAt    string `json:"endsAt"`
-	Status    string `json:"status"`
-	Audit     AuditContext
+	Name        string `json:"name"`
+	ScopeType   string `json:"scopeType"`
+	AgentID     string `json:"agentId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Reason      string `json:"reason"`
+	StartsAt    string `json:"startsAt"`
+	EndsAt      string `json:"endsAt"`
+	Status      string `json:"status"`
+	Audit       AuditContext
 }
 
 type TagInput struct {
@@ -216,20 +217,29 @@ type AgentDiagnosticSummary struct {
 }
 
 type MaintenanceWindowSummary struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ScopeType string `json:"scopeType"`
-	AgentID   string `json:"agentId,omitempty"`
-	AgentName string `json:"agentName,omitempty"`
-	HostID    string `json:"hostId,omitempty"`
-	HostName  string `json:"hostName,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-	StartsAt  string `json:"startsAt"`
-	EndsAt    string `json:"endsAt"`
-	Status    string `json:"status"`
-	CreatedBy string `json:"createdBy,omitempty"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	ScopeType     string `json:"scopeType"`
+	AgentID       string `json:"agentId,omitempty"`
+	AgentName     string `json:"agentName,omitempty"`
+	HostID        string `json:"hostId,omitempty"`
+	HostName      string `json:"hostName,omitempty"`
+	HostGroupID   string `json:"hostGroupId,omitempty"`
+	HostGroupName string `json:"hostGroupName,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	StartsAt      string `json:"startsAt"`
+	EndsAt        string `json:"endsAt"`
+	Status        string `json:"status"`
+	CreatedBy     string `json:"createdBy,omitempty"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
+}
+
+type HostGroupBatchResult struct {
+	GroupID        string `json:"groupId"`
+	GroupName      string `json:"groupName"`
+	AffectedAgents int64  `json:"affectedAgents"`
+	AffectedHosts  int64  `json:"affectedHosts"`
 }
 
 type TagSummary struct {
@@ -290,20 +300,22 @@ type agentRecord struct {
 }
 
 type maintenanceWindowRecord struct {
-	UID       string
-	Name      string
-	ScopeType string
-	AgentUID  sql.NullString
-	AgentName sql.NullString
-	HostUID   sql.NullString
-	HostName  sql.NullString
-	Reason    sql.NullString
-	StartsAt  string
-	EndsAt    string
-	Status    string
-	CreatedBy sql.NullString
-	CreatedAt string
-	UpdatedAt string
+	UID           string
+	Name          string
+	ScopeType     string
+	AgentUID      sql.NullString
+	AgentName     sql.NullString
+	HostUID       sql.NullString
+	HostName      sql.NullString
+	HostGroupUID  sql.NullString
+	HostGroupName sql.NullString
+	Reason        sql.NullString
+	StartsAt      string
+	EndsAt        string
+	Status        string
+	CreatedBy     sql.NullString
+	CreatedAt     string
+	UpdatedAt     string
 }
 
 type tagRecord struct {
@@ -754,6 +766,20 @@ func (s *Service) ListDiagnostics(ctx context.Context) ([]AgentDiagnosticSummary
 	if appErr != nil {
 		return nil, appErr
 	}
+	out, err := s.latestDiagnostics(ctx, s.db, workspace.ID, 0)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500114, "list agent diagnostics failed", err)
+	}
+	return out, nil
+}
+
+func (s *Service) latestDiagnostics(ctx context.Context, db *gorm.DB, workspaceID uint64, hostGroupID uint64) ([]AgentDiagnosticSummary, error) {
+	args := []interface{}{workspaceID, workspaceID}
+	where := "WHERE d.workspace_id = ?"
+	if hostGroupID != 0 {
+		where += " AND EXISTS (SELECT 1 FROM host_group_members hgm WHERE hgm.host_group_id = ? AND hgm.host_id = d.host_id)"
+		args = append(args, hostGroupID)
+	}
 	var rows []struct {
 		UID          string
 		AgentUID     string
@@ -769,7 +795,7 @@ func (s *Service) ListDiagnostics(ctx context.Context) ([]AgentDiagnosticSummary
 		Payload      sql.NullString
 		ReportedAt   string
 	}
-	if err := s.db.WithContext(ctx).Raw(
+	if err := db.WithContext(ctx).Raw(
 		`SELECT d.uid, a.uid AS agent_uid, a.name AS agent_name, h.uid AS host_uid, h.name AS host_name,
 		        d.version, d.os_name, d.os_version, d.arch, d.ip, d.running_tasks, d.payload,
 		        DATE_FORMAT(d.reported_at, '%Y-%m-%d %H:%i:%s') AS reported_at
@@ -782,12 +808,12 @@ func (s *Service) ListDiagnostics(ctx context.Context) ([]AgentDiagnosticSummary
 		      WHERE workspace_id = ?
 		      GROUP BY agent_id
 		   ) latest ON latest.agent_id = d.agent_id AND latest.reported_at = d.reported_at
-		  WHERE d.workspace_id = ?
+		  `+where+`
 		  ORDER BY d.reported_at DESC
 		  LIMIT 200`,
-		workspace.ID, workspace.ID,
+		args...,
 	).Scan(&rows).Error; err != nil {
-		return nil, apperror.Wrap(http.StatusInternalServerError, 500114, "list agent diagnostics failed", err)
+		return nil, err
 	}
 	out := make([]AgentDiagnosticSummary, 0, len(rows))
 	for _, row := range rows {
@@ -1019,6 +1045,125 @@ func (s *Service) SetHostGroupMembers(ctx context.Context, groupUID string, inpu
 		return HostGroupSummary{}, apperror.Wrap(http.StatusInternalServerError, 500123, "set host group members failed", txErr)
 	}
 	return saved, nil
+}
+
+func (s *Service) DisableHostGroupAgents(ctx context.Context, groupUID string, input AuditContext) (HostGroupBatchResult, *apperror.Error) {
+	groupUID = strings.TrimSpace(groupUID)
+	if groupUID == "" {
+		return HostGroupBatchResult{}, apperror.New(http.StatusBadRequest, 400120, "host group id is required")
+	}
+	var result HostGroupBatchResult
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := s.defaultWorkspace(ctx, tx)
+		if err != nil {
+			return err
+		}
+		actorID, err := s.userIDByUID(ctx, tx, input.ActorUID)
+		if err != nil {
+			return err
+		}
+		group, err := s.hostGroupByUID(ctx, tx, workspace.ID, groupUID)
+		if err != nil {
+			return err
+		}
+		var rows []struct {
+			ID     uint64
+			HostID uint64
+		}
+		if err := tx.WithContext(ctx).Raw(
+			`SELECT a.id, a.host_id
+			   FROM agents a
+			   JOIN host_group_members hgm ON hgm.host_id = a.host_id
+			  WHERE a.workspace_id = ?
+			    AND hgm.host_group_id = ?
+			    AND a.deleted_at IS NULL
+			    AND a.status <> 'disabled'`,
+			workspace.ID, group.ID,
+		).Scan(&rows).Error; err != nil {
+			return err
+		}
+		agentIDs := make([]uint64, 0, len(rows))
+		hostIDs := make([]uint64, 0, len(rows))
+		seenHosts := map[uint64]struct{}{}
+		for _, row := range rows {
+			agentIDs = append(agentIDs, row.ID)
+			if row.HostID != 0 {
+				if _, exists := seenHosts[row.HostID]; !exists {
+					seenHosts[row.HostID] = struct{}{}
+					hostIDs = append(hostIDs, row.HostID)
+				}
+			}
+		}
+		if len(agentIDs) > 0 {
+			if err := tx.WithContext(ctx).Exec(
+				"UPDATE agents SET status = 'disabled', disabled_at = NOW(3), disabled_by = ? WHERE id IN ?",
+				actorID, agentIDs,
+			).Error; err != nil {
+				return err
+			}
+			if err := tx.WithContext(ctx).Exec(
+				"UPDATE agent_tokens SET status = 'revoked', revoked_at = NOW(3) WHERE agent_id IN ? AND status = 'active'",
+				agentIDs,
+			).Error; err != nil {
+				return err
+			}
+			for _, hostID := range hostIDs {
+				if err := s.refreshHostStatus(ctx, tx, hostID); err != nil {
+					return err
+				}
+			}
+		}
+		result = HostGroupBatchResult{
+			GroupID:        group.UID,
+			GroupName:      group.Name,
+			AffectedAgents: int64(len(agentIDs)),
+			AffectedHosts:  int64(len(hostIDs)),
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "agent.host_group.disable_agents",
+			ResourceType:  "host_group",
+			ResourceID:    sql.NullInt64{Int64: int64(group.ID), Valid: true},
+			IP:            input.IP,
+			UserAgent:     input.UserAgent,
+			TraceID:       input.TraceID,
+			RequestMethod: input.RequestMethod,
+			RequestPath:   input.RequestPath,
+			After:         result,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return HostGroupBatchResult{}, appErr
+		}
+		return HostGroupBatchResult{}, apperror.Wrap(http.StatusInternalServerError, 500126, "disable host group agents failed", txErr)
+	}
+	return result, nil
+}
+
+func (s *Service) ListHostGroupDiagnostics(ctx context.Context, groupUID string) ([]AgentDiagnosticSummary, *apperror.Error) {
+	groupUID = strings.TrimSpace(groupUID)
+	if groupUID == "" {
+		return nil, apperror.New(http.StatusBadRequest, 400120, "host group id is required")
+	}
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	group, err := s.hostGroupByUID(ctx, s.db, workspace.ID, groupUID)
+	if err != nil {
+		if appErr, ok := err.(*apperror.Error); ok {
+			return nil, appErr
+		}
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500127, "load host group failed", err)
+	}
+	rows, err := s.latestDiagnostics(ctx, s.db, workspace.ID, group.ID)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500128, "list host group diagnostics failed", err)
+	}
+	return rows, nil
 }
 
 func (s *Service) DisableAgent(ctx context.Context, agentUID, actorUID string) *apperror.Error {
@@ -1477,7 +1622,7 @@ func (s *Service) upsertMaintenanceWindow(ctx context.Context, windowUID string,
 		if err != nil {
 			return err
 		}
-		agentID, hostID, err := s.maintenanceScopeIDs(ctx, tx, workspace.ID, scopeType, input.AgentID, input.HostID)
+		agentID, hostID, hostGroupID, err := s.maintenanceScopeIDs(ctx, tx, workspace.ID, scopeType, input.AgentID, input.HostID, input.HostGroupID)
 		if err != nil {
 			return err
 		}
@@ -1487,9 +1632,9 @@ func (s *Service) upsertMaintenanceWindow(ctx context.Context, windowUID string,
 				return err
 			}
 			if err := tx.WithContext(ctx).Exec(
-				`INSERT INTO maintenance_windows(uid, workspace_id, name, scope_type, agent_id, host_id, reason, starts_at, ends_at, status, created_by)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				newWindowUID, workspace.ID, name, scopeType, agentID, hostID, nullString(input.Reason), startsAt, endsAt, status, actorID,
+				`INSERT INTO maintenance_windows(uid, workspace_id, name, scope_type, agent_id, host_id, host_group_id, reason, starts_at, ends_at, status, created_by)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				newWindowUID, workspace.ID, name, scopeType, agentID, hostID, hostGroupID, nullString(input.Reason), startsAt, endsAt, status, actorID,
 			).Error; err != nil {
 				return err
 			}
@@ -1497,9 +1642,9 @@ func (s *Service) upsertMaintenanceWindow(ctx context.Context, windowUID string,
 		} else {
 			exec := tx.WithContext(ctx).Exec(
 				`UPDATE maintenance_windows
-				    SET name = ?, scope_type = ?, agent_id = ?, host_id = ?, reason = ?, starts_at = ?, ends_at = ?, status = ?, updated_at = NOW(3)
+				    SET name = ?, scope_type = ?, agent_id = ?, host_id = ?, host_group_id = ?, reason = ?, starts_at = ?, ends_at = ?, status = ?, updated_at = NOW(3)
 				  WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL`,
-				name, scopeType, agentID, hostID, nullString(input.Reason), startsAt, endsAt, status, workspace.ID, windowUID,
+				name, scopeType, agentID, hostID, hostGroupID, nullString(input.Reason), startsAt, endsAt, status, workspace.ID, windowUID,
 			)
 			if exec.Error != nil {
 				return exec.Error
@@ -1542,31 +1687,38 @@ func (s *Service) upsertMaintenanceWindow(ctx context.Context, windowUID string,
 	return saved, nil
 }
 
-func (s *Service) maintenanceScopeIDs(ctx context.Context, tx *gorm.DB, workspaceID uint64, scopeType, agentUID, hostUID string) (sql.NullInt64, sql.NullInt64, error) {
+func (s *Service) maintenanceScopeIDs(ctx context.Context, tx *gorm.DB, workspaceID uint64, scopeType, agentUID, hostUID, hostGroupUID string) (sql.NullInt64, sql.NullInt64, sql.NullInt64, error) {
 	if scopeType == "agent" {
 		var row struct {
 			ID     uint64
 			HostID sql.NullInt64
 		}
 		if err := tx.WithContext(ctx).Raw("SELECT id, host_id FROM agents WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL LIMIT 1", workspaceID, strings.TrimSpace(agentUID)).Scan(&row).Error; err != nil {
-			return sql.NullInt64{}, sql.NullInt64{}, err
+			return sql.NullInt64{}, sql.NullInt64{}, sql.NullInt64{}, err
 		}
 		if row.ID == 0 {
-			return sql.NullInt64{}, sql.NullInt64{}, apperror.New(http.StatusNotFound, 404101, "agent not found")
+			return sql.NullInt64{}, sql.NullInt64{}, sql.NullInt64{}, apperror.New(http.StatusNotFound, 404101, "agent not found")
 		}
-		return sql.NullInt64{Int64: int64(row.ID), Valid: true}, row.HostID, nil
+		return sql.NullInt64{Int64: int64(row.ID), Valid: true}, row.HostID, sql.NullInt64{}, nil
 	}
 	if scopeType == "host" {
 		var id uint64
 		if err := tx.WithContext(ctx).Raw("SELECT id FROM hosts WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL LIMIT 1", workspaceID, strings.TrimSpace(hostUID)).Scan(&id).Error; err != nil {
-			return sql.NullInt64{}, sql.NullInt64{}, err
+			return sql.NullInt64{}, sql.NullInt64{}, sql.NullInt64{}, err
 		}
 		if id == 0 {
-			return sql.NullInt64{}, sql.NullInt64{}, apperror.New(http.StatusNotFound, 404102, "host not found")
+			return sql.NullInt64{}, sql.NullInt64{}, sql.NullInt64{}, apperror.New(http.StatusNotFound, 404102, "host not found")
 		}
-		return sql.NullInt64{}, sql.NullInt64{Int64: int64(id), Valid: true}, nil
+		return sql.NullInt64{}, sql.NullInt64{Int64: int64(id), Valid: true}, sql.NullInt64{}, nil
 	}
-	return sql.NullInt64{}, sql.NullInt64{}, nil
+	if scopeType == "group" {
+		group, err := s.hostGroupByUID(ctx, tx, workspaceID, strings.TrimSpace(hostGroupUID))
+		if err != nil {
+			return sql.NullInt64{}, sql.NullInt64{}, sql.NullInt64{}, err
+		}
+		return sql.NullInt64{}, sql.NullInt64{}, sql.NullInt64{Int64: int64(group.ID), Valid: true}, nil
+	}
+	return sql.NullInt64{}, sql.NullInt64{}, sql.NullInt64{}, nil
 }
 
 func (s *Service) maintenanceWindows(ctx context.Context, db *gorm.DB, workspaceID uint64, windowUID string) ([]maintenanceWindowRecord, error) {
@@ -1579,6 +1731,7 @@ func (s *Service) maintenanceWindows(ctx context.Context, db *gorm.DB, workspace
 	var rows []maintenanceWindowRecord
 	err := db.WithContext(ctx).Raw(
 		`SELECT mw.uid, mw.name, mw.scope_type, a.uid AS agent_uid, a.name AS agent_name, h.uid AS host_uid, h.name AS host_name,
+		        hg.uid AS host_group_uid, hg.name AS host_group_name,
 		        mw.reason, DATE_FORMAT(mw.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
 		        DATE_FORMAT(mw.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
 		        mw.status, u.username AS created_by,
@@ -1587,6 +1740,7 @@ func (s *Service) maintenanceWindows(ctx context.Context, db *gorm.DB, workspace
 		   FROM maintenance_windows mw
 		   LEFT JOIN agents a ON a.id = mw.agent_id
 		   LEFT JOIN hosts h ON h.id = mw.host_id
+		   LEFT JOIN host_groups hg ON hg.id = mw.host_group_id
 		   LEFT JOIN users u ON u.id = mw.created_by
 		  `+where+`
 		  ORDER BY mw.starts_at DESC, mw.id DESC`,
@@ -2208,7 +2362,7 @@ func normalizeAgentStatus(status string) string {
 
 func normalizeScopeType(value string) string {
 	switch strings.TrimSpace(value) {
-	case "agent", "host":
+	case "agent", "host", "group":
 		return strings.TrimSpace(value)
 	default:
 		return "all"
@@ -2322,20 +2476,22 @@ func nullInt(value int) sql.NullInt64 {
 
 func maintenanceWindowSummary(row maintenanceWindowRecord) MaintenanceWindowSummary {
 	return MaintenanceWindowSummary{
-		ID:        row.UID,
-		Name:      row.Name,
-		ScopeType: row.ScopeType,
-		AgentID:   row.AgentUID.String,
-		AgentName: row.AgentName.String,
-		HostID:    row.HostUID.String,
-		HostName:  row.HostName.String,
-		Reason:    row.Reason.String,
-		StartsAt:  row.StartsAt,
-		EndsAt:    row.EndsAt,
-		Status:    row.Status,
-		CreatedBy: row.CreatedBy.String,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		ID:            row.UID,
+		Name:          row.Name,
+		ScopeType:     row.ScopeType,
+		AgentID:       row.AgentUID.String,
+		AgentName:     row.AgentName.String,
+		HostID:        row.HostUID.String,
+		HostName:      row.HostName.String,
+		HostGroupID:   row.HostGroupUID.String,
+		HostGroupName: row.HostGroupName.String,
+		Reason:        row.Reason.String,
+		StartsAt:      row.StartsAt,
+		EndsAt:        row.EndsAt,
+		Status:        row.Status,
+		CreatedBy:     row.CreatedBy.String,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
 	}
 }
 

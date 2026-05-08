@@ -1343,6 +1343,11 @@ func alertSuppressedByMaintenance(ctx context.Context, tx *gorm.DB, workspaceID,
 		    AND (
 		      mw.scope_type = 'all'
 		      OR mw.host_id = ?
+		      OR mw.host_group_id IN (
+		        SELECT hgm.host_group_id
+		          FROM host_group_members hgm
+		         WHERE hgm.host_id = ?
+		      )
 		      OR mw.agent_id IN (
 		        SELECT a.id
 		          FROM agents a
@@ -1352,10 +1357,10 @@ func alertSuppressedByMaintenance(ctx context.Context, tx *gorm.DB, workspaceID,
 		      )
 		    )
 		  ORDER BY
-		    CASE mw.scope_type WHEN 'agent' THEN 3 WHEN 'host' THEN 2 ELSE 1 END DESC,
+		    CASE mw.scope_type WHEN 'agent' THEN 4 WHEN 'host' THEN 3 WHEN 'group' THEN 2 ELSE 1 END DESC,
 		    mw.updated_at DESC
 		  LIMIT 1`,
-		workspaceID, hostID, workspaceID, hostID,
+		workspaceID, hostID, hostID, workspaceID, hostID,
 	).Scan(&rows).Error
 	if err != nil {
 		return false, maintenanceWindowRecord{}, err

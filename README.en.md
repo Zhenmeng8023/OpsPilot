@@ -33,11 +33,11 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 - Task execution safety gate: high-risk command blocking, configurable command allowlist/denylist, maximum timeout enforcement, per-task Agent work directories, Agent-side log redaction before upload, and local process termination when canceling a running task.
 - Audit events for auth, scripts, tasks, agents, and role permission updates.
 
-## Not Yet Implemented
+## Remaining V1.0 Closure
 
-- Visual workflow orchestration beyond the current Cron scheduling loop.
-- Advanced JSONPath webhook matcher expressions and replay-window tuning.
-- Notification template editing and encrypted channel config storage.
+- Final Docker-capable compose config and API/Web image build validation.
+- One-command E2E smoke validation against a full running environment.
+- Alert grouping operations view, broader database integration tests, remaining frontend hard-coded copy cleanup, and responsive screenshot regression.
 
 ## Requirements
 

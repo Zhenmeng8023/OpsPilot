@@ -135,6 +135,8 @@ export interface MaintenanceWindow {
   agentName?: string;
   hostId?: string;
   hostName?: string;
+  hostGroupId?: string;
+  hostGroupName?: string;
   reason?: string;
   startsAt: string;
   endsAt: string;
@@ -142,6 +144,13 @@ export interface MaintenanceWindow {
   createdBy?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface HostGroupBatchResult {
+  groupId: string;
+  groupName: string;
+  affectedAgents: number;
+  affectedHosts: number;
 }
 
 export interface TagSummary {

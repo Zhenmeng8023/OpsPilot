@@ -6,6 +6,10 @@
 
 ### V1.0 产品化验收工程
 
+- Agent Fleet 增强 Host Group 批量禁用 Agent、按组查看 diagnostics，以及 group scope maintenance window。
+- Maintenance window 的告警抑制与调度跳过已支持按 Host Group membership 生效。
+- Alert suppression/routing 支持按 Host Group 匹配，Metrics rollup/retention worker 已接入后台定时维护。
+- README、CHANGELOG、V1.0 Release Evidence、项目 summary、OpenAPI、UML 与 V1.0 设计文档同步当前 V1.0 验收状态。
 - 新增 `scripts/openapi-router-check.ps1`，从 Go router/handler 源码提取实际路由并与 `server/docs/openapi/openapi.yaml` 对比。
 - 新增 `scripts/e2e-smoke.ps1`，用于运行中环境的 health、version、login 和核心鉴权路由 smoke 检查。
 - CI 增加 OpenAPI/router diff 和 `docker compose --profile full config` 验证。

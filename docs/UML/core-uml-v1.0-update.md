@@ -71,7 +71,7 @@ flowchart LR
 - 相比原始 DOCX 图，新增 `Workflow Engine` 和 `Incidents`。
 - `Workflow` 与 `Tasks`、`Notifications`、`Webhooks`、`Incidents` 已形成业务关联，而不再只是单一任务执行平台。
 - Secret 加密与 rotation 已成为 Webhook source、Notification channel 等模块的共享治理能力。
-- Agent 管理新增 tags/groups、diagnostics 快照、version inventory 和 maintenance window，形成 Fleet 运维基础面；维护窗口已联动告警通知抑制和调度触发跳过。
+- Agent 管理新增 tags/groups、diagnostics 快照、version inventory、maintenance window 和 Host Group 批量操作，形成 Fleet 运维基础面；维护窗口已支持 all/agent/host/group 范围并联动告警通知抑制和调度触发跳过。
 
 ## 5. 更新图二：V1.0 自动化触发与编排链路
 
@@ -324,6 +324,7 @@ erDiagram
     varchar scope_type
     bigint agent_id
     bigint host_id
+    bigint host_group_id
     datetime starts_at
     datetime ends_at
     varchar status
@@ -339,7 +340,7 @@ erDiagram
 - `host_metric_rollups / metric_dashboards` 来自 `000011_v10_metrics_lifecycle.up.sql`。
 - `alert_suppression_rules / alert_routing_policies` 来自 `000012_v10_alert_routing_suppression.up.sql`，`host_group_uid` 匹配字段来自 `000014_v10_alert_host_group_matching.up.sql`。
 - `tags / resource_tags / host_groups / host_group_members` 是初始模型中的 Fleet 组织表，本轮补齐 API/UI。
-- `agent_diagnostics / maintenance_windows` 来自 `000013_v10_agent_fleet_operations.up.sql`。
+- `agent_diagnostics / maintenance_windows` 来自 `000013_v10_agent_fleet_operations.up.sql`，`maintenance_windows.host_group_id` 来自 `000015_v10_maintenance_host_group_scope.up.sql`。
 
 ## 8. 更新图五：V1.0 Secret、Webhook 与 Audit 治理链路
 

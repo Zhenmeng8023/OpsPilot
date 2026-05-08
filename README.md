@@ -36,11 +36,11 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 - Metrics / Alerts 监控闭环：Agent 上报真实 OS 指标和运行时指标；后台按 metric threshold 规则生成、确认、静默、恢复告警。
 - Notifications 通知闭环：支持 notification channel 管理、SMTP Email、webhook 类外部投递、delivery 查询/重试/test send、前端通知列表与标记已读。
 
-## 尚未实现
+## V1.0 剩余收尾
 
-- Cron 调度之外的可视化工作流编排。
-- Webhook 的复杂 JSONPath matcher 表达式和重放窗口细化。
-- Notification 模板编辑器和 channel config 加密存储。
+- Docker 可用环境下的 compose config 与 API/Web image build 终验。
+- 完整运行环境下的一键 E2E smoke 验收。
+- Alert grouping 运营视图、数据库集成测试、前端剩余硬编码文案和响应式截图回归。
 
 ## 环境要求
 

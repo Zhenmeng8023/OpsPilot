@@ -280,6 +280,22 @@ paths:
               $ref: "#/components/schemas/HostGroupMembersPayload"
       responses:
         "200": { description: Host Group summary }
+  /api/v1/host-groups/{id}/disable-agents:
+    post:
+      summary: Disable all Agents in a Host Group
+      description: Requires `agent:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Host Group batch operation result }
+  /api/v1/host-groups/{id}/diagnostics:
+    get:
+      summary: List latest Agent diagnostics for a Host Group
+      description: Requires `agent:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Agent diagnostic snapshot list }
   /api/v1/maintenance-windows:
     get:
       summary: List Agent maintenance windows
@@ -1717,9 +1733,10 @@ components:
       required: [name, startsAt, endsAt]
       properties:
         name: { type: string }
-        scopeType: { type: string, enum: [all, agent, host], default: all }
+        scopeType: { type: string, enum: [all, agent, host, group], default: all }
         agentId: { type: string }
         hostId: { type: string }
+        hostGroupId: { type: string }
         reason: { type: string }
         startsAt: { type: string, example: "2026-05-08 10:00:00" }
         endsAt: { type: string, example: "2026-05-08 12:00:00" }

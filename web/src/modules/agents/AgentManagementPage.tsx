@@ -7,7 +7,9 @@ import {
   createEnrollmentToken,
   createTag,
   disableAgent,
+  disableHostGroupAgents,
   listAgentDiagnostics,
+  listHostGroupDiagnostics,
   listAgents,
   listEnrollmentTokens,
   listHostGroups,
@@ -41,6 +43,7 @@ export function AgentManagementPage() {
     scopeType: "all",
     agentId: "",
     hostId: "",
+    hostGroupId: "",
     reason: "",
     startsAt: "",
     endsAt: "",
@@ -59,6 +62,7 @@ export function AgentManagementPage() {
     hostIds: [] as string[]
   });
   const [editingHostGroupId, setEditingHostGroupId] = useState("");
+  const [selectedBatchGroupId, setSelectedBatchGroupId] = useState("");
 
   const agentsQuery = useQuery({
     queryKey: ["agents"],
@@ -87,6 +91,11 @@ export function AgentManagementPage() {
   const hostGroupsQuery = useQuery({
     queryKey: ["hostGroups"],
     queryFn: listHostGroups
+  });
+  const hostGroupDiagnosticsQuery = useQuery({
+    queryKey: ["hostGroupDiagnostics", selectedBatchGroupId],
+    queryFn: () => listHostGroupDiagnostics(selectedBatchGroupId),
+    enabled: selectedBatchGroupId !== ""
   });
 
   const disableAgentMutation = useMutation({
@@ -170,6 +179,13 @@ export function AgentManagementPage() {
       void queryClient.invalidateQueries({ queryKey: ["hostGroups"] });
     }
   });
+  const disableHostGroupAgentsMutation = useMutation({
+    mutationFn: (id: string) => disableHostGroupAgents(id),
+    onSuccess: () => {
+      void refreshLists(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ["hostGroupDiagnostics"] });
+    }
+  });
 
   const agents = agentsQuery.data?.items ?? [];
   const hosts = hostsQuery.data?.items ?? [];
@@ -178,6 +194,7 @@ export function AgentManagementPage() {
   const maintenanceWindows = maintenanceQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
   const hostGroups = hostGroupsQuery.data ?? [];
+  const hostGroupDiagnostics = hostGroupDiagnosticsQuery.data ?? [];
   const counts = useMemo(() => summarizeAgents(agents), [agents]);
 
   async function copyToken(token: string) {
@@ -190,7 +207,7 @@ export function AgentManagementPage() {
   }
 
   function resetMaintenanceForm() {
-    setMaintenanceForm({ name: "", scopeType: "all", agentId: "", hostId: "", reason: "", startsAt: "", endsAt: "", status: "active" });
+    setMaintenanceForm({ name: "", scopeType: "all", agentId: "", hostId: "", hostGroupId: "", reason: "", startsAt: "", endsAt: "", status: "active" });
     setEditingMaintenanceId("");
   }
 
@@ -201,6 +218,7 @@ export function AgentManagementPage() {
       scopeType: item.scopeType || "all",
       agentId: item.agentId || "",
       hostId: item.hostId || "",
+      hostGroupId: item.hostGroupId || "",
       reason: item.reason || "",
       startsAt: item.startsAt,
       endsAt: item.endsAt,
@@ -302,6 +320,33 @@ export function AgentManagementPage() {
             <button type="submit" disabled={createHostGroupMutation.isPending || updateHostGroupMutation.isPending}>{editingHostGroupId ? t("common.save") : t("common.create")}</button>
             {editingHostGroupId ? <button type="button" onClick={resetHostGroupForm}>{t("common.cancel")}</button> : null}
           </form>
+          <div className="inline-form">
+            <select value={selectedBatchGroupId} onChange={(event) => setSelectedBatchGroupId(event.target.value)}>
+              <option value="">{t("agents.hostGroups")}</option>
+              {hostGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+            </select>
+            <button type="button" disabled={!selectedBatchGroupId || disableHostGroupAgentsMutation.isPending} onClick={() => disableHostGroupAgentsMutation.mutate(selectedBatchGroupId)}>
+              {t("agents.disable")}
+            </button>
+          </div>
+          {disableHostGroupAgentsMutation.data ? <p className="empty-state">{disableHostGroupAgentsMutation.data.groupName}: {disableHostGroupAgentsMutation.data.affectedAgents} Agents / {disableHostGroupAgentsMutation.data.affectedHosts} Hosts</p> : null}
+          {selectedBatchGroupId ? (
+            <div className="data-table">
+              <table>
+                <thead><tr><th>{t("agents.agent")}</th><th>{t("agents.host")}</th><th>{t("common.version")}</th><th>{t("agents.reportedAt")}</th></tr></thead>
+                <tbody>
+                  {hostGroupDiagnostics.map((item) => (
+                    <tr key={item.id}>
+                      <td><strong>{item.agentName}</strong><small>{item.agentId}</small></td>
+                      <td><strong>{item.hostName || "-"}</strong><small>{item.hostId || item.ip || "-"}</small></td>
+                      <td><strong>{item.version || "-"}</strong><small>{[item.os, item.arch].filter(Boolean).join(" / ") || "-"}</small></td>
+                      <td>{item.reportedAt}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
           <div className="data-table">
             <table>
               <thead><tr><th>{t("common.name")}</th><th>{t("agents.hosts")}</th><th>{t("common.createdBy")}</th><th>{t("common.action")}</th></tr></thead>
@@ -319,8 +364,10 @@ export function AgentManagementPage() {
           </div>
           {!hostGroupsQuery.isLoading && hostGroups.length === 0 ? <p className="empty-state">{t("agents.emptyHostGroups")}</p> : null}
           {hostGroupsQuery.isError ? <p className="form-error">{String(hostGroupsQuery.error.message)}</p> : null}
+          {hostGroupDiagnosticsQuery.isError ? <p className="form-error">{String(hostGroupDiagnosticsQuery.error.message)}</p> : null}
           {createHostGroupMutation.isError ? <p className="form-error">{String(createHostGroupMutation.error.message)}</p> : null}
           {updateHostGroupMutation.isError ? <p className="form-error">{String(updateHostGroupMutation.error.message)}</p> : null}
+          {disableHostGroupAgentsMutation.isError ? <p className="form-error">{String(disableHostGroupAgentsMutation.error.message)}</p> : null}
         </section>
       </section>
 
@@ -375,9 +422,10 @@ export function AgentManagementPage() {
             }}
           >
             <label>{t("common.name")}<input value={maintenanceForm.name} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, name: event.target.value })} required /></label>
-            <label>{t("agents.scope")}<select value={maintenanceForm.scopeType} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, scopeType: event.target.value })}><option value="all">{t("agents.allFleet")}</option><option value="agent">{t("agents.agent")}</option><option value="host">{t("agents.host")}</option></select></label>
+            <label>{t("agents.scope")}<select value={maintenanceForm.scopeType} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, scopeType: event.target.value })}><option value="all">{t("agents.allFleet")}</option><option value="agent">{t("agents.agent")}</option><option value="host">{t("agents.host")}</option><option value="group">{t("agents.hostGroups")}</option></select></label>
             {maintenanceForm.scopeType === "agent" ? <label>{t("agents.agent")}<select value={maintenanceForm.agentId} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, agentId: event.target.value })} required><option value="">{t("agents.agent")}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label> : null}
             {maintenanceForm.scopeType === "host" ? <label>{t("agents.host")}<select value={maintenanceForm.hostId} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, hostId: event.target.value })} required><option value="">{t("agents.host")}</option>{hosts.map((host) => <option key={host.id} value={host.id}>{host.name}</option>)}</select></label> : null}
+            {maintenanceForm.scopeType === "group" ? <label>{t("agents.hostGroups")}<select value={maintenanceForm.hostGroupId} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, hostGroupId: event.target.value })} required><option value="">{t("agents.hostGroups")}</option>{hostGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label> : null}
             <label>{t("common.reason")}<input value={maintenanceForm.reason} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, reason: event.target.value })} /></label>
             <label>{t("agents.startsAt")}<input value={maintenanceForm.startsAt} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, startsAt: event.target.value })} placeholder="2026-05-08 10:00:00" required /></label>
             <label>{t("agents.endsAt")}<input value={maintenanceForm.endsAt} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, endsAt: event.target.value })} placeholder="2026-05-08 12:00:00" required /></label>
@@ -392,7 +440,7 @@ export function AgentManagementPage() {
                 {maintenanceWindows.map((item) => (
                   <tr key={item.id}>
                     <td><strong>{item.name}</strong><small>{item.reason || item.id}</small></td>
-                    <td><strong>{item.scopeType}</strong><small>{item.agentName || item.hostName || "-"}</small></td>
+                    <td><strong>{item.scopeType}</strong><small>{item.agentName || item.hostName || item.hostGroupName || "-"}</small></td>
                     <td><strong>{item.startsAt}</strong><small>{item.endsAt}</small></td>
                     <td><StatusChip status={item.status} /></td>
                     <td><button type="button" onClick={() => startEditingMaintenance(item)}>{t("common.edit")}</button></td>

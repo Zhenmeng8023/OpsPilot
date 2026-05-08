@@ -6,6 +6,10 @@
 
 ### V1.0 Productization Validation Engineering
 
+- Agent Fleet now supports Host Group batch Agent disable, group-scoped diagnostics, and group-scoped maintenance windows.
+- Maintenance-window alert suppression and schedule skips now honor Host Group membership.
+- Alert suppression/routing now supports Host Group matching, and Metrics rollup/retention workers are wired into background maintenance.
+- README, CHANGELOG, V1.0 Release Evidence, project summary, OpenAPI, UML, and V1.0 design docs now reflect the current V1.0 acceptance status.
 - Added `scripts/openapi-router-check.ps1`, which extracts routes from Go router/handler source and compares them with `server/docs/openapi/openapi.yaml`.
 - Added `scripts/e2e-smoke.ps1` for health, version, login, and authenticated core-route smoke checks against a running environment.
 - CI now includes OpenAPI/router diff and `docker compose --profile full config` validation.

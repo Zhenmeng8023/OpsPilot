@@ -634,6 +634,19 @@ func activeMaintenanceForSchedule(ctx context.Context, tx *gorm.DB, schedule due
 		      )
 		      OR (
 		        ? = 'task'
+		        AND mw.scope_type = 'group'
+		        AND EXISTS (
+		          SELECT 1
+		            FROM task_targets tt
+		            LEFT JOIN agents direct_agent ON direct_agent.id = tt.agent_id
+		            LEFT JOIN host_group_members target_group ON target_group.host_group_id = tt.host_group_id
+		            LEFT JOIN host_group_members mw_group ON mw_group.host_group_id = mw.host_group_id
+		           WHERE tt.task_id = ?
+		             AND mw_group.host_id IN (tt.host_id, direct_agent.host_id, target_group.host_id)
+		        )
+		      )
+		      OR (
+		        ? = 'task'
 		        AND mw.scope_type = 'agent'
 		        AND EXISTS (
 		          SELECT 1
@@ -652,10 +665,11 @@ func activeMaintenanceForSchedule(ctx context.Context, tx *gorm.DB, schedule due
 		      )
 		    )
 		  ORDER BY
-		    CASE mw.scope_type WHEN 'agent' THEN 3 WHEN 'host' THEN 2 ELSE 1 END DESC,
+		    CASE mw.scope_type WHEN 'agent' THEN 4 WHEN 'host' THEN 3 WHEN 'group' THEN 2 ELSE 1 END DESC,
 		    mw.updated_at DESC
 		  LIMIT 1`,
 		schedule.WorkspaceID, now, now,
+		normalizeTargetType(schedule.TargetType), schedule.TaskID,
 		normalizeTargetType(schedule.TargetType), schedule.TaskID,
 		normalizeTargetType(schedule.TargetType), schedule.TaskID,
 	).Scan(&rows).Error

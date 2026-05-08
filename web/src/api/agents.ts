@@ -5,6 +5,7 @@ import type {
   EnrollmentTokenDetail,
   EnrollmentTokenSummary,
   Host,
+  HostGroupBatchResult,
   HostGroup,
   MaintenanceWindow,
   OfflineScanResult,
@@ -107,11 +108,20 @@ export function setHostGroupMembers(id: string, hostIds: string[]) {
   });
 }
 
+export function disableHostGroupAgents(id: string) {
+  return request<HostGroupBatchResult>(`/api/v1/host-groups/${id}/disable-agents`, { method: "POST" });
+}
+
+export function listHostGroupDiagnostics(id: string) {
+  return request<AgentDiagnostic[]>(`/api/v1/host-groups/${id}/diagnostics`);
+}
+
 export function createMaintenanceWindow(payload: {
   name: string;
   scopeType?: string;
   agentId?: string;
   hostId?: string;
+  hostGroupId?: string;
   reason?: string;
   startsAt: string;
   endsAt: string;
@@ -128,6 +138,7 @@ export function updateMaintenanceWindow(id: string, payload: {
   scopeType?: string;
   agentId?: string;
   hostId?: string;
+  hostGroupId?: string;
   reason?: string;
   startsAt: string;
   endsAt: string;

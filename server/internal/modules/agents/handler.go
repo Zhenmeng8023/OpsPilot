@@ -41,14 +41,15 @@ type createEnrollmentTokenRequest struct {
 }
 
 type maintenanceWindowRequest struct {
-	Name      string `json:"name" binding:"required"`
-	ScopeType string `json:"scopeType"`
-	AgentID   string `json:"agentId"`
-	HostID    string `json:"hostId"`
-	Reason    string `json:"reason"`
-	StartsAt  string `json:"startsAt" binding:"required"`
-	EndsAt    string `json:"endsAt" binding:"required"`
-	Status    string `json:"status"`
+	Name        string `json:"name" binding:"required"`
+	ScopeType   string `json:"scopeType"`
+	AgentID     string `json:"agentId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Reason      string `json:"reason"`
+	StartsAt    string `json:"startsAt" binding:"required"`
+	EndsAt      string `json:"endsAt" binding:"required"`
+	Status      string `json:"status"`
 }
 
 type tagRequest struct {
@@ -105,6 +106,8 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.POST("/host-groups", requirePermission("host:write"), h.createHostGroup)
 	protected.PUT("/host-groups/:id", requirePermission("host:write"), h.updateHostGroup)
 	protected.PUT("/host-groups/:id/members", requirePermission("host:write"), h.setHostGroupMembers)
+	protected.POST("/host-groups/:id/disable-agents", requirePermission("agent:write"), h.disableHostGroupAgents)
+	protected.GET("/host-groups/:id/diagnostics", requirePermission("agent:read"), h.listHostGroupDiagnostics)
 	protected.GET("/maintenance-windows", requirePermission("agent:read"), h.listMaintenanceWindows)
 	protected.POST("/maintenance-windows", requirePermission("agent:write"), h.createMaintenanceWindow)
 	protected.PUT("/maintenance-windows/:id", requirePermission("agent:write"), h.updateMaintenanceWindow)
@@ -349,6 +352,24 @@ func (h *Handler) setHostGroupMembers(c *gin.Context) {
 	response.Success(c, item)
 }
 
+func (h *Handler) disableHostGroupAgents(c *gin.Context) {
+	result, appErr := h.service.DisableHostGroupAgents(c.Request.Context(), c.Param("id"), auditContext(c))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *Handler) listHostGroupDiagnostics(c *gin.Context) {
+	items, appErr := h.service.ListHostGroupDiagnostics(c.Request.Context(), c.Param("id"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
 func (h *Handler) createMaintenanceWindow(c *gin.Context) {
 	var req maintenanceWindowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -406,15 +427,16 @@ func auditContext(c *gin.Context) AuditContext {
 
 func maintenanceWindowInput(req maintenanceWindowRequest, audit AuditContext) MaintenanceWindowInput {
 	return MaintenanceWindowInput{
-		Name:      req.Name,
-		ScopeType: req.ScopeType,
-		AgentID:   req.AgentID,
-		HostID:    req.HostID,
-		Reason:    req.Reason,
-		StartsAt:  req.StartsAt,
-		EndsAt:    req.EndsAt,
-		Status:    req.Status,
-		Audit:     audit,
+		Name:        req.Name,
+		ScopeType:   req.ScopeType,
+		AgentID:     req.AgentID,
+		HostID:      req.HostID,
+		HostGroupID: req.HostGroupID,
+		Reason:      req.Reason,
+		StartsAt:    req.StartsAt,
+		EndsAt:      req.EndsAt,
+		Status:      req.Status,
+		Audit:       audit,
 	}
 }
 
