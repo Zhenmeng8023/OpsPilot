@@ -40,7 +40,7 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 
 - Docker 可用环境下的 compose config 与 API/Web image build 终验。
 - 完整运行环境下的一键 E2E smoke 验收。
-- Alert grouping 运营视图、数据库集成测试、前端剩余硬编码文案和响应式截图回归。
+- 数据库集成测试、前端剩余硬编码文案和响应式截图回归。
 
 ## 环境要求
 

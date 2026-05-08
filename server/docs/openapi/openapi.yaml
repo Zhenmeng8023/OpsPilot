@@ -1088,6 +1088,23 @@ paths:
               $ref: "#/components/schemas/AlertRoutingPolicyPayload"
       responses:
         "200": { description: Alert routing policy summary }
+  /api/v1/alert-groups:
+    get:
+      summary: List alert groups
+      description: Requires `alert:read`.
+      parameters:
+        - $ref: "#/components/parameters/status"
+        - name: severity
+          in: query
+          schema: { type: string, enum: [info, warning, critical] }
+        - name: ruleId
+          in: query
+          schema: { type: string }
+        - name: hostGroupId
+          in: query
+          schema: { type: string }
+      responses:
+        "200": { description: Alert group list }
   /api/v1/alerts:
     get:
       summary: List alerts
@@ -1901,6 +1918,31 @@ components:
         severity: { type: string, enum: [info, warning, critical] }
         channelId: { type: string }
         status: { type: string, enum: [active, disabled, archived], default: active }
+    AlertGroupSummary:
+      type: object
+      properties:
+        id: { type: string }
+        ruleId: { type: string }
+        ruleName: { type: string }
+        hostGroupId: { type: string }
+        hostGroupName: { type: string }
+        title: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+        status: { type: string, enum: [firing, acknowledged, silenced, resolved] }
+        fingerprint: { type: string }
+        alertCount: { type: integer }
+        activeCount: { type: integer }
+        firingCount: { type: integer }
+        acknowledgedCount: { type: integer }
+        silencedCount: { type: integer }
+        resolvedCount: { type: integer }
+        hostCount: { type: integer }
+        hosts:
+          type: array
+          items: { type: string }
+        firstSeenAt: { type: string }
+        lastSeenAt: { type: string }
+        resolvedAt: { type: string }
     IncidentSummary:
       type: object
       properties:

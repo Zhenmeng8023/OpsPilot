@@ -1,5 +1,5 @@
 import { request } from "./request";
-import type { AlertEventSummary, AlertHistoryPoint, AlertRoutingPolicy, AlertRule, AlertSummary, AlertSuppressionRule } from "./types";
+import type { AlertEventSummary, AlertGroupSummary, AlertHistoryPoint, AlertRoutingPolicy, AlertRule, AlertSummary, AlertSuppressionRule } from "./types";
 
 export function listAlertRules() {
   return request<AlertRule[]>("/api/v1/alert-rules");
@@ -126,6 +126,15 @@ export function listAlerts(params: { status?: string; severity?: string; ruleId?
   if (params.ruleId) search.set("ruleId", params.ruleId);
   if (params.hostId) search.set("hostId", params.hostId);
   return request<AlertSummary[]>(`/api/v1/alerts${search.toString() ? `?${search}` : ""}`);
+}
+
+export function listAlertGroups(params: { status?: string; severity?: string; ruleId?: string; hostGroupId?: string } = {}) {
+  const search = new URLSearchParams();
+  if (params.status) search.set("status", params.status);
+  if (params.severity) search.set("severity", params.severity);
+  if (params.ruleId) search.set("ruleId", params.ruleId);
+  if (params.hostGroupId) search.set("hostGroupId", params.hostGroupId);
+  return request<AlertGroupSummary[]>(`/api/v1/alert-groups${search.toString() ? `?${search}` : ""}`);
 }
 
 export function listAlertHistory(params: { hours?: number; bucketMinutes?: number; severity?: string; ruleId?: string; hostId?: string } = {}) {

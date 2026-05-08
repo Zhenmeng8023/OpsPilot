@@ -513,6 +513,29 @@ export interface AlertRoutingPolicy {
   updatedAt: string;
 }
 
+export interface AlertGroupSummary {
+  id: string;
+  ruleId?: string;
+  ruleName?: string;
+  hostGroupId?: string;
+  hostGroupName?: string;
+  title: string;
+  severity: string;
+  status: string;
+  fingerprint: string;
+  alertCount: number;
+  activeCount: number;
+  firingCount: number;
+  acknowledgedCount: number;
+  silencedCount: number;
+  resolvedCount: number;
+  hostCount: number;
+  hosts?: string[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt?: string;
+}
+
 export interface AlertSummary {
   id: string;
   ruleId?: string;

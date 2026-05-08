@@ -93,3 +93,69 @@ func TestNormalizeHistoryBucketMinutes(t *testing.T) {
 		t.Fatalf("expected maximum bucket clamp, got %d", got)
 	}
 }
+
+func TestAggregateAlertGroups(t *testing.T) {
+	rows := []alertGroupRecord{
+		{
+			AlertUID:      "al-2",
+			RuleUID:       sql.NullString{String: "rule-1", Valid: true},
+			RuleName:      sql.NullString{String: "CPU Hot", Valid: true},
+			HostUID:       sql.NullString{String: "host-2", Valid: true},
+			HostName:      sql.NullString{String: "db-02", Valid: true},
+			HostGroupUID:  sql.NullString{String: "group-1", Valid: true},
+			HostGroupName: sql.NullString{String: "Database", Valid: true},
+			Title:         "CPU above 90%",
+			Severity:      "critical",
+			Status:        "acknowledged",
+			Fingerprint:   "fp-1",
+			FirstSeenAt:   "2026-05-08 10:05:00",
+			LastSeenAt:    "2026-05-08 10:10:00",
+		},
+		{
+			AlertUID:      "al-1",
+			RuleUID:       sql.NullString{String: "rule-1", Valid: true},
+			RuleName:      sql.NullString{String: "CPU Hot", Valid: true},
+			HostUID:       sql.NullString{String: "host-1", Valid: true},
+			HostName:      sql.NullString{String: "db-01", Valid: true},
+			HostGroupUID:  sql.NullString{String: "group-1", Valid: true},
+			HostGroupName: sql.NullString{String: "Database", Valid: true},
+			Title:         "CPU above 90%",
+			Severity:      "critical",
+			Status:        "firing",
+			Fingerprint:   "fp-1",
+			FirstSeenAt:   "2026-05-08 10:00:00",
+			LastSeenAt:    "2026-05-08 10:12:00",
+		},
+		{
+			AlertUID:    "al-3",
+			RuleUID:     sql.NullString{String: "rule-1", Valid: true},
+			RuleName:    sql.NullString{String: "CPU Hot", Valid: true},
+			HostUID:     sql.NullString{String: "host-3", Valid: true},
+			HostName:    sql.NullString{String: "edge-01", Valid: true},
+			Title:       "CPU above 90%",
+			Severity:    "critical",
+			Status:      "resolved",
+			Fingerprint: "fp-1",
+			FirstSeenAt: "2026-05-08 09:00:00",
+			LastSeenAt:  "2026-05-08 09:10:00",
+			ResolvedAt:  sql.NullString{String: "2026-05-08 09:12:00", Valid: true},
+		},
+	}
+
+	groups := aggregateAlertGroups(rows)
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
+	}
+	if groups[0].HostGroupID != "group-1" || groups[0].AlertCount != 2 || groups[0].HostCount != 2 {
+		t.Fatalf("unexpected grouped counts: %#v", groups[0])
+	}
+	if groups[0].Status != "firing" || groups[0].ActiveCount != 2 || groups[0].FiringCount != 1 || groups[0].AcknowledgedCount != 1 {
+		t.Fatalf("unexpected grouped status: %#v", groups[0])
+	}
+	if len(groups[0].Hosts) != 2 || groups[0].FirstSeenAt != "2026-05-08 10:00:00" || groups[0].LastSeenAt != "2026-05-08 10:12:00" {
+		t.Fatalf("unexpected grouped host/time summary: %#v", groups[0])
+	}
+	if groups[1].HostGroupID != "" || groups[1].Status != "resolved" || groups[1].ResolvedAt == "" {
+		t.Fatalf("unexpected ungrouped summary: %#v", groups[1])
+	}
+}

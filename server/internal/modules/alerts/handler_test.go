@@ -31,6 +31,25 @@ func TestListAlertsPassesStatusFilter(t *testing.T) {
 	}
 }
 
+func TestListAlertGroupsPassesFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureAlertService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alert-groups?status=firing&severity=critical&ruleId=rule-7&hostGroupId=group-3", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.alertGroupsInput.Status != "firing" || service.alertGroupsInput.Severity != "critical" || service.alertGroupsInput.RuleID != "rule-7" || service.alertGroupsInput.HostGroupID != "group-3" {
+		t.Fatalf("unexpected alert group filters: %#v", service.alertGroupsInput)
+	}
+}
+
 func TestListAlertHistoryPassesWindowParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -219,6 +238,7 @@ func TestUnsilencePassesID(t *testing.T) {
 }
 
 type captureAlertService struct {
+	alertGroupsInput ListAlertGroupsInput
 	alertsInput      ListAlertsInput
 	historyInput     AlertHistoryInput
 	eventsAlertID    string
@@ -236,6 +256,11 @@ type captureAlertService struct {
 }
 
 func (s *captureAlertService) ListRules(context.Context) ([]AlertRuleSummary, *apperror.Error) {
+	return nil, nil
+}
+
+func (s *captureAlertService) ListAlertGroups(_ context.Context, input ListAlertGroupsInput) ([]AlertGroupSummary, *apperror.Error) {
+	s.alertGroupsInput = input
 	return nil, nil
 }
 

@@ -71,6 +71,7 @@ What changed:
 - `Workflow Engine` and `Incidents` are now first-class modules in the system context.
 - `Workflow` now interacts with tasks, notifications, webhooks, and incidents instead of the platform being only task-centric.
 - Secret encryption and rotation are now shared governance capabilities for webhook sources, notification channels, and similar sensitive configuration.
+- Alert operations now include an alert-group view that aggregates alerts by rule, host group, severity, and fingerprint before operators pivot into incident handling.
 - Agent management now includes tags/groups, diagnostic snapshots, version inventory, maintenance windows, and Host Group batch operations as the Fleet operations baseline; maintenance windows now support all/agent/host/group scopes and suppress alert notifications and skip schedule firing.
 
 ## 5. Updated Diagram 2: V1.0 Trigger and Orchestration Flow

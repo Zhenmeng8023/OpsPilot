@@ -71,6 +71,7 @@ flowchart LR
 - 相比原始 DOCX 图，新增 `Workflow Engine` 和 `Incidents`。
 - `Workflow` 与 `Tasks`、`Notifications`、`Webhooks`、`Incidents` 已形成业务关联，而不再只是单一任务执行平台。
 - Secret 加密与 rotation 已成为 Webhook source、Notification channel 等模块的共享治理能力。
+- Alert 运营层已补上 alert-group 视图，可按 rule、host group、severity、fingerprint 聚合后再进入 incident 处理。
 - Agent 管理新增 tags/groups、diagnostics 快照、version inventory、maintenance window 和 Host Group 批量操作，形成 Fleet 运维基础面；维护窗口已支持 all/agent/host/group 范围并联动告警通知抑制和调度触发跳过。
 
 ## 5. 更新图二：V1.0 自动化触发与编排链路

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { acknowledgeAlert, createAlertRoutingPolicy, createAlertRule, createAlertSuppressionRule, disableAlertRule, listAlertEvents, listAlertHistory, listAlertRoutingPolicies, listAlertRules, listAlertSuppressionRules, listAlerts, pauseAlertRule, resolveAlert, resumeAlertRule, silenceAlert, unsilenceAlert, updateAlertRoutingPolicy, updateAlertRule, updateAlertSuppressionRule } from "../../api/alerts";
+import { acknowledgeAlert, createAlertRoutingPolicy, createAlertRule, createAlertSuppressionRule, disableAlertRule, listAlertEvents, listAlertGroups, listAlertHistory, listAlertRoutingPolicies, listAlertRules, listAlertSuppressionRules, listAlerts, pauseAlertRule, resolveAlert, resumeAlertRule, silenceAlert, unsilenceAlert, updateAlertRoutingPolicy, updateAlertRule, updateAlertSuppressionRule } from "../../api/alerts";
 import { listHostGroups } from "../../api/agents";
 import { createMetricDashboard, listHostMetrics, listMetricDashboards, listMetricTrends, runMetricRetention, runMetricRollup, updateMetricDashboard } from "../../api/metrics";
 import { listNotificationChannels } from "../../api/notifications";
-import type { AlertHistoryPoint, AlertRoutingPolicy, AlertSuppressionRule, MetricDashboard, MetricRetentionResult, MetricRollupResult, MetricTrendSeries } from "../../api/types";
+import type { AlertGroupSummary, AlertHistoryPoint, AlertRoutingPolicy, AlertSuppressionRule, MetricDashboard, MetricRetentionResult, MetricRollupResult, MetricTrendSeries } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
@@ -52,6 +52,7 @@ export function MetricsPage() {
   const [alertSeverity, setAlertSeverity] = useState("");
   const [alertRuleId, setAlertRuleId] = useState("");
   const [alertHostId, setAlertHostId] = useState("");
+  const [alertGroupHostGroupId, setAlertGroupHostGroupId] = useState("");
   const [alertHistoryHours, setAlertHistoryHours] = useState(24);
   const [alertEventType, setAlertEventType] = useState("");
   const [silenceForm, setSilenceForm] = useState({ durationSeconds: 3600, reason: "" });
@@ -82,6 +83,16 @@ export function MetricsPage() {
   const alertsQuery = useQuery({
     queryKey: ["alerts", alertStatus, alertSeverity, alertRuleId, alertHostId],
     queryFn: () => listAlerts({ status: alertStatus, severity: alertSeverity, ruleId: alertRuleId, hostId: alertHostId }),
+    enabled: canReadAlerts
+  });
+  const alertGroupsQuery = useQuery({
+    queryKey: ["alertGroups", alertStatus, alertSeverity, alertRuleId, alertGroupHostGroupId],
+    queryFn: () => listAlertGroups({
+      status: alertStatus,
+      severity: alertSeverity,
+      ruleId: alertRuleId,
+      hostGroupId: alertGroupHostGroupId
+    }),
     enabled: canReadAlerts
   });
   const alertHistoryQuery = useQuery({
@@ -239,6 +250,7 @@ export function MetricsPage() {
   const dashboards = useMemo(() => dashboardsQuery.data ?? [], [dashboardsQuery.data]);
   const rules = useMemo(() => rulesQuery.data ?? [], [rulesQuery.data]);
   const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data]);
+  const alertGroups = useMemo(() => alertGroupsQuery.data ?? [], [alertGroupsQuery.data]);
   const alertHistory = useMemo(() => alertHistoryQuery.data ?? [], [alertHistoryQuery.data]);
   const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
   const suppressionRules = useMemo(() => suppressionRulesQuery.data ?? [], [suppressionRulesQuery.data]);
@@ -767,6 +779,75 @@ export function MetricsPage() {
       {canReadAlerts ? (
         <section className="panel table-panel">
           <div className="panel-title">
+            <h3>{t("metrics.alertGroups")}</h3>
+            <span>{alertGroups.length} {t("common.total")}</span>
+          </div>
+          <div className="toolbar-row">
+            <select value={alertStatus} onChange={(event) => setAlertStatus(event.target.value)}>
+              <option value="">{t("common.allStatuses")}</option>
+              <option value="firing">{t("common.status.firing")}</option>
+              <option value="acknowledged">{t("common.status.acknowledged")}</option>
+              <option value="silenced">{t("common.status.silenced")}</option>
+              <option value="resolved">{t("common.status.resolved")}</option>
+            </select>
+            <select value={alertSeverity} onChange={(event) => setAlertSeverity(event.target.value)}>
+              <option value="">{t("metrics.allSeverities")}</option>
+              <option value="info">info</option>
+              <option value="warning">warning</option>
+              <option value="critical">critical</option>
+            </select>
+            <select value={alertRuleId} onChange={(event) => setAlertRuleId(event.target.value)}>
+              <option value="">{t("metrics.allRules")}</option>
+              {rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}
+            </select>
+            <select value={alertGroupHostGroupId} onChange={(event) => setAlertGroupHostGroupId(event.target.value)}>
+              <option value="">{t("agents.hostGroups")}</option>
+              {hostGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+            </select>
+            <button type="button" onClick={() => alertGroupsQuery.refetch()}>{t("common.refresh")}</button>
+          </div>
+          <div className="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("metrics.alertGroup")}</th>
+                  <th>{t("common.severity")}</th>
+                  <th>{t("metrics.rule")}</th>
+                  <th>{t("agents.hostGroups")}</th>
+                  <th>{t("common.status")}</th>
+                  <th>{t("metrics.meta")}</th>
+                  <th>{t("metrics.lastSeen")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {alertGroups.map((group) => (
+                  <tr key={group.id}>
+                    <td>
+                      <strong>{group.title}</strong>
+                      <small>{formatAlertGroupHosts(group)}</small>
+                    </td>
+                    <td><span className={`status-chip status-${group.severity}`}>{group.severity}</span></td>
+                    <td><strong>{group.ruleName || "-"}</strong><small>{group.ruleId || "-"}</small></td>
+                    <td><strong>{group.hostGroupName || "-"}</strong><small>{group.hostGroupId || group.fingerprint.slice(0, 12)}</small></td>
+                    <td><span className={`status-chip status-${group.status}`}>{alertStatusLabel(group.status)}</span></td>
+                    <td>
+                      <strong>{group.alertCount} / {group.hostCount}</strong>
+                      <small>{formatAlertGroupCounts(group, t)}</small>
+                    </td>
+                    <td><strong>{group.lastSeenAt}</strong><small>{group.firstSeenAt}</small></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!alertGroupsQuery.isLoading && alertGroups.length === 0 ? <p className="empty-state">{t("metrics.emptyAlertGroups")}</p> : null}
+          {alertGroupsQuery.isError ? <p className="form-error">{alertGroupsQuery.error.message}</p> : null}
+        </section>
+      ) : null}
+
+      {canReadAlerts ? (
+        <section className="panel table-panel">
+          <div className="panel-title">
             <h3>{t("metrics.firingAlerts")}</h3>
             <span>{t("metrics.firingCount").replace("{count}", String(alerts.length))}</span>
           </div>
@@ -1253,6 +1334,25 @@ function summarizeAlerts(alerts: Array<{ status: string }>) {
     },
     { firing: 0, acknowledged: 0, silenced: 0, resolved: 0 }
   );
+}
+
+function formatAlertGroupHosts(group: AlertGroupSummary) {
+  if (!group.hosts || group.hosts.length === 0) {
+    return group.fingerprint.slice(0, 16);
+  }
+  if (group.hostCount <= group.hosts.length) {
+    return group.hosts.join(", ");
+  }
+  return `${group.hosts.join(", ")} +${group.hostCount - group.hosts.length}`;
+}
+
+function formatAlertGroupCounts(group: AlertGroupSummary, t: (key: any) => string) {
+  return [
+    `${group.firingCount} ${t("common.status.firing")}`,
+    `${group.acknowledgedCount} ${t("common.status.acknowledged")}`,
+    `${group.silencedCount} ${t("common.status.silenced")}`,
+    `${group.resolvedCount} ${t("common.status.resolved")}`
+  ].join(" | ");
 }
 
 function trendSeriesKey(series: MetricTrendSeries) {

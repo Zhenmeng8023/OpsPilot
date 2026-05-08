@@ -6,6 +6,7 @@
 
 ### V1.0 产品化验收工程
 
+- 新增 Alert grouping 运营视图：提供 `GET /api/v1/alert-groups`，按 rule/host group/severity/fingerprint 聚合告警，并同步 Metrics 分组运营表、OpenAPI 与 alert grouping 测试。
 - Agent Fleet 增强 Host Group 批量禁用 Agent、按组查看 diagnostics，以及 group scope maintenance window。
 - Maintenance window 的告警抑制与调度跳过已支持按 Host Group membership 生效。
 - Alert suppression/routing 支持按 Host Group 匹配，Metrics rollup/retention worker 已接入后台定时维护。

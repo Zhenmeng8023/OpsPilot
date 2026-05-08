@@ -6,6 +6,7 @@
 
 ### V1.0 Productization Validation Engineering
 
+- Added Alert grouping operations view via `GET /api/v1/alert-groups`, grouped aggregation by rule/host group/severity/fingerprint, Metrics alert-group UI, OpenAPI updates, and alert grouping tests.
 - Agent Fleet now supports Host Group batch Agent disable, group-scoped diagnostics, and group-scoped maintenance windows.
 - Maintenance-window alert suppression and schedule skips now honor Host Group membership.
 - Alert suppression/routing now supports Host Group matching, and Metrics rollup/retention workers are wired into background maintenance.

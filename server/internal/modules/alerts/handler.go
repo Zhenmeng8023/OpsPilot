@@ -22,6 +22,7 @@ type ServiceContract interface {
 	ListRoutingPolicies(context.Context) ([]RoutingPolicySummary, *apperror.Error)
 	CreateRoutingPolicy(context.Context, RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error)
 	UpdateRoutingPolicy(context.Context, string, RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error)
+	ListAlertGroups(context.Context, ListAlertGroupsInput) ([]AlertGroupSummary, *apperror.Error)
 	ListAlerts(context.Context, ListAlertsInput) ([]AlertSummary, *apperror.Error)
 	ListAlertEvents(context.Context, string, string) ([]AlertEventSummary, *apperror.Error)
 	ListAlertHistory(context.Context, AlertHistoryInput) ([]AlertHistoryPoint, *apperror.Error)
@@ -91,6 +92,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.GET("/alert-routing-policies", requirePermission("alert:read"), h.listRoutingPolicies)
 	protected.POST("/alert-routing-policies", requirePermission("alert:write"), h.createRoutingPolicy)
 	protected.PUT("/alert-routing-policies/:id", requirePermission("alert:write"), h.updateRoutingPolicy)
+	protected.GET("/alert-groups", requirePermission("alert:read"), h.listAlertGroups)
 	protected.GET("/alerts", requirePermission("alert:read"), h.listAlerts)
 	protected.GET("/alerts/history", requirePermission("alert:read"), h.listAlertHistory)
 	protected.GET("/alerts/:id/events", requirePermission("alert:read"), h.listAlertEvents)
@@ -167,6 +169,20 @@ func (h *Handler) listAlerts(c *gin.Context) {
 		return
 	}
 	response.Success(c, alerts)
+}
+
+func (h *Handler) listAlertGroups(c *gin.Context) {
+	items, appErr := h.service.ListAlertGroups(c.Request.Context(), ListAlertGroupsInput{
+		Status:      c.Query("status"),
+		Severity:    c.Query("severity"),
+		RuleID:      c.Query("ruleId"),
+		HostGroupID: c.Query("hostGroupId"),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
 }
 
 func (h *Handler) listAlertHistory(c *gin.Context) {

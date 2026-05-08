@@ -148,6 +148,29 @@ type AlertSummary struct {
 	CreatedAt      string `json:"createdAt"`
 }
 
+type AlertGroupSummary struct {
+	ID                string   `json:"id"`
+	RuleID            string   `json:"ruleId,omitempty"`
+	RuleName          string   `json:"ruleName,omitempty"`
+	HostGroupID       string   `json:"hostGroupId,omitempty"`
+	HostGroupName     string   `json:"hostGroupName,omitempty"`
+	Title             string   `json:"title"`
+	Severity          string   `json:"severity"`
+	Status            string   `json:"status"`
+	Fingerprint       string   `json:"fingerprint"`
+	AlertCount        int      `json:"alertCount"`
+	ActiveCount       int      `json:"activeCount"`
+	FiringCount       int      `json:"firingCount"`
+	AcknowledgedCount int      `json:"acknowledgedCount"`
+	SilencedCount     int      `json:"silencedCount"`
+	ResolvedCount     int      `json:"resolvedCount"`
+	HostCount         int      `json:"hostCount"`
+	Hosts             []string `json:"hosts,omitempty"`
+	FirstSeenAt       string   `json:"firstSeenAt"`
+	LastSeenAt        string   `json:"lastSeenAt"`
+	ResolvedAt        string   `json:"resolvedAt,omitempty"`
+}
+
 type SilenceInput struct {
 	DurationSeconds uint
 	Reason          string
@@ -164,6 +187,13 @@ type ListAlertsInput struct {
 	Severity string
 	RuleID   string
 	HostID   string
+}
+
+type ListAlertGroupsInput struct {
+	Status      string
+	Severity    string
+	RuleID      string
+	HostGroupID string
 }
 
 type AlertEventSummary struct {
@@ -276,6 +306,29 @@ type alertEventRecord struct {
 	Actor     sql.NullString
 	Payload   sql.NullString
 	CreatedAt string
+}
+
+type alertGroupRecord struct {
+	AlertUID      string
+	RuleUID       sql.NullString
+	RuleName      sql.NullString
+	HostUID       sql.NullString
+	HostName      sql.NullString
+	HostGroupUID  sql.NullString
+	HostGroupName sql.NullString
+	Title         string
+	Severity      string
+	Status        string
+	Fingerprint   string
+	FirstSeenAt   string
+	LastSeenAt    string
+	ResolvedAt    sql.NullString
+}
+
+type alertGroupAccumulator struct {
+	Summary  AlertGroupSummary
+	alertUID map[string]struct{}
+	hostUID  map[string]struct{}
 }
 
 type incidentProjectionAlert struct {
@@ -677,6 +730,53 @@ func (s *Service) ListAlerts(ctx context.Context, input ListAlertsInput) ([]Aler
 		out = append(out, alertSummary(row))
 	}
 	return out, nil
+}
+
+func (s *Service) ListAlertGroups(ctx context.Context, input ListAlertGroupsInput) ([]AlertGroupSummary, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	args := []interface{}{workspace.ID}
+	where := "WHERE a.workspace_id = ?"
+	if strings.TrimSpace(input.Status) != "" {
+		where += " AND a.status = ?"
+		args = append(args, strings.TrimSpace(input.Status))
+	}
+	if strings.TrimSpace(input.Severity) != "" {
+		where += " AND a.severity = ?"
+		args = append(args, strings.TrimSpace(input.Severity))
+	}
+	if strings.TrimSpace(input.RuleID) != "" {
+		where += " AND ar.uid = ?"
+		args = append(args, strings.TrimSpace(input.RuleID))
+	}
+	if strings.TrimSpace(input.HostGroupID) != "" {
+		where += " AND hg.uid = ?"
+		args = append(args, strings.TrimSpace(input.HostGroupID))
+	}
+	var rows []alertGroupRecord
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT a.uid AS alert_uid, ar.uid AS rule_uid, ar.name AS rule_name,
+		        h.uid AS host_uid, h.name AS host_name,
+		        hg.uid AS host_group_uid, hg.name AS host_group_name,
+		        a.title, a.severity, a.status, a.fingerprint,
+		        DATE_FORMAT(a.first_seen_at, '%Y-%m-%d %H:%i:%s') AS first_seen_at,
+		        DATE_FORMAT(a.last_seen_at, '%Y-%m-%d %H:%i:%s') AS last_seen_at,
+		        DATE_FORMAT(a.resolved_at, '%Y-%m-%d %H:%i:%s') AS resolved_at
+		   FROM alerts a
+		   LEFT JOIN alert_rules ar ON ar.id = a.alert_rule_id
+		   LEFT JOIN hosts h ON a.resource_type = 'host' AND h.id = a.resource_id
+		   LEFT JOIN host_group_members hgm ON a.resource_type = 'host' AND hgm.host_id = h.id
+		   LEFT JOIN host_groups hg ON hg.id = hgm.host_group_id
+		  `+where+`
+		  ORDER BY a.last_seen_at DESC, a.id DESC
+		  LIMIT 1000`,
+		args...,
+	).Scan(&rows).Error; err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500704, "list alert groups failed", err)
+	}
+	return aggregateAlertGroups(rows), nil
 }
 
 func (s *Service) ListAlertEvents(ctx context.Context, alertUID, eventType string) ([]AlertEventSummary, *apperror.Error) {
@@ -1889,6 +1989,81 @@ func alertSummary(row alertRecord) AlertSummary {
 	}
 }
 
+func aggregateAlertGroups(rows []alertGroupRecord) []AlertGroupSummary {
+	groups := make(map[string]*alertGroupAccumulator, len(rows))
+	order := make([]string, 0, len(rows))
+	for _, row := range rows {
+		key := alertGroupID(row.RuleUID.String, row.HostGroupUID.String, row.Severity, row.Fingerprint)
+		acc, ok := groups[key]
+		if !ok {
+			acc = &alertGroupAccumulator{
+				Summary: AlertGroupSummary{
+					ID:            key,
+					RuleID:        row.RuleUID.String,
+					RuleName:      row.RuleName.String,
+					HostGroupID:   row.HostGroupUID.String,
+					HostGroupName: row.HostGroupName.String,
+					Title:         row.Title,
+					Severity:      row.Severity,
+					Fingerprint:   row.Fingerprint,
+					FirstSeenAt:   row.FirstSeenAt,
+					LastSeenAt:    row.LastSeenAt,
+					ResolvedAt:    row.ResolvedAt.String,
+				},
+				alertUID: map[string]struct{}{},
+				hostUID:  map[string]struct{}{},
+			}
+			groups[key] = acc
+			order = append(order, key)
+		}
+		if _, seen := acc.alertUID[row.AlertUID]; seen {
+			continue
+		}
+		acc.alertUID[row.AlertUID] = struct{}{}
+		acc.Summary.AlertCount++
+		switch row.Status {
+		case "firing":
+			acc.Summary.FiringCount++
+		case "acknowledged":
+			acc.Summary.AcknowledgedCount++
+		case "silenced":
+			acc.Summary.SilencedCount++
+		case "resolved":
+			acc.Summary.ResolvedCount++
+		}
+		if row.HostUID.Valid {
+			if _, seen := acc.hostUID[row.HostUID.String]; !seen {
+				acc.hostUID[row.HostUID.String] = struct{}{}
+				acc.Summary.HostCount++
+				if row.HostName.Valid && len(acc.Summary.Hosts) < 3 {
+					acc.Summary.Hosts = append(acc.Summary.Hosts, row.HostName.String)
+				}
+			}
+		}
+		if acc.Summary.FirstSeenAt == "" || row.FirstSeenAt < acc.Summary.FirstSeenAt {
+			acc.Summary.FirstSeenAt = row.FirstSeenAt
+		}
+		if row.LastSeenAt > acc.Summary.LastSeenAt {
+			acc.Summary.LastSeenAt = row.LastSeenAt
+			acc.Summary.Title = row.Title
+		}
+		if row.ResolvedAt.Valid && row.ResolvedAt.String > acc.Summary.ResolvedAt {
+			acc.Summary.ResolvedAt = row.ResolvedAt.String
+		}
+	}
+	result := make([]AlertGroupSummary, 0, len(order))
+	for _, key := range order {
+		summary := groups[key].Summary
+		summary.ActiveCount = summary.FiringCount + summary.AcknowledgedCount + summary.SilencedCount
+		summary.Status = aggregateAlertGroupStatus(summary)
+		if summary.Status != "resolved" {
+			summary.ResolvedAt = ""
+		}
+		result = append(result, summary)
+	}
+	return result
+}
+
 func parseAlertMetadata(raw sql.NullString) alertMetadata {
 	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
 		return alertMetadata{}
@@ -1999,6 +2174,19 @@ func normalizeHistoryBucketMinutes(value int) int {
 	return value
 }
 
+func aggregateAlertGroupStatus(item AlertGroupSummary) string {
+	switch {
+	case item.FiringCount > 0:
+		return "firing"
+	case item.AcknowledgedCount > 0:
+		return "acknowledged"
+	case item.SilencedCount > 0:
+		return "silenced"
+	default:
+		return "resolved"
+	}
+}
+
 func compare(value float64, operator string, threshold float64) bool {
 	switch operator {
 	case ">":
@@ -2077,6 +2265,11 @@ func routingPolicySummary(row routingPolicyRecord) RoutingPolicySummary {
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 	}
+}
+
+func alertGroupID(ruleID, hostGroupID, severity, fingerprint string) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%s", ruleID, hostGroupID, severity, fingerprint)))
+	return hex.EncodeToString(sum[:])
 }
 
 func alertFingerprint(ruleID, hostID uint64, metricCode string) string {
