@@ -109,6 +109,39 @@ export interface OfflineScanResult {
   thresholdSeconds: number;
 }
 
+export interface AgentDiagnostic {
+  id: string;
+  agentId: string;
+  agentName: string;
+  hostId?: string;
+  hostName?: string;
+  version?: string;
+  os?: string;
+  osVersion?: string;
+  arch?: string;
+  ip?: string;
+  runningTasks?: number;
+  payload?: string;
+  reportedAt: string;
+}
+
+export interface MaintenanceWindow {
+  id: string;
+  name: string;
+  scopeType: string;
+  agentId?: string;
+  agentName?: string;
+  hostId?: string;
+  hostName?: string;
+  reason?: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface EnrollmentTokenSummary {
   id: string;
   tokenPrefix: string;

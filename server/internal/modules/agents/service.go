@@ -49,6 +49,18 @@ type HeartbeatInput struct {
 	HostInfoInput
 }
 
+type MaintenanceWindowInput struct {
+	Name      string `json:"name"`
+	ScopeType string `json:"scopeType"`
+	AgentID   string `json:"agentId"`
+	HostID    string `json:"hostId"`
+	Reason    string `json:"reason"`
+	StartsAt  string `json:"startsAt"`
+	EndsAt    string `json:"endsAt"`
+	Status    string `json:"status"`
+	Audit     AuditContext
+}
+
 type AgentIdentity struct {
 	ID          uint64
 	UID         string
@@ -159,6 +171,39 @@ type OfflineScanResult struct {
 	ThresholdSeconds int   `json:"thresholdSeconds"`
 }
 
+type AgentDiagnosticSummary struct {
+	ID           string `json:"id"`
+	AgentID      string `json:"agentId"`
+	AgentName    string `json:"agentName"`
+	HostID       string `json:"hostId,omitempty"`
+	HostName     string `json:"hostName,omitempty"`
+	Version      string `json:"version,omitempty"`
+	OS           string `json:"os,omitempty"`
+	OSVersion    string `json:"osVersion,omitempty"`
+	Arch         string `json:"arch,omitempty"`
+	IP           string `json:"ip,omitempty"`
+	RunningTasks int    `json:"runningTasks,omitempty"`
+	Payload      string `json:"payload,omitempty"`
+	ReportedAt   string `json:"reportedAt"`
+}
+
+type MaintenanceWindowSummary struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ScopeType string `json:"scopeType"`
+	AgentID   string `json:"agentId,omitempty"`
+	AgentName string `json:"agentName,omitempty"`
+	HostID    string `json:"hostId,omitempty"`
+	HostName  string `json:"hostName,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	StartsAt  string `json:"startsAt"`
+	EndsAt    string `json:"endsAt"`
+	Status    string `json:"status"`
+	CreatedBy string `json:"createdBy,omitempty"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
 type workspaceRecord struct {
 	ID   uint64
 	UID  string
@@ -195,6 +240,23 @@ type agentRecord struct {
 	LastHeartbeatAt sql.NullString
 	DisabledAt      sql.NullString
 	CreatedAt       string
+}
+
+type maintenanceWindowRecord struct {
+	UID       string
+	Name      string
+	ScopeType string
+	AgentUID  sql.NullString
+	AgentName sql.NullString
+	HostUID   sql.NullString
+	HostName  sql.NullString
+	Reason    sql.NullString
+	StartsAt  string
+	EndsAt    string
+	Status    string
+	CreatedBy sql.NullString
+	CreatedAt string
+	UpdatedAt string
 }
 
 func NewService(db *gorm.DB, cfg config.Config) *Service {
@@ -399,6 +461,9 @@ func (s *Service) Heartbeat(ctx context.Context, identity AgentIdentity, input H
 		if err := s.writeHeartbeat(ctx, tx, agent.ID, host.ID, status, input.HostInfoInput); err != nil {
 			return err
 		}
+		if err := s.writeDiagnostic(ctx, tx, identity.WorkspaceID, agent.ID, host.ID, input.HostInfoInput); err != nil {
+			return err
+		}
 		summary, err := s.agentSummaryByID(ctx, tx, agent.ID)
 		if err != nil {
 			return err
@@ -596,6 +661,95 @@ func (s *Service) ListHosts(ctx context.Context, input ListInput) (HostListResul
 		})
 	}
 	return HostListResult{Items: hosts, Total: total, Page: input.Page, PageSize: input.PageSize}, nil
+}
+
+func (s *Service) ListDiagnostics(ctx context.Context) ([]AgentDiagnosticSummary, *apperror.Error) {
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	var rows []struct {
+		UID          string
+		AgentUID     string
+		AgentName    string
+		HostUID      sql.NullString
+		HostName     sql.NullString
+		Version      sql.NullString
+		OSName       sql.NullString
+		OSVersion    sql.NullString
+		Arch         sql.NullString
+		IP           sql.NullString
+		RunningTasks sql.NullInt64
+		Payload      sql.NullString
+		ReportedAt   string
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT d.uid, a.uid AS agent_uid, a.name AS agent_name, h.uid AS host_uid, h.name AS host_name,
+		        d.version, d.os_name, d.os_version, d.arch, d.ip, d.running_tasks, d.payload,
+		        DATE_FORMAT(d.reported_at, '%Y-%m-%d %H:%i:%s') AS reported_at
+		   FROM agent_diagnostics d
+		   JOIN agents a ON a.id = d.agent_id
+		   LEFT JOIN hosts h ON h.id = d.host_id
+		   JOIN (
+		     SELECT agent_id, MAX(reported_at) AS reported_at
+		       FROM agent_diagnostics
+		      WHERE workspace_id = ?
+		      GROUP BY agent_id
+		   ) latest ON latest.agent_id = d.agent_id AND latest.reported_at = d.reported_at
+		  WHERE d.workspace_id = ?
+		  ORDER BY d.reported_at DESC
+		  LIMIT 200`,
+		workspace.ID, workspace.ID,
+	).Scan(&rows).Error; err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500114, "list agent diagnostics failed", err)
+	}
+	out := make([]AgentDiagnosticSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AgentDiagnosticSummary{
+			ID:           row.UID,
+			AgentID:      row.AgentUID,
+			AgentName:    row.AgentName,
+			HostID:       row.HostUID.String,
+			HostName:     row.HostName.String,
+			Version:      row.Version.String,
+			OS:           row.OSName.String,
+			OSVersion:    row.OSVersion.String,
+			Arch:         row.Arch.String,
+			IP:           row.IP.String,
+			RunningTasks: int(row.RunningTasks.Int64),
+			Payload:      row.Payload.String,
+			ReportedAt:   row.ReportedAt,
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) ListMaintenanceWindows(ctx context.Context) ([]MaintenanceWindowSummary, *apperror.Error) {
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	rows, err := s.maintenanceWindows(ctx, s.db, workspace.ID, "")
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500115, "list maintenance windows failed", err)
+	}
+	out := make([]MaintenanceWindowSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, maintenanceWindowSummary(row))
+	}
+	return out, nil
+}
+
+func (s *Service) CreateMaintenanceWindow(ctx context.Context, input MaintenanceWindowInput) (MaintenanceWindowSummary, *apperror.Error) {
+	return s.upsertMaintenanceWindow(ctx, "", input)
+}
+
+func (s *Service) UpdateMaintenanceWindow(ctx context.Context, windowUID string, input MaintenanceWindowInput) (MaintenanceWindowSummary, *apperror.Error) {
+	windowUID = strings.TrimSpace(windowUID)
+	if windowUID == "" {
+		return MaintenanceWindowSummary{}, apperror.New(http.StatusBadRequest, 400114, "maintenance window id is required")
+	}
+	return s.upsertMaintenanceWindow(ctx, windowUID, input)
 }
 
 func (s *Service) DisableAgent(ctx context.Context, agentUID, actorUID string) *apperror.Error {
@@ -1019,6 +1173,159 @@ func (s *Service) writeHeartbeat(ctx context.Context, tx *gorm.DB, agentID, host
 	).Error
 }
 
+func (s *Service) writeDiagnostic(ctx context.Context, tx *gorm.DB, workspaceID, agentID, hostID uint64, input HostInfoInput) error {
+	diagnosticUID, err := newUID()
+	if err != nil {
+		return err
+	}
+	return tx.WithContext(ctx).Exec(
+		`INSERT INTO agent_diagnostics(uid, workspace_id, agent_id, host_id, version, os_name, os_version, arch, ip, running_tasks, payload, reported_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3))`,
+		diagnosticUID, workspaceID, agentID, hostID, nullString(input.Version), nullString(input.OSName),
+		nullString(input.OSVersion), nullString(input.Arch), nullString(input.IP), nullInt(runningTasks(input.Metadata)), jsonNull(input),
+	).Error
+}
+
+func (s *Service) upsertMaintenanceWindow(ctx context.Context, windowUID string, input MaintenanceWindowInput) (MaintenanceWindowSummary, *apperror.Error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return MaintenanceWindowSummary{}, apperror.New(http.StatusBadRequest, 400115, "maintenance window name is required")
+	}
+	scopeType := normalizeScopeType(input.ScopeType)
+	startsAt := parseOptionalTime(input.StartsAt)
+	endsAt := parseOptionalTime(input.EndsAt)
+	if !startsAt.Valid || !endsAt.Valid || !endsAt.Time.After(startsAt.Time) {
+		return MaintenanceWindowSummary{}, apperror.New(http.StatusBadRequest, 400116, "valid startsAt and endsAt are required")
+	}
+	status := normalizePolicyStatus(input.Status)
+	var saved MaintenanceWindowSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := s.defaultWorkspace(ctx, tx)
+		if err != nil {
+			return err
+		}
+		actorID, err := s.userIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		agentID, hostID, err := s.maintenanceScopeIDs(ctx, tx, workspace.ID, scopeType, input.AgentID, input.HostID)
+		if err != nil {
+			return err
+		}
+		if windowUID == "" {
+			newWindowUID, err := newUID()
+			if err != nil {
+				return err
+			}
+			if err := tx.WithContext(ctx).Exec(
+				`INSERT INTO maintenance_windows(uid, workspace_id, name, scope_type, agent_id, host_id, reason, starts_at, ends_at, status, created_by)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				newWindowUID, workspace.ID, name, scopeType, agentID, hostID, nullString(input.Reason), startsAt, endsAt, status, actorID,
+			).Error; err != nil {
+				return err
+			}
+			windowUID = newWindowUID
+		} else {
+			exec := tx.WithContext(ctx).Exec(
+				`UPDATE maintenance_windows
+				    SET name = ?, scope_type = ?, agent_id = ?, host_id = ?, reason = ?, starts_at = ?, ends_at = ?, status = ?, updated_at = NOW(3)
+				  WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL`,
+				name, scopeType, agentID, hostID, nullString(input.Reason), startsAt, endsAt, status, workspace.ID, windowUID,
+			)
+			if exec.Error != nil {
+				return exec.Error
+			}
+			if exec.RowsAffected == 0 {
+				return apperror.New(http.StatusNotFound, 404114, "maintenance window not found")
+			}
+		}
+		rows, err := s.maintenanceWindows(ctx, tx, workspace.ID, windowUID)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return apperror.New(http.StatusNotFound, 404114, "maintenance window not found")
+		}
+		saved = maintenanceWindowSummary(rows[0])
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "agent.maintenance.save",
+			ResourceType:  "maintenance_window",
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         saved,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return MaintenanceWindowSummary{}, appErr
+		}
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return MaintenanceWindowSummary{}, apperror.New(http.StatusConflict, 409114, "maintenance window already exists")
+		}
+		return MaintenanceWindowSummary{}, apperror.Wrap(http.StatusInternalServerError, 500116, "save maintenance window failed", txErr)
+	}
+	return saved, nil
+}
+
+func (s *Service) maintenanceScopeIDs(ctx context.Context, tx *gorm.DB, workspaceID uint64, scopeType, agentUID, hostUID string) (sql.NullInt64, sql.NullInt64, error) {
+	if scopeType == "agent" {
+		var row struct {
+			ID     uint64
+			HostID sql.NullInt64
+		}
+		if err := tx.WithContext(ctx).Raw("SELECT id, host_id FROM agents WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL LIMIT 1", workspaceID, strings.TrimSpace(agentUID)).Scan(&row).Error; err != nil {
+			return sql.NullInt64{}, sql.NullInt64{}, err
+		}
+		if row.ID == 0 {
+			return sql.NullInt64{}, sql.NullInt64{}, apperror.New(http.StatusNotFound, 404101, "agent not found")
+		}
+		return sql.NullInt64{Int64: int64(row.ID), Valid: true}, row.HostID, nil
+	}
+	if scopeType == "host" {
+		var id uint64
+		if err := tx.WithContext(ctx).Raw("SELECT id FROM hosts WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL LIMIT 1", workspaceID, strings.TrimSpace(hostUID)).Scan(&id).Error; err != nil {
+			return sql.NullInt64{}, sql.NullInt64{}, err
+		}
+		if id == 0 {
+			return sql.NullInt64{}, sql.NullInt64{}, apperror.New(http.StatusNotFound, 404102, "host not found")
+		}
+		return sql.NullInt64{}, sql.NullInt64{Int64: int64(id), Valid: true}, nil
+	}
+	return sql.NullInt64{}, sql.NullInt64{}, nil
+}
+
+func (s *Service) maintenanceWindows(ctx context.Context, db *gorm.DB, workspaceID uint64, windowUID string) ([]maintenanceWindowRecord, error) {
+	args := []interface{}{workspaceID}
+	where := "WHERE mw.workspace_id = ? AND mw.deleted_at IS NULL"
+	if windowUID != "" {
+		where += " AND mw.uid = ?"
+		args = append(args, windowUID)
+	}
+	var rows []maintenanceWindowRecord
+	err := db.WithContext(ctx).Raw(
+		`SELECT mw.uid, mw.name, mw.scope_type, a.uid AS agent_uid, a.name AS agent_name, h.uid AS host_uid, h.name AS host_name,
+		        mw.reason, DATE_FORMAT(mw.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
+		        DATE_FORMAT(mw.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
+		        mw.status, u.username AS created_by,
+		        DATE_FORMAT(mw.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+		        DATE_FORMAT(mw.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		   FROM maintenance_windows mw
+		   LEFT JOIN agents a ON a.id = mw.agent_id
+		   LEFT JOIN hosts h ON h.id = mw.host_id
+		   LEFT JOIN users u ON u.id = mw.created_by
+		  `+where+`
+		  ORDER BY mw.starts_at DESC, mw.id DESC`,
+		args...,
+	).Scan(&rows).Error
+	return rows, err
+}
+
 func (s *Service) agentByName(ctx context.Context, db *gorm.DB, workspaceID uint64, name string) (agentRecord, error) {
 	var agent agentRecord
 	err := db.WithContext(ctx).Raw(
@@ -1201,6 +1508,84 @@ func normalizeAgentStatus(status string) string {
 		return status
 	}
 	return "online"
+}
+
+func normalizeScopeType(value string) string {
+	switch strings.TrimSpace(value) {
+	case "agent", "host":
+		return strings.TrimSpace(value)
+	default:
+		return "all"
+	}
+}
+
+func normalizePolicyStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case "active", "disabled", "archived":
+		return strings.TrimSpace(value)
+	default:
+		return "active"
+	}
+}
+
+func parseOptionalTime(value string) sql.NullTime {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return sql.NullTime{}
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+		parsed, err := time.ParseInLocation(layout, value, time.Local)
+		if err == nil {
+			return sql.NullTime{Time: parsed, Valid: true}
+		}
+	}
+	return sql.NullTime{}
+}
+
+func runningTasks(metadata map[string]interface{}) int {
+	if metadata == nil {
+		return 0
+	}
+	value, ok := metadata["runningTasks"]
+	if !ok {
+		return 0
+	}
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return 0
+	}
+}
+
+func nullInt(value int) sql.NullInt64 {
+	if value <= 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(value), Valid: true}
+}
+
+func maintenanceWindowSummary(row maintenanceWindowRecord) MaintenanceWindowSummary {
+	return MaintenanceWindowSummary{
+		ID:        row.UID,
+		Name:      row.Name,
+		ScopeType: row.ScopeType,
+		AgentID:   row.AgentUID.String,
+		AgentName: row.AgentName.String,
+		HostID:    row.HostUID.String,
+		HostName:  row.HostName.String,
+		Reason:    row.Reason.String,
+		StartsAt:  row.StartsAt,
+		EndsAt:    row.EndsAt,
+		Status:    row.Status,
+		CreatedBy: row.CreatedBy.String,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}
 }
 
 func newUID() (string, error) {

@@ -149,6 +149,12 @@ paths:
         - $ref: "#/components/parameters/pageSize"
       responses:
         "200": { description: Paged Agent list }
+  /api/v1/agents/diagnostics:
+    get:
+      summary: List Agent diagnostic snapshots
+      description: Requires `agent:read`.
+      responses:
+        "200": { description: Agent diagnostic snapshot list }
   /api/v1/agents/offline-scan:
     post:
       summary: Scan Agents and Hosts offline
@@ -177,6 +183,35 @@ paths:
       description: Requires `host:read`.
       responses:
         "200": { description: Paged Host list }
+  /api/v1/maintenance-windows:
+    get:
+      summary: List Agent maintenance windows
+      description: Requires `agent:read`.
+      responses:
+        "200": { description: Maintenance window list }
+    post:
+      summary: Create Agent maintenance window
+      description: Requires `agent:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaintenanceWindowPayload"
+      responses:
+        "200": { description: Maintenance window summary }
+  /api/v1/maintenance-windows/{id}:
+    put:
+      summary: Update Agent maintenance window
+      description: Requires `agent:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaintenanceWindowPayload"
+      responses:
+        "200": { description: Maintenance window summary }
   /api/v1/agent-enrollment-tokens:
     get:
       summary: List Agent enrollment tokens
@@ -1580,6 +1615,18 @@ components:
         maxUses: { type: integer, minimum: 1, default: 1 }
         expiresInSeconds: { type: integer, minimum: 60, default: 3600 }
         bindWorkspaceSlug: { type: string }
+    MaintenanceWindowPayload:
+      type: object
+      required: [name, startsAt, endsAt]
+      properties:
+        name: { type: string }
+        scopeType: { type: string, enum: [all, agent, host], default: all }
+        agentId: { type: string }
+        hostId: { type: string }
+        reason: { type: string }
+        startsAt: { type: string, example: "2026-05-08 10:00:00" }
+        endsAt: { type: string, example: "2026-05-08 12:00:00" }
+        status: { type: string, enum: [active, disabled, archived], default: active }
     SchedulePayload:
       type: object
       required: [name, cronExpr]

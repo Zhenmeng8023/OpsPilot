@@ -2,15 +2,19 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import {
+  createMaintenanceWindow,
   createEnrollmentToken,
   disableAgent,
+  listAgentDiagnostics,
   listAgents,
   listEnrollmentTokens,
   listHosts,
+  listMaintenanceWindows,
   markOffline,
-  revokeEnrollmentToken
+  revokeEnrollmentToken,
+  updateMaintenanceWindow
 } from "../../api/agents";
-import type { Agent, EnrollmentTokenDetail } from "../../api/types";
+import type { Agent, EnrollmentTokenDetail, MaintenanceWindow } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 
 const statusOrder = ["online", "offline", "disabled", "registered", "upgrading"];
@@ -25,6 +29,17 @@ export function AgentManagementPage() {
   });
   const [issuedToken, setIssuedToken] = useState<EnrollmentTokenDetail | null>(null);
   const [copyMessage, setCopyMessage] = useState("");
+  const [maintenanceForm, setMaintenanceForm] = useState({
+    name: "",
+    scopeType: "all",
+    agentId: "",
+    hostId: "",
+    reason: "",
+    startsAt: "",
+    endsAt: "",
+    status: "active"
+  });
+  const [editingMaintenanceId, setEditingMaintenanceId] = useState("");
 
   const agentsQuery = useQuery({
     queryKey: ["agents"],
@@ -37,6 +52,14 @@ export function AgentManagementPage() {
   const enrollmentQuery = useQuery({
     queryKey: ["agentEnrollmentTokens"],
     queryFn: () => listEnrollmentTokens()
+  });
+  const diagnosticsQuery = useQuery({
+    queryKey: ["agentDiagnostics"],
+    queryFn: listAgentDiagnostics
+  });
+  const maintenanceQuery = useQuery({
+    queryKey: ["maintenanceWindows"],
+    queryFn: listMaintenanceWindows
   });
 
   const disableAgentMutation = useMutation({
@@ -72,10 +95,26 @@ export function AgentManagementPage() {
       void refreshLists(queryClient, true);
     }
   });
+  const createMaintenanceMutation = useMutation({
+    mutationFn: createMaintenanceWindow,
+    onSuccess: () => {
+      resetMaintenanceForm();
+      void queryClient.invalidateQueries({ queryKey: ["maintenanceWindows"] });
+    }
+  });
+  const updateMaintenanceMutation = useMutation({
+    mutationFn: (payload: typeof maintenanceForm) => updateMaintenanceWindow(editingMaintenanceId, payload),
+    onSuccess: () => {
+      resetMaintenanceForm();
+      void queryClient.invalidateQueries({ queryKey: ["maintenanceWindows"] });
+    }
+  });
 
   const agents = agentsQuery.data?.items ?? [];
   const hosts = hostsQuery.data?.items ?? [];
   const enrollmentTokens = enrollmentQuery.data ?? [];
+  const diagnostics = diagnosticsQuery.data ?? [];
+  const maintenanceWindows = maintenanceQuery.data ?? [];
   const counts = useMemo(() => summarizeAgents(agents), [agents]);
 
   async function copyToken(token: string) {
@@ -85,6 +124,25 @@ export function AgentManagementPage() {
     } catch {
       setCopyMessage("Copy failed");
     }
+  }
+
+  function resetMaintenanceForm() {
+    setMaintenanceForm({ name: "", scopeType: "all", agentId: "", hostId: "", reason: "", startsAt: "", endsAt: "", status: "active" });
+    setEditingMaintenanceId("");
+  }
+
+  function startEditingMaintenance(item: MaintenanceWindow) {
+    setEditingMaintenanceId(item.id);
+    setMaintenanceForm({
+      name: item.name,
+      scopeType: item.scopeType || "all",
+      agentId: item.agentId || "",
+      hostId: item.hostId || "",
+      reason: item.reason || "",
+      startsAt: item.startsAt,
+      endsAt: item.endsAt,
+      status: item.status || "active"
+    });
   }
 
   return (
@@ -106,6 +164,90 @@ export function AgentManagementPage() {
             <strong>{counts[status] ?? 0}</strong>
           </div>
         ))}
+      </section>
+
+      <section className="agent-grid">
+        <section className="panel table-panel">
+          <div className="panel-title">
+            <h3>{t("agents.diagnostics")}</h3>
+            <span>{diagnostics.length} {t("common.total")}</span>
+          </div>
+          <div className="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("agents.agent")}</th>
+                  <th>{t("agents.host")}</th>
+                  <th>{t("common.version")}</th>
+                  <th>{t("common.system")}</th>
+                  <th>{t("agents.runningTasks")}</th>
+                  <th>{t("agents.reportedAt")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {diagnostics.map((item) => (
+                  <tr key={item.id}>
+                    <td><strong>{item.agentName}</strong><small>{item.agentId}</small></td>
+                    <td><strong>{item.hostName || "-"}</strong><small>{item.ip || item.hostId || "-"}</small></td>
+                    <td>{item.version || "-"}</td>
+                    <td><strong>{item.os || "-"}</strong><small>{[item.osVersion, item.arch].filter(Boolean).join(" / ") || "-"}</small></td>
+                    <td>{item.runningTasks ?? 0}</td>
+                    <td>{item.reportedAt}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!diagnosticsQuery.isLoading && diagnostics.length === 0 ? <p className="empty-state">{t("agents.emptyDiagnostics")}</p> : null}
+          {diagnosticsQuery.isError ? <p className="form-error">{String(diagnosticsQuery.error.message)}</p> : null}
+        </section>
+
+        <section className="panel table-panel">
+          <div className="panel-title">
+            <h3>{t("agents.maintenance")}</h3>
+            <span>{maintenanceWindows.length} {t("common.total")}</span>
+          </div>
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const payload = { ...maintenanceForm };
+              if (editingMaintenanceId) updateMaintenanceMutation.mutate(payload);
+              else createMaintenanceMutation.mutate(payload);
+            }}
+          >
+            <label>{t("common.name")}<input value={maintenanceForm.name} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, name: event.target.value })} required /></label>
+            <label>{t("agents.scope")}<select value={maintenanceForm.scopeType} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, scopeType: event.target.value })}><option value="all">{t("agents.allFleet")}</option><option value="agent">{t("agents.agent")}</option><option value="host">{t("agents.host")}</option></select></label>
+            {maintenanceForm.scopeType === "agent" ? <label>{t("agents.agent")}<select value={maintenanceForm.agentId} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, agentId: event.target.value })} required><option value="">{t("agents.agent")}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label> : null}
+            {maintenanceForm.scopeType === "host" ? <label>{t("agents.host")}<select value={maintenanceForm.hostId} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, hostId: event.target.value })} required><option value="">{t("agents.host")}</option>{hosts.map((host) => <option key={host.id} value={host.id}>{host.name}</option>)}</select></label> : null}
+            <label>{t("common.reason")}<input value={maintenanceForm.reason} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, reason: event.target.value })} /></label>
+            <label>{t("agents.startsAt")}<input value={maintenanceForm.startsAt} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, startsAt: event.target.value })} placeholder="2026-05-08 10:00:00" required /></label>
+            <label>{t("agents.endsAt")}<input value={maintenanceForm.endsAt} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, endsAt: event.target.value })} placeholder="2026-05-08 12:00:00" required /></label>
+            <label>{t("common.status")}<select value={maintenanceForm.status} onChange={(event) => setMaintenanceForm({ ...maintenanceForm, status: event.target.value })}><option value="active">{t("common.status.active")}</option><option value="disabled">{t("common.status.disabled")}</option><option value="archived">{t("common.status.archived")}</option></select></label>
+            <button type="submit" disabled={createMaintenanceMutation.isPending || updateMaintenanceMutation.isPending}>{editingMaintenanceId ? t("common.save") : t("common.create")}</button>
+            {editingMaintenanceId ? <button type="button" onClick={resetMaintenanceForm}>{t("common.cancel")}</button> : null}
+          </form>
+          <div className="data-table">
+            <table>
+              <thead><tr><th>{t("common.name")}</th><th>{t("agents.scope")}</th><th>{t("agents.window")}</th><th>{t("common.status")}</th><th>{t("common.action")}</th></tr></thead>
+              <tbody>
+                {maintenanceWindows.map((item) => (
+                  <tr key={item.id}>
+                    <td><strong>{item.name}</strong><small>{item.reason || item.id}</small></td>
+                    <td><strong>{item.scopeType}</strong><small>{item.agentName || item.hostName || "-"}</small></td>
+                    <td><strong>{item.startsAt}</strong><small>{item.endsAt}</small></td>
+                    <td><StatusChip status={item.status} /></td>
+                    <td><button type="button" onClick={() => startEditingMaintenance(item)}>{t("common.edit")}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!maintenanceQuery.isLoading && maintenanceWindows.length === 0 ? <p className="empty-state">{t("agents.emptyMaintenance")}</p> : null}
+          {maintenanceQuery.isError ? <p className="form-error">{String(maintenanceQuery.error.message)}</p> : null}
+          {createMaintenanceMutation.isError ? <p className="form-error">{String(createMaintenanceMutation.error.message)}</p> : null}
+          {updateMaintenanceMutation.isError ? <p className="form-error">{String(updateMaintenanceMutation.error.message)}</p> : null}
+        </section>
       </section>
 
       <section className="agent-grid">

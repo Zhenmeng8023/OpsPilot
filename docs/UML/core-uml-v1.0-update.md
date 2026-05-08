@@ -42,7 +42,7 @@ flowchart LR
   Web -->|"HTTP JSON + JWT"| API["Go API / Gin"]
   Web -->|"SSE Logs"| API
 
-  Agent["OpsPilot Agent"] -->|"register / heartbeat / claim / report"| API
+  Agent["OpsPilot Agent"] -->|"register / heartbeat / diagnostics / claim / report"| API
   External["External Systems"] -->|"Webhook + HMAC"| API
 
   API --> Auth["Auth / RBAC"]
@@ -51,6 +51,7 @@ flowchart LR
   API --> Flow["Workflow Engine"]
   API --> Secret["Secret Crypto / Rotation"]
   API --> Audit["Audit"]
+  API --> Fleet["Agent Diagnostics / Maintenance Windows"]
 
   Flow --> Ops
   Flow --> Monitor
@@ -68,6 +69,7 @@ flowchart LR
 - 相比原始 DOCX 图，新增 `Workflow Engine` 和 `Incidents`。
 - `Workflow` 与 `Tasks`、`Notifications`、`Webhooks`、`Incidents` 已形成业务关联，而不再只是单一任务执行平台。
 - Secret 加密与 rotation 已成为 Webhook source、Notification channel 等模块的共享治理能力。
+- Agent 管理新增 diagnostics 快照、version inventory 和 maintenance window，形成 Fleet 运维基础面。
 
 ## 5. 更新图二：V1.0 自动化触发与编排链路
 
@@ -173,6 +175,9 @@ erDiagram
   ALERT_RULES ||--o{ ALERT_ROUTING_POLICIES : scopes
   HOST_METRICS ||--o{ HOST_METRIC_ROLLUPS : aggregates
   WORKSPACES ||--o{ METRIC_DASHBOARDS : owns
+  AGENTS ||--o{ AGENT_DIAGNOSTICS : reports
+  AGENTS ||--o{ MAINTENANCE_WINDOWS : scoped_by
+  HOSTS ||--o{ MAINTENANCE_WINDOWS : scoped_by
 
   WORKFLOW_DEFINITIONS {
     bigint id
@@ -293,6 +298,30 @@ erDiagram
     varchar granularity
     varchar status
   }
+
+  AGENT_DIAGNOSTICS {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    bigint agent_id
+    bigint host_id
+    varchar version
+    varchar os_name
+    int running_tasks
+    datetime reported_at
+  }
+
+  MAINTENANCE_WINDOWS {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    varchar scope_type
+    bigint agent_id
+    bigint host_id
+    datetime starts_at
+    datetime ends_at
+    varchar status
+  }
 ```
 
 更新点：
@@ -303,6 +332,7 @@ erDiagram
 - `incidents / incident_alerts / incident_events` 来自 `000005_v10_incidents.up.sql`。
 - `host_metric_rollups / metric_dashboards` 来自 `000011_v10_metrics_lifecycle.up.sql`。
 - `alert_suppression_rules / alert_routing_policies` 来自 `000012_v10_alert_routing_suppression.up.sql`。
+- `agent_diagnostics / maintenance_windows` 来自 `000013_v10_agent_fleet_operations.up.sql`。
 
 ## 8. 更新图五：V1.0 Secret、Webhook 与 Audit 治理链路
 

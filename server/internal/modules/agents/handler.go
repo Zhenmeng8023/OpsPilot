@@ -40,6 +40,17 @@ type createEnrollmentTokenRequest struct {
 	BindWorkspaceSlug string `json:"bindWorkspaceSlug"`
 }
 
+type maintenanceWindowRequest struct {
+	Name      string `json:"name" binding:"required"`
+	ScopeType string `json:"scopeType"`
+	AgentID   string `json:"agentId"`
+	HostID    string `json:"hostId"`
+	Reason    string `json:"reason"`
+	StartsAt  string `json:"startsAt" binding:"required"`
+	EndsAt    string `json:"endsAt" binding:"required"`
+	Status    string `json:"status"`
+}
+
 type heartbeatRequest struct {
 	Status       string                 `json:"status"`
 	RunningTasks int                    `json:"runningTasks"`
@@ -66,6 +77,10 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected := api.Group("")
 	protected.Use(userAuth)
 	protected.GET("/agents", requirePermission("agent:read"), h.listAgents)
+	protected.GET("/agents/diagnostics", requirePermission("agent:read"), h.listDiagnostics)
+	protected.GET("/maintenance-windows", requirePermission("agent:read"), h.listMaintenanceWindows)
+	protected.POST("/maintenance-windows", requirePermission("agent:write"), h.createMaintenanceWindow)
+	protected.PUT("/maintenance-windows/:id", requirePermission("agent:write"), h.updateMaintenanceWindow)
 	protected.GET("/hosts", requirePermission("host:read"), h.listHosts)
 	protected.POST("/agents/offline-scan", requirePermission("agent:write"), h.markOffline)
 	protected.POST("/agents/:id/disable", requirePermission("agent:write"), h.disableAgent)
@@ -149,6 +164,52 @@ func (h *Handler) listHosts(c *gin.Context) {
 	response.Success(c, hosts)
 }
 
+func (h *Handler) listDiagnostics(c *gin.Context) {
+	items, appErr := h.service.ListDiagnostics(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) listMaintenanceWindows(c *gin.Context) {
+	items, appErr := h.service.ListMaintenanceWindows(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) createMaintenanceWindow(c *gin.Context) {
+	var req maintenanceWindowRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.CreateMaintenanceWindow(c.Request.Context(), maintenanceWindowInput(req, auditContext(c)))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) updateMaintenanceWindow(c *gin.Context) {
+	var req maintenanceWindowRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.UpdateMaintenanceWindow(c.Request.Context(), c.Param("id"), maintenanceWindowInput(req, auditContext(c)))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
 func (h *Handler) revokeAgentToken(c *gin.Context) {
 	actorID := ""
 	if claims, ok := auth.ClaimsFromContext(c); ok {
@@ -159,6 +220,35 @@ func (h *Handler) revokeAgentToken(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"ok": true})
+}
+
+func auditContext(c *gin.Context) AuditContext {
+	actorID := ""
+	if claims, ok := auth.ClaimsFromContext(c); ok {
+		actorID = claims.UserID
+	}
+	return AuditContext{
+		ActorUID:      actorID,
+		IP:            c.ClientIP(),
+		UserAgent:     c.Request.UserAgent(),
+		TraceID:       traceID(c),
+		RequestMethod: c.Request.Method,
+		RequestPath:   c.Request.URL.Path,
+	}
+}
+
+func maintenanceWindowInput(req maintenanceWindowRequest, audit AuditContext) MaintenanceWindowInput {
+	return MaintenanceWindowInput{
+		Name:      req.Name,
+		ScopeType: req.ScopeType,
+		AgentID:   req.AgentID,
+		HostID:    req.HostID,
+		Reason:    req.Reason,
+		StartsAt:  req.StartsAt,
+		EndsAt:    req.EndsAt,
+		Status:    req.Status,
+		Audit:     audit,
+	}
 }
 
 func (h *Handler) listEnrollmentTokens(c *gin.Context) {

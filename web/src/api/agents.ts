@@ -1,9 +1,11 @@
 import { request } from "./request";
 import type {
   Agent,
+  AgentDiagnostic,
   EnrollmentTokenDetail,
   EnrollmentTokenSummary,
   Host,
+  MaintenanceWindow,
   OfflineScanResult,
   PageResult
 } from "./types";
@@ -36,6 +38,46 @@ export function listAgents(params: ListQuery = {}) {
 
 export function listHosts(params: ListQuery = {}) {
   return request<PageResult<Host>>(`/api/v1/hosts${toSearch(params)}`);
+}
+
+export function listAgentDiagnostics() {
+  return request<AgentDiagnostic[]>("/api/v1/agents/diagnostics");
+}
+
+export function listMaintenanceWindows() {
+  return request<MaintenanceWindow[]>("/api/v1/maintenance-windows");
+}
+
+export function createMaintenanceWindow(payload: {
+  name: string;
+  scopeType?: string;
+  agentId?: string;
+  hostId?: string;
+  reason?: string;
+  startsAt: string;
+  endsAt: string;
+  status?: string;
+}) {
+  return request<MaintenanceWindow>("/api/v1/maintenance-windows", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateMaintenanceWindow(id: string, payload: {
+  name: string;
+  scopeType?: string;
+  agentId?: string;
+  hostId?: string;
+  reason?: string;
+  startsAt: string;
+  endsAt: string;
+  status?: string;
+}) {
+  return request<MaintenanceWindow>(`/api/v1/maintenance-windows/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function markOffline() {
