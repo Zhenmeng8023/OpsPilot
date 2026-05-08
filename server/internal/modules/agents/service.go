@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,6 +60,31 @@ type MaintenanceWindowInput struct {
 	EndsAt    string `json:"endsAt"`
 	Status    string `json:"status"`
 	Audit     AuditContext
+}
+
+type TagInput struct {
+	Name  string `json:"name"`
+	Color string `json:"color"`
+	Audit AuditContext
+}
+
+type ResourceTagsInput struct {
+	ResourceType string
+	ResourceID   string
+	TagIDs       []string `json:"tagIds"`
+	Audit        AuditContext
+}
+
+type HostGroupInput struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	HostIDs     []string `json:"hostIds"`
+	Audit       AuditContext
+}
+
+type HostGroupMembersInput struct {
+	HostIDs []string `json:"hostIds"`
+	Audit   AuditContext
 }
 
 type AgentIdentity struct {
@@ -137,20 +163,22 @@ type AgentSummary struct {
 	DisabledAt      string       `json:"disabledAt,omitempty"`
 	CreatedAt       string       `json:"createdAt"`
 	Host            *HostSummary `json:"host,omitempty"`
+	Tags            []TagSummary `json:"tags,omitempty"`
 }
 
 type HostSummary struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Hostname         string `json:"hostname,omitempty"`
-	IP               string `json:"ip,omitempty"`
-	OS               string `json:"os,omitempty"`
-	Arch             string `json:"arch,omitempty"`
-	Status           string `json:"status"`
-	AgentCount       int    `json:"agentCount,omitempty"`
-	OnlineAgentCount int    `json:"onlineAgentCount,omitempty"`
-	LastHeartbeatAt  string `json:"lastHeartbeatAt,omitempty"`
-	CreatedAt        string `json:"createdAt"`
+	ID               string       `json:"id"`
+	Name             string       `json:"name"`
+	Hostname         string       `json:"hostname,omitempty"`
+	IP               string       `json:"ip,omitempty"`
+	OS               string       `json:"os,omitempty"`
+	Arch             string       `json:"arch,omitempty"`
+	Status           string       `json:"status"`
+	AgentCount       int          `json:"agentCount,omitempty"`
+	OnlineAgentCount int          `json:"onlineAgentCount,omitempty"`
+	LastHeartbeatAt  string       `json:"lastHeartbeatAt,omitempty"`
+	CreatedAt        string       `json:"createdAt"`
+	Tags             []TagSummary `json:"tags,omitempty"`
 }
 
 type RegistrationResult struct {
@@ -202,6 +230,25 @@ type MaintenanceWindowSummary struct {
 	CreatedBy string `json:"createdBy,omitempty"`
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
+}
+
+type TagSummary struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Color      string `json:"color,omitempty"`
+	UsageCount int    `json:"usageCount,omitempty"`
+	CreatedAt  string `json:"createdAt,omitempty"`
+}
+
+type HostGroupSummary struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	HostCount   int           `json:"hostCount"`
+	Hosts       []HostSummary `json:"hosts,omitempty"`
+	CreatedBy   string        `json:"createdBy,omitempty"`
+	CreatedAt   string        `json:"createdAt"`
+	UpdatedAt   string        `json:"updatedAt"`
 }
 
 type workspaceRecord struct {
@@ -257,6 +304,25 @@ type maintenanceWindowRecord struct {
 	CreatedBy sql.NullString
 	CreatedAt string
 	UpdatedAt string
+}
+
+type tagRecord struct {
+	ID         uint64
+	Name       string
+	Color      sql.NullString
+	UsageCount int
+	CreatedAt  sql.NullString
+}
+
+type hostGroupRecord struct {
+	ID          uint64
+	UID         string
+	Name        string
+	Description sql.NullString
+	HostCount   int
+	CreatedBy   sql.NullString
+	CreatedAt   string
+	UpdatedAt   string
 }
 
 func NewService(db *gorm.DB, cfg config.Config) *Service {
@@ -558,6 +624,15 @@ func (s *Service) ListAgents(ctx context.Context, input ListInput) (AgentListRes
 		return AgentListResult{}, apperror.Wrap(http.StatusInternalServerError, 500105, "list agents failed", err)
 	}
 
+	agentUIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		agentUIDs = append(agentUIDs, row.AgentUID)
+	}
+	tagsByAgent, err := s.tagsByResourceUIDs(ctx, s.db, workspace.ID, "agent", agentUIDs)
+	if err != nil {
+		return AgentListResult{}, apperror.Wrap(http.StatusInternalServerError, 500117, "list agent tags failed", err)
+	}
+
 	agents := make([]AgentSummary, 0, len(rows))
 	for _, row := range rows {
 		agent := AgentSummary{
@@ -572,6 +647,7 @@ func (s *Service) ListAgents(ctx context.Context, input ListInput) (AgentListRes
 			LastHeartbeatAt: row.LastHeartbeatAt.String,
 			DisabledAt:      row.DisabledAt.String,
 			CreatedAt:       row.AgentCreatedAt,
+			Tags:            tagsByAgent[row.AgentUID],
 		}
 		if row.HostUID.Valid {
 			agent.Host = &HostSummary{
@@ -644,6 +720,15 @@ func (s *Service) ListHosts(ctx context.Context, input ListInput) (HostListResul
 		return HostListResult{}, apperror.Wrap(http.StatusInternalServerError, 500106, "list hosts failed", err)
 	}
 
+	hostUIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		hostUIDs = append(hostUIDs, row.UID)
+	}
+	tagsByHost, err := s.tagsByResourceUIDs(ctx, s.db, workspace.ID, "host", hostUIDs)
+	if err != nil {
+		return HostListResult{}, apperror.Wrap(http.StatusInternalServerError, 500118, "list host tags failed", err)
+	}
+
 	hosts := make([]HostSummary, 0, len(rows))
 	for _, row := range rows {
 		hosts = append(hosts, HostSummary{
@@ -658,6 +743,7 @@ func (s *Service) ListHosts(ctx context.Context, input ListInput) (HostListResul
 			OnlineAgentCount: row.OnlineAgentCount,
 			LastHeartbeatAt:  row.LastHeartbeatAt.String,
 			CreatedAt:        row.CreatedAt,
+			Tags:             tagsByHost[row.UID],
 		})
 	}
 	return HostListResult{Items: hosts, Total: total, Page: input.Page, PageSize: input.PageSize}, nil
@@ -750,6 +836,189 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, windowUID string,
 		return MaintenanceWindowSummary{}, apperror.New(http.StatusBadRequest, 400114, "maintenance window id is required")
 	}
 	return s.upsertMaintenanceWindow(ctx, windowUID, input)
+}
+
+func (s *Service) ListTags(ctx context.Context) ([]TagSummary, *apperror.Error) {
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	rows, err := s.tags(ctx, s.db, workspace.ID, 0)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500119, "list tags failed", err)
+	}
+	out := make([]TagSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, tagSummary(row))
+	}
+	return out, nil
+}
+
+func (s *Service) CreateTag(ctx context.Context, input TagInput) (TagSummary, *apperror.Error) {
+	return s.upsertTag(ctx, "", input)
+}
+
+func (s *Service) UpdateTag(ctx context.Context, tagID string, input TagInput) (TagSummary, *apperror.Error) {
+	if strings.TrimSpace(tagID) == "" {
+		return TagSummary{}, apperror.New(http.StatusBadRequest, 400117, "tag id is required")
+	}
+	return s.upsertTag(ctx, tagID, input)
+}
+
+func (s *Service) SetResourceTags(ctx context.Context, input ResourceTagsInput) ([]TagSummary, *apperror.Error) {
+	resourceType := normalizeResourceType(input.ResourceType)
+	if resourceType == "" {
+		return nil, apperror.New(http.StatusBadRequest, 400118, "resource type must be agent or host")
+	}
+	resourceUID := strings.TrimSpace(input.ResourceID)
+	if resourceUID == "" {
+		return nil, apperror.New(http.StatusBadRequest, 400119, "resource id is required")
+	}
+	tagIDs, appErr := parseTagIDs(input.TagIDs)
+	if appErr != nil {
+		return nil, appErr
+	}
+	var saved []TagSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := s.defaultWorkspace(ctx, tx)
+		if err != nil {
+			return err
+		}
+		actorID, err := s.userIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		resourceID, err := s.resourceIDByUID(ctx, tx, workspace.ID, resourceType, resourceUID)
+		if err != nil {
+			return err
+		}
+		if err := s.ensureTagsBelongToWorkspace(ctx, tx, workspace.ID, tagIDs); err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			"DELETE FROM resource_tags WHERE workspace_id = ? AND resource_type = ? AND resource_id = ?",
+			workspace.ID, resourceType, resourceID,
+		).Error; err != nil {
+			return err
+		}
+		for _, tagID := range tagIDs {
+			if err := tx.WithContext(ctx).Exec(
+				"INSERT INTO resource_tags(workspace_id, tag_id, resource_type, resource_id) VALUES (?, ?, ?, ?)",
+				workspace.ID, tagID, resourceType, resourceID,
+			).Error; err != nil {
+				return err
+			}
+		}
+		tags, err := s.tagsForResource(ctx, tx, workspace.ID, resourceType, resourceID)
+		if err != nil {
+			return err
+		}
+		saved = tags
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "agent.tags.assign",
+			ResourceType:  resourceType,
+			ResourceID:    sql.NullInt64{Int64: int64(resourceID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         saved,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return nil, appErr
+		}
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500120, "set resource tags failed", txErr)
+	}
+	return saved, nil
+}
+
+func (s *Service) ListHostGroups(ctx context.Context) ([]HostGroupSummary, *apperror.Error) {
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	groups, err := s.hostGroups(ctx, s.db, workspace.ID, "")
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500121, "list host groups failed", err)
+	}
+	hostsByGroup, err := s.hostGroupHosts(ctx, s.db, workspace.ID, groupIDs(groups))
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500122, "list host group members failed", err)
+	}
+	out := make([]HostGroupSummary, 0, len(groups))
+	for _, row := range groups {
+		summary := hostGroupSummary(row)
+		summary.Hosts = hostsByGroup[row.ID]
+		out = append(out, summary)
+	}
+	return out, nil
+}
+
+func (s *Service) CreateHostGroup(ctx context.Context, input HostGroupInput) (HostGroupSummary, *apperror.Error) {
+	return s.upsertHostGroup(ctx, "", input)
+}
+
+func (s *Service) UpdateHostGroup(ctx context.Context, groupUID string, input HostGroupInput) (HostGroupSummary, *apperror.Error) {
+	if strings.TrimSpace(groupUID) == "" {
+		return HostGroupSummary{}, apperror.New(http.StatusBadRequest, 400120, "host group id is required")
+	}
+	return s.upsertHostGroup(ctx, groupUID, input)
+}
+
+func (s *Service) SetHostGroupMembers(ctx context.Context, groupUID string, input HostGroupMembersInput) (HostGroupSummary, *apperror.Error) {
+	if strings.TrimSpace(groupUID) == "" {
+		return HostGroupSummary{}, apperror.New(http.StatusBadRequest, 400120, "host group id is required")
+	}
+	var saved HostGroupSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := s.defaultWorkspace(ctx, tx)
+		if err != nil {
+			return err
+		}
+		actorID, err := s.userIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		group, err := s.hostGroupByUID(ctx, tx, workspace.ID, strings.TrimSpace(groupUID))
+		if err != nil {
+			return err
+		}
+		if err := s.replaceHostGroupMembers(ctx, tx, workspace.ID, group.ID, input.HostIDs); err != nil {
+			return err
+		}
+		summary, err := s.hostGroupWithMembers(ctx, tx, workspace.ID, group.UID)
+		if err != nil {
+			return err
+		}
+		saved = summary
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "agent.host_group.members.save",
+			ResourceType:  "host_group",
+			ResourceID:    sql.NullInt64{Int64: int64(group.ID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         saved,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return HostGroupSummary{}, appErr
+		}
+		return HostGroupSummary{}, apperror.Wrap(http.StatusInternalServerError, 500123, "set host group members failed", txErr)
+	}
+	return saved, nil
 }
 
 func (s *Service) DisableAgent(ctx context.Context, agentUID, actorUID string) *apperror.Error {
@@ -1326,6 +1595,433 @@ func (s *Service) maintenanceWindows(ctx context.Context, db *gorm.DB, workspace
 	return rows, err
 }
 
+func (s *Service) upsertTag(ctx context.Context, tagID string, input TagInput) (TagSummary, *apperror.Error) {
+	name := limit(strings.TrimSpace(input.Name), 64)
+	if name == "" {
+		return TagSummary{}, apperror.New(http.StatusBadRequest, 400121, "tag name is required")
+	}
+	color := limit(strings.TrimSpace(input.Color), 32)
+	var parsedID uint64
+	if strings.TrimSpace(tagID) != "" {
+		id, err := strconv.ParseUint(strings.TrimSpace(tagID), 10, 64)
+		if err != nil || id == 0 {
+			return TagSummary{}, apperror.New(http.StatusBadRequest, 400117, "tag id is invalid")
+		}
+		parsedID = id
+	}
+	var saved TagSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := s.defaultWorkspace(ctx, tx)
+		if err != nil {
+			return err
+		}
+		actorID, err := s.userIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		if parsedID == 0 {
+			if err := tx.WithContext(ctx).Exec(
+				"INSERT INTO tags(workspace_id, name, color) VALUES (?, ?, ?)",
+				workspace.ID, name, nullString(color),
+			).Error; err != nil {
+				return err
+			}
+			var id uint64
+			if err := tx.WithContext(ctx).Raw(
+				"SELECT id FROM tags WHERE workspace_id = ? AND name = ? LIMIT 1",
+				workspace.ID, name,
+			).Scan(&id).Error; err != nil {
+				return err
+			}
+			parsedID = id
+		} else {
+			exec := tx.WithContext(ctx).Exec(
+				"UPDATE tags SET name = ?, color = ?, updated_at = NOW(3) WHERE workspace_id = ? AND id = ?",
+				name, nullString(color), workspace.ID, parsedID,
+			)
+			if exec.Error != nil {
+				return exec.Error
+			}
+			if exec.RowsAffected == 0 {
+				return apperror.New(http.StatusNotFound, 404115, "tag not found")
+			}
+		}
+		rows, err := s.tags(ctx, tx, workspace.ID, parsedID)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return apperror.New(http.StatusNotFound, 404115, "tag not found")
+		}
+		saved = tagSummary(rows[0])
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "agent.tag.save",
+			ResourceType:  "tag",
+			ResourceID:    sql.NullInt64{Int64: int64(parsedID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         saved,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return TagSummary{}, appErr
+		}
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return TagSummary{}, apperror.New(http.StatusConflict, 409115, "tag already exists")
+		}
+		return TagSummary{}, apperror.Wrap(http.StatusInternalServerError, 500124, "save tag failed", txErr)
+	}
+	return saved, nil
+}
+
+func (s *Service) tags(ctx context.Context, db *gorm.DB, workspaceID uint64, tagID uint64) ([]tagRecord, error) {
+	args := []interface{}{workspaceID}
+	where := "WHERE t.workspace_id = ?"
+	if tagID != 0 {
+		where += " AND t.id = ?"
+		args = append(args, tagID)
+	}
+	var rows []tagRecord
+	err := db.WithContext(ctx).Raw(
+		`SELECT t.id, t.name, t.color, COUNT(rt.id) AS usage_count,
+		        DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM tags t
+		   LEFT JOIN resource_tags rt ON rt.tag_id = t.id
+		  `+where+`
+		  GROUP BY t.id, t.name, t.color, t.created_at
+		  ORDER BY t.name ASC`,
+		args...,
+	).Scan(&rows).Error
+	return rows, err
+}
+
+func (s *Service) tagsForResource(ctx context.Context, db *gorm.DB, workspaceID uint64, resourceType string, resourceID uint64) ([]TagSummary, error) {
+	var rows []tagRecord
+	if err := db.WithContext(ctx).Raw(
+		`SELECT t.id, t.name, t.color, DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM resource_tags rt
+		   JOIN tags t ON t.id = rt.tag_id
+		  WHERE rt.workspace_id = ? AND rt.resource_type = ? AND rt.resource_id = ?
+		  ORDER BY t.name ASC`,
+		workspaceID, resourceType, resourceID,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]TagSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, tagSummary(row))
+	}
+	return out, nil
+}
+
+func (s *Service) tagsByResourceUIDs(ctx context.Context, db *gorm.DB, workspaceID uint64, resourceType string, resourceUIDs []string) (map[string][]TagSummary, error) {
+	out := make(map[string][]TagSummary, len(resourceUIDs))
+	if len(resourceUIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ResourceUID string
+		ID          uint64
+		Name        string
+		Color       sql.NullString
+	}
+	tableName := "agents"
+	if resourceType == "host" {
+		tableName = "hosts"
+	}
+	if err := db.WithContext(ctx).Raw(
+		`SELECT r.uid AS resource_uid, t.id, t.name, t.color
+		   FROM resource_tags rt
+		   JOIN tags t ON t.id = rt.tag_id
+		   JOIN `+tableName+` r ON r.id = rt.resource_id
+		  WHERE rt.workspace_id = ? AND rt.resource_type = ? AND r.uid IN ?
+		  ORDER BY t.name ASC`,
+		workspaceID, resourceType, resourceUIDs,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ResourceUID] = append(out[row.ResourceUID], TagSummary{
+			ID:    strconv.FormatUint(row.ID, 10),
+			Name:  row.Name,
+			Color: row.Color.String,
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) ensureTagsBelongToWorkspace(ctx context.Context, db *gorm.DB, workspaceID uint64, tagIDs []uint64) error {
+	if len(tagIDs) == 0 {
+		return nil
+	}
+	var count int64
+	if err := db.WithContext(ctx).Raw(
+		"SELECT COUNT(*) FROM tags WHERE workspace_id = ? AND id IN ?",
+		workspaceID, tagIDs,
+	).Scan(&count).Error; err != nil {
+		return err
+	}
+	if count != int64(len(tagIDs)) {
+		return apperror.New(http.StatusNotFound, 404115, "tag not found")
+	}
+	return nil
+}
+
+func (s *Service) resourceIDByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, resourceType, resourceUID string) (uint64, error) {
+	var id uint64
+	if resourceType == "agent" {
+		if err := db.WithContext(ctx).Raw(
+			"SELECT id FROM agents WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL LIMIT 1",
+			workspaceID, resourceUID,
+		).Scan(&id).Error; err != nil {
+			return 0, err
+		}
+		if id == 0 {
+			return 0, apperror.New(http.StatusNotFound, 404101, "agent not found")
+		}
+		return id, nil
+	}
+	if err := db.WithContext(ctx).Raw(
+		"SELECT id FROM hosts WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL LIMIT 1",
+		workspaceID, resourceUID,
+	).Scan(&id).Error; err != nil {
+		return 0, err
+	}
+	if id == 0 {
+		return 0, apperror.New(http.StatusNotFound, 404102, "host not found")
+	}
+	return id, nil
+}
+
+func (s *Service) upsertHostGroup(ctx context.Context, groupUID string, input HostGroupInput) (HostGroupSummary, *apperror.Error) {
+	name := limit(strings.TrimSpace(input.Name), 128)
+	if name == "" {
+		return HostGroupSummary{}, apperror.New(http.StatusBadRequest, 400122, "host group name is required")
+	}
+	description := limit(strings.TrimSpace(input.Description), 512)
+	var saved HostGroupSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := s.defaultWorkspace(ctx, tx)
+		if err != nil {
+			return err
+		}
+		actorID, err := s.userIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(groupUID) == "" {
+			newGroupUID, err := newUID()
+			if err != nil {
+				return err
+			}
+			if err := tx.WithContext(ctx).Exec(
+				"INSERT INTO host_groups(uid, workspace_id, name, description, created_by) VALUES (?, ?, ?, ?, ?)",
+				newGroupUID, workspace.ID, name, nullString(description), actorID,
+			).Error; err != nil {
+				return err
+			}
+			groupUID = newGroupUID
+		} else {
+			exec := tx.WithContext(ctx).Exec(
+				"UPDATE host_groups SET name = ?, description = ?, updated_at = NOW(3) WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL",
+				name, nullString(description), workspace.ID, strings.TrimSpace(groupUID),
+			)
+			if exec.Error != nil {
+				return exec.Error
+			}
+			if exec.RowsAffected == 0 {
+				return apperror.New(http.StatusNotFound, 404116, "host group not found")
+			}
+		}
+		group, err := s.hostGroupByUID(ctx, tx, workspace.ID, strings.TrimSpace(groupUID))
+		if err != nil {
+			return err
+		}
+		if input.HostIDs != nil {
+			if err := s.replaceHostGroupMembers(ctx, tx, workspace.ID, group.ID, input.HostIDs); err != nil {
+				return err
+			}
+		}
+		summary, err := s.hostGroupWithMembers(ctx, tx, workspace.ID, group.UID)
+		if err != nil {
+			return err
+		}
+		saved = summary
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "agent.host_group.save",
+			ResourceType:  "host_group",
+			ResourceID:    sql.NullInt64{Int64: int64(group.ID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         saved,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return HostGroupSummary{}, appErr
+		}
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return HostGroupSummary{}, apperror.New(http.StatusConflict, 409116, "host group already exists")
+		}
+		return HostGroupSummary{}, apperror.Wrap(http.StatusInternalServerError, 500125, "save host group failed", txErr)
+	}
+	return saved, nil
+}
+
+func (s *Service) hostGroups(ctx context.Context, db *gorm.DB, workspaceID uint64, groupUID string) ([]hostGroupRecord, error) {
+	args := []interface{}{workspaceID}
+	where := "WHERE hg.workspace_id = ? AND hg.deleted_at IS NULL"
+	if groupUID != "" {
+		where += " AND hg.uid = ?"
+		args = append(args, groupUID)
+	}
+	var rows []hostGroupRecord
+	err := db.WithContext(ctx).Raw(
+		`SELECT hg.id, hg.uid, hg.name, hg.description, COUNT(hgm.host_id) AS host_count,
+		        u.username AS created_by,
+		        DATE_FORMAT(hg.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+		        DATE_FORMAT(hg.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		   FROM host_groups hg
+		   LEFT JOIN host_group_members hgm ON hgm.host_group_id = hg.id
+		   LEFT JOIN users u ON u.id = hg.created_by
+		  `+where+`
+		  GROUP BY hg.id, hg.uid, hg.name, hg.description, u.username, hg.created_at, hg.updated_at
+		  ORDER BY hg.name ASC`,
+		args...,
+	).Scan(&rows).Error
+	return rows, err
+}
+
+func (s *Service) hostGroupByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, groupUID string) (hostGroupRecord, error) {
+	groups, err := s.hostGroups(ctx, db, workspaceID, groupUID)
+	if err != nil {
+		return hostGroupRecord{}, err
+	}
+	if len(groups) == 0 {
+		return hostGroupRecord{}, apperror.New(http.StatusNotFound, 404116, "host group not found")
+	}
+	return groups[0], nil
+}
+
+func (s *Service) hostGroupWithMembers(ctx context.Context, db *gorm.DB, workspaceID uint64, groupUID string) (HostGroupSummary, error) {
+	group, err := s.hostGroupByUID(ctx, db, workspaceID, groupUID)
+	if err != nil {
+		return HostGroupSummary{}, err
+	}
+	hostsByGroup, err := s.hostGroupHosts(ctx, db, workspaceID, []uint64{group.ID})
+	if err != nil {
+		return HostGroupSummary{}, err
+	}
+	summary := hostGroupSummary(group)
+	summary.Hosts = hostsByGroup[group.ID]
+	return summary, nil
+}
+
+func (s *Service) hostGroupHosts(ctx context.Context, db *gorm.DB, workspaceID uint64, groupIDs []uint64) (map[uint64][]HostSummary, error) {
+	out := make(map[uint64][]HostSummary, len(groupIDs))
+	if len(groupIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		GroupID         uint64
+		UID             string
+		Name            string
+		Hostname        sql.NullString
+		IP              sql.NullString
+		OS              sql.NullString
+		Arch            sql.NullString
+		Status          string
+		LastHeartbeatAt sql.NullString
+		CreatedAt       string
+	}
+	if err := db.WithContext(ctx).Raw(
+		`SELECT hgm.host_group_id AS group_id, h.uid, h.name, h.hostname, h.primary_ip AS ip,
+		        COALESCE(h.os_name, h.os_type) AS os, h.arch, h.status,
+		        DATE_FORMAT(MAX(a.last_heartbeat_at), '%Y-%m-%d %H:%i:%s') AS last_heartbeat_at,
+		        DATE_FORMAT(h.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM host_group_members hgm
+		   JOIN hosts h ON h.id = hgm.host_id
+		   LEFT JOIN agents a ON a.host_id = h.id AND a.deleted_at IS NULL
+		  WHERE h.workspace_id = ? AND h.deleted_at IS NULL AND hgm.host_group_id IN ?
+		  GROUP BY hgm.host_group_id, h.id, h.uid, h.name, h.hostname, h.primary_ip, h.os_name, h.os_type, h.arch, h.status, h.created_at
+		  ORDER BY h.name ASC`,
+		workspaceID, groupIDs,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.GroupID] = append(out[row.GroupID], HostSummary{
+			ID:              row.UID,
+			Name:            row.Name,
+			Hostname:        row.Hostname.String,
+			IP:              row.IP.String,
+			OS:              row.OS.String,
+			Arch:            row.Arch.String,
+			Status:          row.Status,
+			LastHeartbeatAt: row.LastHeartbeatAt.String,
+			CreatedAt:       row.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) replaceHostGroupMembers(ctx context.Context, db *gorm.DB, workspaceID, groupID uint64, hostUIDs []string) error {
+	hostIDs, err := s.hostIDsByUIDs(ctx, db, workspaceID, hostUIDs)
+	if err != nil {
+		return err
+	}
+	if err := db.WithContext(ctx).Exec("DELETE FROM host_group_members WHERE host_group_id = ?", groupID).Error; err != nil {
+		return err
+	}
+	for _, hostID := range hostIDs {
+		if err := db.WithContext(ctx).Exec(
+			"INSERT INTO host_group_members(host_group_id, host_id) VALUES (?, ?)",
+			groupID, hostID,
+		).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) hostIDsByUIDs(ctx context.Context, db *gorm.DB, workspaceID uint64, hostUIDs []string) ([]uint64, error) {
+	uniqueUIDs := uniqueStrings(hostUIDs)
+	if len(uniqueUIDs) == 0 {
+		return nil, nil
+	}
+	var rows []struct {
+		ID  uint64
+		UID string
+	}
+	if err := db.WithContext(ctx).Raw(
+		"SELECT id, uid FROM hosts WHERE workspace_id = ? AND uid IN ? AND deleted_at IS NULL",
+		workspaceID, uniqueUIDs,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) != len(uniqueUIDs) {
+		return nil, apperror.New(http.StatusNotFound, 404102, "host not found")
+	}
+	out := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.ID)
+	}
+	return out, nil
+}
+
 func (s *Service) agentByName(ctx context.Context, db *gorm.DB, workspaceID uint64, name string) (agentRecord, error) {
 	var agent agentRecord
 	err := db.WithContext(ctx).Raw(
@@ -1528,6 +2224,61 @@ func normalizePolicyStatus(value string) string {
 	}
 }
 
+func normalizeResourceType(value string) string {
+	switch strings.TrimSpace(value) {
+	case "agent", "host":
+		return strings.TrimSpace(value)
+	default:
+		return ""
+	}
+}
+
+func parseTagIDs(values []string) ([]uint64, *apperror.Error) {
+	seen := map[uint64]struct{}{}
+	out := make([]uint64, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		id, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || id == 0 {
+			return nil, apperror.New(http.StatusBadRequest, 400123, "tag id is invalid")
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func groupIDs(groups []hostGroupRecord) []uint64 {
+	out := make([]uint64, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, group.ID)
+	}
+	return out
+}
+
 func parseOptionalTime(value string) sql.NullTime {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1585,6 +2336,28 @@ func maintenanceWindowSummary(row maintenanceWindowRecord) MaintenanceWindowSumm
 		CreatedBy: row.CreatedBy.String,
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
+	}
+}
+
+func tagSummary(row tagRecord) TagSummary {
+	return TagSummary{
+		ID:         strconv.FormatUint(row.ID, 10),
+		Name:       row.Name,
+		Color:      row.Color.String,
+		UsageCount: row.UsageCount,
+		CreatedAt:  row.CreatedAt.String,
+	}
+}
+
+func hostGroupSummary(row hostGroupRecord) HostGroupSummary {
+	return HostGroupSummary{
+		ID:          row.UID,
+		Name:        row.Name,
+		Description: row.Description.String,
+		HostCount:   row.HostCount,
+		CreatedBy:   row.CreatedBy.String,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
 	}
 }
 

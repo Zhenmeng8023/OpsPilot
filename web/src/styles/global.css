@@ -703,6 +703,33 @@ a {
   gap: 1rem;
 }
 
+.tag-list,
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.tag-list {
+  margin: 1rem 0;
+}
+
+.tag-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 12rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  overflow: hidden;
+  color: var(--brand-strong);
+  background: var(--surface);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .status-chip {
   display: inline-flex;
   align-items: center;

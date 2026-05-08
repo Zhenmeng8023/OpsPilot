@@ -86,6 +86,7 @@ export interface Host {
   onlineAgentCount?: number;
   lastHeartbeatAt?: string;
   createdAt: string;
+  tags?: TagSummary[];
 }
 
 export interface Agent {
@@ -101,6 +102,7 @@ export interface Agent {
   disabledAt?: string;
   createdAt: string;
   host?: Host;
+  tags?: TagSummary[];
 }
 
 export interface OfflineScanResult {
@@ -137,6 +139,25 @@ export interface MaintenanceWindow {
   startsAt: string;
   endsAt: string;
   status: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TagSummary {
+  id: string;
+  name: string;
+  color?: string;
+  usageCount?: number;
+  createdAt?: string;
+}
+
+export interface HostGroup {
+  id: string;
+  name: string;
+  description?: string;
+  hostCount: number;
+  hosts?: Host[];
   createdBy?: string;
   createdAt: string;
   updatedAt: string;

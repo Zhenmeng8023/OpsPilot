@@ -51,7 +51,7 @@ flowchart LR
   API --> Flow["Workflow Engine"]
   API --> Secret["Secret Crypto / Rotation"]
   API --> Audit["Audit"]
-  API --> Fleet["Agent Diagnostics / Maintenance Windows"]
+  API --> Fleet["Agent Tags / Groups / Diagnostics / Maintenance Windows"]
 
   Flow --> Ops
   Flow --> Monitor
@@ -69,7 +69,7 @@ What changed:
 - `Workflow Engine` and `Incidents` are now first-class modules in the system context.
 - `Workflow` now interacts with tasks, notifications, webhooks, and incidents instead of the platform being only task-centric.
 - Secret encryption and rotation are now shared governance capabilities for webhook sources, notification channels, and similar sensitive configuration.
-- Agent management now includes diagnostic snapshots, version inventory, and maintenance windows as the Fleet operations baseline.
+- Agent management now includes tags/groups, diagnostic snapshots, version inventory, and maintenance windows as the Fleet operations baseline.
 
 ## 5. Updated Diagram 2: V1.0 Trigger and Orchestration Flow
 
@@ -332,6 +332,7 @@ What changed:
 - `incidents / incident_alerts / incident_events` comes from `000005_v10_incidents.up.sql`.
 - `host_metric_rollups / metric_dashboards` come from `000011_v10_metrics_lifecycle.up.sql`.
 - `alert_suppression_rules / alert_routing_policies` come from `000012_v10_alert_routing_suppression.up.sql`.
+- `tags / resource_tags / host_groups / host_group_members` are Fleet organization tables from the initial schema; this round adds API/UI coverage.
 - `agent_diagnostics / maintenance_windows` come from `000013_v10_agent_fleet_operations.up.sql`.
 
 ## 8. Updated Diagram 5: V1.0 Secret, Webhook, and Audit Governance Flow

@@ -2,19 +2,26 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import {
+  createHostGroup,
   createMaintenanceWindow,
   createEnrollmentToken,
+  createTag,
   disableAgent,
   listAgentDiagnostics,
   listAgents,
   listEnrollmentTokens,
+  listHostGroups,
   listHosts,
   listMaintenanceWindows,
+  listTags,
   markOffline,
   revokeEnrollmentToken,
+  setAgentTags,
+  setHostTags,
+  updateHostGroup,
   updateMaintenanceWindow
 } from "../../api/agents";
-import type { Agent, EnrollmentTokenDetail, MaintenanceWindow } from "../../api/types";
+import type { Agent, EnrollmentTokenDetail, HostGroup, MaintenanceWindow, TagSummary } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 
 const statusOrder = ["online", "offline", "disabled", "registered", "upgrading"];
@@ -40,6 +47,18 @@ export function AgentManagementPage() {
     status: "active"
   });
   const [editingMaintenanceId, setEditingMaintenanceId] = useState("");
+  const [tagForm, setTagForm] = useState({ name: "", color: "#2f7d99" });
+  const [tagAssignment, setTagAssignment] = useState({
+    resourceType: "agent",
+    resourceId: "",
+    tagIds: [] as string[]
+  });
+  const [hostGroupForm, setHostGroupForm] = useState({
+    name: "",
+    description: "",
+    hostIds: [] as string[]
+  });
+  const [editingHostGroupId, setEditingHostGroupId] = useState("");
 
   const agentsQuery = useQuery({
     queryKey: ["agents"],
@@ -60,6 +79,14 @@ export function AgentManagementPage() {
   const maintenanceQuery = useQuery({
     queryKey: ["maintenanceWindows"],
     queryFn: listMaintenanceWindows
+  });
+  const tagsQuery = useQuery({
+    queryKey: ["tags"],
+    queryFn: listTags
+  });
+  const hostGroupsQuery = useQuery({
+    queryKey: ["hostGroups"],
+    queryFn: listHostGroups
   });
 
   const disableAgentMutation = useMutation({
@@ -109,12 +136,48 @@ export function AgentManagementPage() {
       void queryClient.invalidateQueries({ queryKey: ["maintenanceWindows"] });
     }
   });
+  const createTagMutation = useMutation({
+    mutationFn: createTag,
+    onSuccess: () => {
+      setTagForm({ name: "", color: "#2f7d99" });
+      void queryClient.invalidateQueries({ queryKey: ["tags"] });
+    }
+  });
+  const setResourceTagsMutation = useMutation({
+    mutationFn: () =>
+      tagAssignment.resourceType === "host"
+        ? setHostTags(tagAssignment.resourceId, tagAssignment.tagIds)
+        : setAgentTags(tagAssignment.resourceId, tagAssignment.tagIds),
+    onSuccess: () => {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["agents"] }),
+        queryClient.invalidateQueries({ queryKey: ["hosts"] }),
+        queryClient.invalidateQueries({ queryKey: ["tags"] })
+      ]);
+    }
+  });
+  const createHostGroupMutation = useMutation({
+    mutationFn: createHostGroup,
+    onSuccess: () => {
+      resetHostGroupForm();
+      void queryClient.invalidateQueries({ queryKey: ["hostGroups"] });
+    }
+  });
+  const updateHostGroupMutation = useMutation({
+    mutationFn: (payload: typeof hostGroupForm) => updateHostGroup(editingHostGroupId, payload),
+    onSuccess: () => {
+      resetHostGroupForm();
+      void queryClient.invalidateQueries({ queryKey: ["hostGroups"] });
+    }
+  });
 
   const agents = agentsQuery.data?.items ?? [];
   const hosts = hostsQuery.data?.items ?? [];
   const enrollmentTokens = enrollmentQuery.data ?? [];
   const diagnostics = diagnosticsQuery.data ?? [];
   const maintenanceWindows = maintenanceQuery.data ?? [];
+  const tags = tagsQuery.data ?? [];
+  const hostGroups = hostGroupsQuery.data ?? [];
   const counts = useMemo(() => summarizeAgents(agents), [agents]);
 
   async function copyToken(token: string) {
@@ -145,6 +208,20 @@ export function AgentManagementPage() {
     });
   }
 
+  function resetHostGroupForm() {
+    setHostGroupForm({ name: "", description: "", hostIds: [] });
+    setEditingHostGroupId("");
+  }
+
+  function startEditingHostGroup(item: HostGroup) {
+    setEditingHostGroupId(item.id);
+    setHostGroupForm({
+      name: item.name,
+      description: item.description || "",
+      hostIds: (item.hosts ?? []).map((host) => host.id)
+    });
+  }
+
   return (
     <main className="page">
       <section className="page-heading">
@@ -164,6 +241,87 @@ export function AgentManagementPage() {
             <strong>{counts[status] ?? 0}</strong>
           </div>
         ))}
+      </section>
+
+      <section className="agent-grid">
+        <section className="panel table-panel">
+          <div className="panel-title">
+            <h3>{t("agents.tags")}</h3>
+            <span>{tags.length} {t("common.total")}</span>
+          </div>
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              createTagMutation.mutate({ name: tagForm.name, color: tagForm.color });
+            }}
+          >
+            <label>{t("common.name")}<input value={tagForm.name} onChange={(event) => setTagForm({ ...tagForm, name: event.target.value })} required /></label>
+            <label>{t("agents.color")}<input type="color" value={tagForm.color} onChange={(event) => setTagForm({ ...tagForm, color: event.target.value })} /></label>
+            <button type="submit" disabled={createTagMutation.isPending}>{t("common.create")}</button>
+          </form>
+          <div className="tag-list">
+            {tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)}
+          </div>
+          {!tagsQuery.isLoading && tags.length === 0 ? <p className="empty-state">{t("agents.emptyTags")}</p> : null}
+          {tagsQuery.isError ? <p className="form-error">{String(tagsQuery.error.message)}</p> : null}
+          {createTagMutation.isError ? <p className="form-error">{String(createTagMutation.error.message)}</p> : null}
+
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setResourceTagsMutation.mutate();
+            }}
+          >
+            <label>{t("agents.resourceType")}<select value={tagAssignment.resourceType} onChange={(event) => setTagAssignment({ resourceType: event.target.value, resourceId: "", tagIds: [] })}><option value="agent">{t("agents.agent")}</option><option value="host">{t("agents.host")}</option></select></label>
+            <label>{t("agents.resource")}<select value={tagAssignment.resourceId} onChange={(event) => setTagAssignment({ ...tagAssignment, resourceId: event.target.value })} required><option value="">{t("agents.resource")}</option>{(tagAssignment.resourceType === "host" ? hosts : agents).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>{t("agents.tags")}<select multiple value={tagAssignment.tagIds} onChange={(event) => setTagAssignment({ ...tagAssignment, tagIds: selectedValues(event.currentTarget) })}>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label>
+            <button type="submit" disabled={setResourceTagsMutation.isPending || !tagAssignment.resourceId}>{t("agents.assignTags")}</button>
+          </form>
+          {setResourceTagsMutation.isError ? <p className="form-error">{String(setResourceTagsMutation.error.message)}</p> : null}
+        </section>
+
+        <section className="panel table-panel">
+          <div className="panel-title">
+            <h3>{t("agents.hostGroups")}</h3>
+            <span>{hostGroups.length} {t("common.total")}</span>
+          </div>
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const payload = { ...hostGroupForm };
+              if (editingHostGroupId) updateHostGroupMutation.mutate(payload);
+              else createHostGroupMutation.mutate(payload);
+            }}
+          >
+            <label>{t("common.name")}<input value={hostGroupForm.name} onChange={(event) => setHostGroupForm({ ...hostGroupForm, name: event.target.value })} required /></label>
+            <label>{t("common.description")}<input value={hostGroupForm.description} onChange={(event) => setHostGroupForm({ ...hostGroupForm, description: event.target.value })} /></label>
+            <label>{t("agents.hosts")}<select multiple value={hostGroupForm.hostIds} onChange={(event) => setHostGroupForm({ ...hostGroupForm, hostIds: selectedValues(event.currentTarget) })}>{hosts.map((host) => <option key={host.id} value={host.id}>{host.name}</option>)}</select></label>
+            <button type="submit" disabled={createHostGroupMutation.isPending || updateHostGroupMutation.isPending}>{editingHostGroupId ? t("common.save") : t("common.create")}</button>
+            {editingHostGroupId ? <button type="button" onClick={resetHostGroupForm}>{t("common.cancel")}</button> : null}
+          </form>
+          <div className="data-table">
+            <table>
+              <thead><tr><th>{t("common.name")}</th><th>{t("agents.hosts")}</th><th>{t("common.createdBy")}</th><th>{t("common.action")}</th></tr></thead>
+              <tbody>
+                {hostGroups.map((group) => (
+                  <tr key={group.id}>
+                    <td><strong>{group.name}</strong><small>{group.description || group.id}</small></td>
+                    <td><strong>{group.hostCount}</strong><small>{(group.hosts ?? []).map((host) => host.name).join(", ") || "-"}</small></td>
+                    <td>{group.createdBy || "-"}</td>
+                    <td><button type="button" onClick={() => startEditingHostGroup(group)}>{t("common.edit")}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!hostGroupsQuery.isLoading && hostGroups.length === 0 ? <p className="empty-state">{t("agents.emptyHostGroups")}</p> : null}
+          {hostGroupsQuery.isError ? <p className="form-error">{String(hostGroupsQuery.error.message)}</p> : null}
+          {createHostGroupMutation.isError ? <p className="form-error">{String(createHostGroupMutation.error.message)}</p> : null}
+          {updateHostGroupMutation.isError ? <p className="form-error">{String(updateHostGroupMutation.error.message)}</p> : null}
+        </section>
       </section>
 
       <section className="agent-grid">
@@ -276,6 +434,7 @@ export function AgentManagementPage() {
                     <td>
                       <strong>{agent.name}</strong>
                       <small>{agent.tokenPrefix || agent.id}</small>
+                      <TagRow tags={agent.tags ?? []} />
                     </td>
                     <td>
                       <StatusChip status={agent.status} />
@@ -332,6 +491,7 @@ export function AgentManagementPage() {
                     <td>
                       <strong>{host.name}</strong>
                       <small>{host.hostname || host.ip || host.id}</small>
+                      <TagRow tags={host.tags ?? []} />
                     </td>
                     <td>
                       <StatusChip status={host.status} />
@@ -483,6 +643,19 @@ export function AgentManagementPage() {
 
 function StatusChip({ status }: { status: string }) {
   return <span className={`status-chip status-${status}`}>{status}</span>;
+}
+
+function TagRow({ tags }: { tags: TagSummary[] }) {
+  if (tags.length === 0) return null;
+  return <span className="tag-row">{tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)}</span>;
+}
+
+function TagBadge({ tag }: { tag: TagSummary }) {
+  return <span className="tag-badge" style={tag.color ? { borderColor: tag.color, color: tag.color } : undefined}>{tag.name}</span>;
+}
+
+function selectedValues(select: HTMLSelectElement) {
+  return Array.from(select.selectedOptions).map((option) => option.value);
 }
 
 function summarizeAgents(agents: Agent[]) {

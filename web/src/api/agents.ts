@@ -5,9 +5,11 @@ import type {
   EnrollmentTokenDetail,
   EnrollmentTokenSummary,
   Host,
+  HostGroup,
   MaintenanceWindow,
   OfflineScanResult,
-  PageResult
+  PageResult,
+  TagSummary
 } from "./types";
 
 export interface ListQuery {
@@ -46,6 +48,63 @@ export function listAgentDiagnostics() {
 
 export function listMaintenanceWindows() {
   return request<MaintenanceWindow[]>("/api/v1/maintenance-windows");
+}
+
+export function listTags() {
+  return request<TagSummary[]>("/api/v1/tags");
+}
+
+export function createTag(payload: { name: string; color?: string }) {
+  return request<TagSummary>("/api/v1/tags", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateTag(id: string, payload: { name: string; color?: string }) {
+  return request<TagSummary>(`/api/v1/tags/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function setAgentTags(id: string, tagIds: string[]) {
+  return request<TagSummary[]>(`/api/v1/agents/${id}/tags`, {
+    method: "PUT",
+    body: JSON.stringify({ tagIds })
+  });
+}
+
+export function setHostTags(id: string, tagIds: string[]) {
+  return request<TagSummary[]>(`/api/v1/hosts/${id}/tags`, {
+    method: "PUT",
+    body: JSON.stringify({ tagIds })
+  });
+}
+
+export function listHostGroups() {
+  return request<HostGroup[]>("/api/v1/host-groups");
+}
+
+export function createHostGroup(payload: { name: string; description?: string; hostIds?: string[] }) {
+  return request<HostGroup>("/api/v1/host-groups", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateHostGroup(id: string, payload: { name: string; description?: string; hostIds?: string[] }) {
+  return request<HostGroup>(`/api/v1/host-groups/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function setHostGroupMembers(id: string, hostIds: string[]) {
+  return request<HostGroup>(`/api/v1/host-groups/${id}/members`, {
+    method: "PUT",
+    body: JSON.stringify({ hostIds })
+  });
 }
 
 export function createMaintenanceWindow(payload: {

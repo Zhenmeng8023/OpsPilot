@@ -51,6 +51,25 @@ type maintenanceWindowRequest struct {
 	Status    string `json:"status"`
 }
 
+type tagRequest struct {
+	Name  string `json:"name" binding:"required"`
+	Color string `json:"color"`
+}
+
+type resourceTagsRequest struct {
+	TagIDs []string `json:"tagIds"`
+}
+
+type hostGroupRequest struct {
+	Name        string   `json:"name" binding:"required"`
+	Description string   `json:"description"`
+	HostIDs     []string `json:"hostIds"`
+}
+
+type hostGroupMembersRequest struct {
+	HostIDs []string `json:"hostIds"`
+}
+
 type heartbeatRequest struct {
 	Status       string                 `json:"status"`
 	RunningTasks int                    `json:"runningTasks"`
@@ -78,10 +97,19 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.Use(userAuth)
 	protected.GET("/agents", requirePermission("agent:read"), h.listAgents)
 	protected.GET("/agents/diagnostics", requirePermission("agent:read"), h.listDiagnostics)
+	protected.PUT("/agents/:id/tags", requirePermission("agent:write"), h.setAgentTags)
+	protected.GET("/tags", requirePermission("agent:read"), h.listTags)
+	protected.POST("/tags", requirePermission("agent:write"), h.createTag)
+	protected.PUT("/tags/:id", requirePermission("agent:write"), h.updateTag)
+	protected.GET("/host-groups", requirePermission("host:read"), h.listHostGroups)
+	protected.POST("/host-groups", requirePermission("host:write"), h.createHostGroup)
+	protected.PUT("/host-groups/:id", requirePermission("host:write"), h.updateHostGroup)
+	protected.PUT("/host-groups/:id/members", requirePermission("host:write"), h.setHostGroupMembers)
 	protected.GET("/maintenance-windows", requirePermission("agent:read"), h.listMaintenanceWindows)
 	protected.POST("/maintenance-windows", requirePermission("agent:write"), h.createMaintenanceWindow)
 	protected.PUT("/maintenance-windows/:id", requirePermission("agent:write"), h.updateMaintenanceWindow)
 	protected.GET("/hosts", requirePermission("host:read"), h.listHosts)
+	protected.PUT("/hosts/:id/tags", requirePermission("host:write"), h.setHostTags)
 	protected.POST("/agents/offline-scan", requirePermission("agent:write"), h.markOffline)
 	protected.POST("/agents/:id/disable", requirePermission("agent:write"), h.disableAgent)
 	protected.POST("/agents/:id/revoke-token", requirePermission("agent:write"), h.revokeAgentToken)
@@ -180,6 +208,145 @@ func (h *Handler) listMaintenanceWindows(c *gin.Context) {
 		return
 	}
 	response.Success(c, items)
+}
+
+func (h *Handler) listTags(c *gin.Context) {
+	items, appErr := h.service.ListTags(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) createTag(c *gin.Context) {
+	var req tagRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.CreateTag(c.Request.Context(), TagInput{Name: req.Name, Color: req.Color, Audit: auditContext(c)})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) updateTag(c *gin.Context) {
+	var req tagRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.UpdateTag(c.Request.Context(), c.Param("id"), TagInput{Name: req.Name, Color: req.Color, Audit: auditContext(c)})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) setAgentTags(c *gin.Context) {
+	var req resourceTagsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	items, appErr := h.service.SetResourceTags(c.Request.Context(), ResourceTagsInput{
+		ResourceType: "agent",
+		ResourceID:   c.Param("id"),
+		TagIDs:       req.TagIDs,
+		Audit:        auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) setHostTags(c *gin.Context) {
+	var req resourceTagsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	items, appErr := h.service.SetResourceTags(c.Request.Context(), ResourceTagsInput{
+		ResourceType: "host",
+		ResourceID:   c.Param("id"),
+		TagIDs:       req.TagIDs,
+		Audit:        auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) listHostGroups(c *gin.Context) {
+	items, appErr := h.service.ListHostGroups(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) createHostGroup(c *gin.Context) {
+	var req hostGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.CreateHostGroup(c.Request.Context(), HostGroupInput{
+		Name:        req.Name,
+		Description: req.Description,
+		HostIDs:     req.HostIDs,
+		Audit:       auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) updateHostGroup(c *gin.Context) {
+	var req hostGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.UpdateHostGroup(c.Request.Context(), c.Param("id"), HostGroupInput{
+		Name:        req.Name,
+		Description: req.Description,
+		HostIDs:     req.HostIDs,
+		Audit:       auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) setHostGroupMembers(c *gin.Context) {
+	var req hostGroupMembersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.SetHostGroupMembers(c.Request.Context(), c.Param("id"), HostGroupMembersInput{
+		HostIDs: req.HostIDs,
+		Audit:   auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
 }
 
 func (h *Handler) createMaintenanceWindow(c *gin.Context) {

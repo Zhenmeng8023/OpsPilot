@@ -177,12 +177,109 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: OK }
+  /api/v1/agents/{id}/tags:
+    put:
+      summary: Replace Agent tags
+      description: Requires `agent:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResourceTagsPayload"
+      responses:
+        "200": { description: Tag list for the Agent }
   /api/v1/hosts:
     get:
       summary: List Hosts
       description: Requires `host:read`.
       responses:
         "200": { description: Paged Host list }
+  /api/v1/hosts/{id}/tags:
+    put:
+      summary: Replace Host tags
+      description: Requires `host:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResourceTagsPayload"
+      responses:
+        "200": { description: Tag list for the Host }
+  /api/v1/tags:
+    get:
+      summary: List fleet tags
+      description: Requires `agent:read`.
+      responses:
+        "200": { description: Tag list }
+    post:
+      summary: Create fleet tag
+      description: Requires `agent:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagPayload"
+      responses:
+        "200": { description: Tag summary }
+  /api/v1/tags/{id}:
+    put:
+      summary: Update fleet tag
+      description: Requires `agent:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagPayload"
+      responses:
+        "200": { description: Tag summary }
+  /api/v1/host-groups:
+    get:
+      summary: List Host Groups
+      description: Requires `host:read`.
+      responses:
+        "200": { description: Host Group list }
+    post:
+      summary: Create Host Group
+      description: Requires `host:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostGroupPayload"
+      responses:
+        "200": { description: Host Group summary }
+  /api/v1/host-groups/{id}:
+    put:
+      summary: Update Host Group
+      description: Requires `host:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostGroupPayload"
+      responses:
+        "200": { description: Host Group summary }
+  /api/v1/host-groups/{id}/members:
+    put:
+      summary: Replace Host Group members
+      description: Requires `host:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostGroupMembersPayload"
+      responses:
+        "200": { description: Host Group summary }
   /api/v1/maintenance-windows:
     get:
       summary: List Agent maintenance windows
@@ -1627,6 +1724,33 @@ components:
         startsAt: { type: string, example: "2026-05-08 10:00:00" }
         endsAt: { type: string, example: "2026-05-08 12:00:00" }
         status: { type: string, enum: [active, disabled, archived], default: active }
+    TagPayload:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        color: { type: string, example: "#2f7d99" }
+    ResourceTagsPayload:
+      type: object
+      properties:
+        tagIds:
+          type: array
+          items: { type: string }
+    HostGroupPayload:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        hostIds:
+          type: array
+          items: { type: string }
+    HostGroupMembersPayload:
+      type: object
+      properties:
+        hostIds:
+          type: array
+          items: { type: string }
     SchedulePayload:
       type: object
       required: [name, cronExpr]
