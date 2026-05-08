@@ -34,6 +34,7 @@ type Config struct {
 	Command   CommandPolicyConfig
 	Schedule  ScheduleConfig
 	Alert     AlertConfig
+	Metric    MetricConfig
 	Audit     AuditConfig
 	Notify    NotificationConfig
 	Bootstrap BootstrapConfig
@@ -104,6 +105,11 @@ type ScheduleConfig struct {
 
 type AlertConfig struct {
 	ScanInterval time.Duration
+}
+
+type MetricConfig struct {
+	DetailRetentionDays int
+	RollupRetentionDays int
 }
 
 type AuditConfig struct {
@@ -190,6 +196,10 @@ func Load() (Config, error) {
 		Alert: AlertConfig{
 			ScanInterval: getEnvDurationSeconds("ALERT_SCAN_INTERVAL_SECONDS", 30*time.Second),
 		},
+		Metric: MetricConfig{
+			DetailRetentionDays: getEnvInt("METRIC_DETAIL_RETENTION_DAYS", 7),
+			RollupRetentionDays: getEnvInt("METRIC_ROLLUP_RETENTION_DAYS", 90),
+		},
 		Audit: AuditConfig{
 			RetentionDays: getEnvInt("AUDIT_RETENTION_DAYS", 180),
 		},
@@ -249,6 +259,12 @@ func Load() (Config, error) {
 	}
 	if cfg.Audit.RetentionDays <= 0 {
 		cfg.Audit.RetentionDays = 180
+	}
+	if cfg.Metric.DetailRetentionDays <= 0 {
+		cfg.Metric.DetailRetentionDays = 7
+	}
+	if cfg.Metric.RollupRetentionDays <= 0 {
+		cfg.Metric.RollupRetentionDays = 90
 	}
 
 	return cfg, nil

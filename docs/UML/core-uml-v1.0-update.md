@@ -125,6 +125,9 @@ flowchart LR
 ```mermaid
 flowchart LR
   Metrics["Host / Runtime Metrics"] --> Rules["Alert Rules"]
+  Metrics --> Rollups["5m / 1h Metric Rollups"]
+  Rollups --> TrendAPI["Trend API granularity auto/raw/5m/1h"]
+  TrendAPI --> Dashboards["Saved Dashboards"]
   Rules --> Alerts["alerts"]
   Alerts --> IncidentProject["Incident Projection"]
   IncidentProject --> Incidents["incidents"]
@@ -143,6 +146,7 @@ flowchart LR
 
 - 原始 UML 中告警更多停留在 `alert + notification`。
 - 当前实现已经有 `incidents / incident_alerts / incident_events`，因此需要把告警运营模型单独表达。
+- Metrics 生命周期新增 `host_metric_rollups`、saved dashboard 和 retention run，趋势接口可按 `auto/raw/5m/1h` 粒度选择数据源。
 
 ## 7. 更新图四：V1.0 新增数据模型增量
 
@@ -160,6 +164,8 @@ erDiagram
   INCIDENTS ||--o{ INCIDENT_ALERTS : contains
   INCIDENTS ||--o{ INCIDENT_EVENTS : records
   ALERT_RULES ||--o{ INCIDENTS : originates
+  HOST_METRICS ||--o{ HOST_METRIC_ROLLUPS : aggregates
+  WORKSPACES ||--o{ METRIC_DASHBOARDS : owns
 
   WORKFLOW_DEFINITIONS {
     bigint id
@@ -235,6 +241,28 @@ erDiagram
     bigint alert_id
     varchar event_type
   }
+
+  HOST_METRIC_ROLLUPS {
+    bigint id
+    bigint workspace_id
+    bigint host_id
+    varchar metric_code
+    varchar interval_type
+    datetime bucket_start
+    decimal avg_value
+    int sample_count
+  }
+
+  METRIC_DASHBOARDS {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    varchar name
+    varchar metric_code
+    int range_hours
+    varchar granularity
+    varchar status
+  }
 ```
 
 更新点：
@@ -243,6 +271,7 @@ erDiagram
 - `workflow_definitions / workflow_runs / workflow_run_nodes / workflow_run_events` 来自 `000006_v10_workflows.up.sql`。
 - `workflow_versions` 来自 `000009_v10_workflow_versions.up.sql`。
 - `incidents / incident_alerts / incident_events` 来自 `000005_v10_incidents.up.sql`。
+- `host_metric_rollups / metric_dashboards` 来自 `000011_v10_metrics_lifecycle.up.sql`。
 
 ## 8. 更新图五：V1.0 Secret、Webhook 与 Audit 治理链路
 

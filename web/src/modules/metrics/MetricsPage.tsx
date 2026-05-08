@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { acknowledgeAlert, createAlertRule, disableAlertRule, listAlertEvents, listAlertHistory, listAlertRules, listAlerts, pauseAlertRule, resolveAlert, resumeAlertRule, silenceAlert, unsilenceAlert, updateAlertRule } from "../../api/alerts";
-import { listHostMetrics, listMetricTrends } from "../../api/metrics";
-import type { AlertHistoryPoint, MetricTrendSeries } from "../../api/types";
+import { createMetricDashboard, listHostMetrics, listMetricDashboards, listMetricTrends, runMetricRetention, runMetricRollup, updateMetricDashboard } from "../../api/metrics";
+import type { AlertHistoryPoint, MetricDashboard, MetricRetentionResult, MetricRollupResult, MetricTrendSeries } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
@@ -15,7 +15,23 @@ export function MetricsPage() {
   const queryClient = useQueryClient();
   const [metricCode, setMetricCode] = useState("");
   const [trendHours, setTrendHours] = useState(24);
+  const [trendGranularity, setTrendGranularity] = useState("auto");
   const [selectedTrendSeries, setSelectedTrendSeries] = useState("");
+  const [dashboardForm, setDashboardForm] = useState({
+    name: "",
+    metricCode: "agent.os.cpu.percent",
+    hostId: "",
+    agentId: "",
+    rangeHours: 24,
+    pointLimit: 120,
+    granularity: "auto",
+    status: "active"
+  });
+  const [editingDashboardId, setEditingDashboardId] = useState("");
+  const [rollupForm, setRollupForm] = useState({ interval: "5m", hours: 24 });
+  const [retentionForm, setRetentionForm] = useState({ detailDays: 7, rollupDays: 90, dryRun: true });
+  const [rollupResult, setRollupResult] = useState<MetricRollupResult | null>(null);
+  const [retentionResult, setRetentionResult] = useState<MetricRetentionResult | null>(null);
   const [ruleForm, setRuleForm] = useState({
     name: "",
     metricCode: "agent.os.cpu.percent",
@@ -36,15 +52,20 @@ export function MetricsPage() {
   const [expandedAlertId, setExpandedAlertId] = useState("");
   const canReadAlerts = hasPermission(user, "alert:read");
   const canWriteAlerts = hasPermission(user, "alert:write");
+  const canWriteMetrics = hasPermission(user, "metric:write");
 
   const metricsQuery = useQuery({
     queryKey: ["hostMetrics", metricCode],
     queryFn: () => listHostMetrics({ metricCode, limit: 300 })
   });
   const trendQuery = useQuery({
-    queryKey: ["metricTrends", metricCode, trendHours],
-    queryFn: () => listMetricTrends({ metricCode, hours: trendHours, limit: 120 }),
+    queryKey: ["metricTrends", metricCode, trendHours, trendGranularity],
+    queryFn: () => listMetricTrends({ metricCode, hours: trendHours, limit: 120, granularity: trendGranularity }),
     enabled: metricCode !== ""
+  });
+  const dashboardsQuery = useQuery({
+    queryKey: ["metricDashboards"],
+    queryFn: listMetricDashboards
   });
   const rulesQuery = useQuery({
     queryKey: ["alertRules"],
@@ -128,9 +149,39 @@ export function MetricsPage() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alertRules"] })
   });
+  const createDashboardMutation = useMutation({
+    mutationFn: createMetricDashboard,
+    onSuccess: () => {
+      resetDashboardForm();
+      queryClient.invalidateQueries({ queryKey: ["metricDashboards"] });
+    }
+  });
+  const updateDashboardMutation = useMutation({
+    mutationFn: (payload: typeof dashboardForm) => updateMetricDashboard(editingDashboardId, payload),
+    onSuccess: () => {
+      resetDashboardForm();
+      queryClient.invalidateQueries({ queryKey: ["metricDashboards"] });
+    }
+  });
+  const rollupMutation = useMutation({
+    mutationFn: runMetricRollup,
+    onSuccess: (result) => {
+      setRollupResult(result);
+      queryClient.invalidateQueries({ queryKey: ["metricTrends"] });
+    }
+  });
+  const retentionMutation = useMutation({
+    mutationFn: runMetricRetention,
+    onSuccess: (result) => {
+      setRetentionResult(result);
+      queryClient.invalidateQueries({ queryKey: ["hostMetrics"] });
+      queryClient.invalidateQueries({ queryKey: ["metricTrends"] });
+    }
+  });
 
   const metrics = useMemo(() => metricsQuery.data ?? [], [metricsQuery.data]);
   const trendSeries = useMemo(() => trendQuery.data ?? [], [trendQuery.data]);
+  const dashboards = useMemo(() => dashboardsQuery.data ?? [], [dashboardsQuery.data]);
   const rules = useMemo(() => rulesQuery.data ?? [], [rulesQuery.data]);
   const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data]);
   const alertHistory = useMemo(() => alertHistoryQuery.data ?? [], [alertHistoryQuery.data]);
@@ -181,6 +232,41 @@ export function MetricsPage() {
       severity: "warning"
     });
     setEditingRuleId("");
+  };
+
+  const resetDashboardForm = () => {
+    setDashboardForm({
+      name: "",
+      metricCode: "agent.os.cpu.percent",
+      hostId: "",
+      agentId: "",
+      rangeHours: 24,
+      pointLimit: 120,
+      granularity: "auto",
+      status: "active"
+    });
+    setEditingDashboardId("");
+  };
+
+  const startEditingDashboard = (dashboard: MetricDashboard) => {
+    setEditingDashboardId(dashboard.id);
+    setDashboardForm({
+      name: dashboard.name,
+      metricCode: dashboard.metricCode || "agent.os.cpu.percent",
+      hostId: dashboard.hostId || "",
+      agentId: dashboard.agentId || "",
+      rangeHours: dashboard.rangeHours,
+      pointLimit: dashboard.pointLimit,
+      granularity: dashboard.granularity || "auto",
+      status: dashboard.status || "active"
+    });
+  };
+
+  const applyDashboard = (dashboard: MetricDashboard) => {
+    setMetricCode(dashboard.metricCode || "");
+    setTrendHours(dashboard.rangeHours || 24);
+    setTrendGranularity(dashboard.granularity || "auto");
+    setSelectedTrendSeries(dashboard.hostId && dashboard.metricCode ? `${dashboard.hostId}:${dashboard.metricCode}` : "");
   };
 
   const alertStatusLabel = (status: string) => {
@@ -236,6 +322,116 @@ export function MetricsPage() {
           <h1>{t("metrics.title")}</h1>
         </div>
       </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          <h3>{t("metrics.savedDashboards")}</h3>
+          <span>{t("metrics.savedDashboardsHint")}</span>
+        </div>
+        {canWriteMetrics ? (
+          <form
+            className="inline-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const payload = {
+                ...dashboardForm,
+                hostId: dashboardForm.hostId.trim(),
+                agentId: dashboardForm.agentId.trim()
+              };
+              if (editingDashboardId) {
+                updateDashboardMutation.mutate(payload);
+              } else {
+                createDashboardMutation.mutate(payload);
+              }
+            }}
+          >
+            <input value={dashboardForm.name} onChange={(event) => setDashboardForm({ ...dashboardForm, name: event.target.value })} placeholder={t("common.name")} />
+            <select value={dashboardForm.metricCode} onChange={(event) => setDashboardForm({ ...dashboardForm, metricCode: event.target.value })}>
+              {metricCatalog.map((option) => <option key={option.code} value={option.code}>{option.code}</option>)}
+            </select>
+            <input value={dashboardForm.hostId} onChange={(event) => setDashboardForm({ ...dashboardForm, hostId: event.target.value })} placeholder={t("metrics.host")} />
+            <select value={String(dashboardForm.rangeHours)} onChange={(event) => setDashboardForm({ ...dashboardForm, rangeHours: Number(event.target.value) })}>
+              {trendRangeOptions.map((hours) => (
+                <option key={hours} value={hours}>{t("metrics.rangeHours").replace("{hours}", String(hours))}</option>
+              ))}
+            </select>
+            <select value={dashboardForm.granularity} onChange={(event) => setDashboardForm({ ...dashboardForm, granularity: event.target.value })}>
+              <option value="auto">{t("metrics.granularityAuto")}</option>
+              <option value="raw">{t("metrics.granularityRaw")}</option>
+              <option value="5m">5m</option>
+              <option value="1h">1h</option>
+            </select>
+            <select value={dashboardForm.status} onChange={(event) => setDashboardForm({ ...dashboardForm, status: event.target.value })}>
+              <option value="active">{t("common.status.active")}</option>
+              <option value="disabled">{t("common.status.disabled")}</option>
+              <option value="archived">{t("common.status.archived")}</option>
+            </select>
+            <button type="submit" disabled={createDashboardMutation.isPending || updateDashboardMutation.isPending}>{editingDashboardId ? t("common.save") : t("metrics.saveDashboard")}</button>
+            {editingDashboardId ? <button type="button" onClick={resetDashboardForm}>{t("common.cancel")}</button> : null}
+          </form>
+        ) : null}
+        <div className="data-table">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("common.name")}</th>
+                <th>{t("metrics.metric")}</th>
+                <th>{t("metrics.range")}</th>
+                <th>{t("metrics.granularity")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("common.action")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dashboards.map((dashboard) => (
+                <tr key={dashboard.id}>
+                  <td><strong>{dashboard.name}</strong><small>{dashboard.id}</small></td>
+                  <td>{dashboard.metricCode || "-"}</td>
+                  <td>{t("metrics.rangeHours").replace("{hours}", String(dashboard.rangeHours))}</td>
+                  <td>{dashboard.granularity}</td>
+                  <td>{alertStatusLabel(dashboard.status)}</td>
+                  <td className="action-cell">
+                    <button type="button" onClick={() => applyDashboard(dashboard)}>{t("metrics.applyDashboard")}</button>
+                    {canWriteMetrics ? <button type="button" onClick={() => startEditingDashboard(dashboard)}>{t("common.edit")}</button> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!dashboardsQuery.isLoading && dashboards.length === 0 ? <p className="empty-state">{t("metrics.emptyDashboards")}</p> : null}
+        {dashboardsQuery.isError ? <p className="form-error">{dashboardsQuery.error.message}</p> : null}
+        {createDashboardMutation.isError ? <p className="form-error">{createDashboardMutation.error.message}</p> : null}
+        {updateDashboardMutation.isError ? <p className="form-error">{updateDashboardMutation.error.message}</p> : null}
+      </section>
+
+      {canWriteMetrics ? (
+        <section className="panel">
+          <div className="panel-title">
+            <h3>{t("metrics.lifecycle")}</h3>
+            <span>{t("metrics.lifecycleHint")}</span>
+          </div>
+          <div className="inline-form">
+            <select value={rollupForm.interval} onChange={(event) => setRollupForm({ ...rollupForm, interval: event.target.value })}>
+              <option value="5m">5m</option>
+              <option value="1h">1h</option>
+            </select>
+            <input type="number" value={rollupForm.hours} onChange={(event) => setRollupForm({ ...rollupForm, hours: Number(event.target.value) })} />
+            <button type="button" disabled={rollupMutation.isPending} onClick={() => rollupMutation.mutate(rollupForm)}>{t("metrics.runRollup")}</button>
+            <input type="number" value={retentionForm.detailDays} onChange={(event) => setRetentionForm({ ...retentionForm, detailDays: Number(event.target.value) })} />
+            <input type="number" value={retentionForm.rollupDays} onChange={(event) => setRetentionForm({ ...retentionForm, rollupDays: Number(event.target.value) })} />
+            <label className="checkbox-label">
+              <input type="checkbox" checked={retentionForm.dryRun} onChange={(event) => setRetentionForm({ ...retentionForm, dryRun: event.target.checked })} />
+              {t("metrics.dryRun")}
+            </label>
+            <button type="button" disabled={retentionMutation.isPending} onClick={() => retentionMutation.mutate(retentionForm)}>{t("metrics.runRetention")}</button>
+          </div>
+          {rollupResult ? <p className="empty-state">{t("metrics.rollupResult").replace("{matched}", String(rollupResult.matched)).replace("{upserted}", String(rollupResult.upserted))}</p> : null}
+          {retentionResult ? <p className="empty-state">{t("metrics.retentionResult").replace("{detail}", String(retentionResult.detailMatched)).replace("{rollup}", String(retentionResult.rollupMatched)).replace("{deleted}", String(retentionResult.detailDeleted + retentionResult.rollupDeleted))}</p> : null}
+          {rollupMutation.isError ? <p className="form-error">{rollupMutation.error.message}</p> : null}
+          {retentionMutation.isError ? <p className="form-error">{retentionMutation.error.message}</p> : null}
+        </section>
+      ) : null}
 
       {canWriteAlerts ? (
         <section className="panel form-panel">
@@ -617,6 +813,12 @@ export function MetricsPage() {
               <option key={hours} value={hours}>{t("metrics.rangeHours").replace("{hours}", String(hours))}</option>
             ))}
           </select>
+          <select value={trendGranularity} onChange={(event) => setTrendGranularity(event.target.value)}>
+            <option value="auto">{t("metrics.granularityAuto")}</option>
+            <option value="raw">{t("metrics.granularityRaw")}</option>
+            <option value="5m">5m</option>
+            <option value="1h">1h</option>
+          </select>
           <button type="button" onClick={() => {
             metricsQuery.refetch();
             trendQuery.refetch();
@@ -683,7 +885,7 @@ export function MetricsPage() {
                 <div className="trend-stat">
                   <span>{t("metrics.points")}</span>
                   <strong>{activeTrend.points.length}</strong>
-                  <small>{t("metrics.rangeHours").replace("{hours}", String(trendHours))}</small>
+                  <small>{t("metrics.rangeHours").replace("{hours}", String(trendHours))} / {activeTrend.granularity || trendGranularity}</small>
                 </div>
               </div>
               <TrendChart series={activeTrend} />

@@ -366,7 +366,43 @@ export interface MetricTrendSeries {
   latestValue: number;
   minValue: number;
   maxValue: number;
+  granularity?: string;
   points: MetricTrendPoint[];
+}
+
+export interface MetricDashboard {
+  id: string;
+  name: string;
+  metricCode?: string;
+  hostId?: string;
+  agentId?: string;
+  rangeHours: number;
+  pointLimit: number;
+  granularity: string;
+  status: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MetricRollupResult {
+  interval: string;
+  from: string;
+  to: string;
+  matched: number;
+  upserted: number;
+}
+
+export interface MetricRetentionResult {
+  detailCutoffAt: string;
+  rollupCutoffAt: string;
+  detailDays: number;
+  rollupDays: number;
+  detailMatched: number;
+  rollupMatched: number;
+  detailDeleted: number;
+  rollupDeleted: number;
+  dryRun: boolean;
 }
 
 export interface AlertRule {

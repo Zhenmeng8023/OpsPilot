@@ -50,6 +50,7 @@ var basePermissions = []permissionSeed{
 	{"schedule:write", "schedule", "Write schedules", "Create and manage task schedules"},
 	{"metric.read", "metric", "Read metrics", "View metrics and service checks"},
 	{"metric:read", "metric", "Read metrics", "View metrics and service checks"},
+	{"metric:write", "metric", "Write metrics", "Manage metric dashboards, rollups, and retention"},
 	{"alert:read", "alert", "Read alerts", "View alert rules and alert events"},
 	{"alert:write", "alert", "Write alerts", "Manage alert rules and alert state"},
 	{"alert.write", "alert", "Write alerts", "Manage alert rules and alert state"},

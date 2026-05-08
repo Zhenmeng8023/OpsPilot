@@ -767,8 +767,68 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 10, maximum: 240, default: 120 }
+        - name: granularity
+          in: query
+          schema:
+            type: string
+            enum: [auto, raw, 5m, 1h]
+            default: auto
       responses:
         "200": { description: Host metric trend list }
+  /api/v1/metrics/dashboards:
+    get:
+      summary: List metric dashboards
+      description: Requires `metric:read`.
+      responses:
+        "200": { description: Metric dashboard list }
+    post:
+      summary: Create metric dashboard
+      description: Requires `metric:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricDashboardPayload"
+      responses:
+        "200": { description: Metric dashboard summary }
+  /api/v1/metrics/dashboards/{id}:
+    put:
+      summary: Update metric dashboard
+      description: Requires `metric:write`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricDashboardPayload"
+      responses:
+        "200": { description: Metric dashboard summary }
+  /api/v1/metrics/rollups/run:
+    post:
+      summary: Run metric rollup
+      description: Requires `metric:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricRollupPayload"
+      responses:
+        "200": { description: Metric rollup result }
+  /api/v1/metrics/retention/run:
+    post:
+      summary: Run metric retention
+      description: Requires `metric:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricRetentionPayload"
+      responses:
+        "200": { description: Metric retention result }
   /api/v1/alert-rules:
     get:
       summary: List alert rules
@@ -1524,6 +1584,38 @@ components:
               unit: { type: string, example: count }
               dimensions: { type: object, additionalProperties: true }
               collectedAt: { type: string, format: date-time }
+    MetricDashboardPayload:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        metricCode: { type: string, example: agent.os.cpu.percent }
+        hostId: { type: string }
+        agentId: { type: string }
+        rangeHours: { type: integer, minimum: 1, maximum: 336, default: 24 }
+        pointLimit: { type: integer, minimum: 10, maximum: 240, default: 120 }
+        granularity:
+          type: string
+          enum: [auto, raw, 5m, 1h]
+          default: auto
+        status:
+          type: string
+          enum: [active, disabled, archived]
+          default: active
+    MetricRollupPayload:
+      type: object
+      properties:
+        interval:
+          type: string
+          enum: [5m, 1h]
+          default: 5m
+        hours: { type: integer, minimum: 1, maximum: 720, default: 24 }
+    MetricRetentionPayload:
+      type: object
+      properties:
+        detailDays: { type: integer, minimum: 1, default: 7 }
+        rollupDays: { type: integer, minimum: 1, default: 90 }
+        dryRun: { type: boolean, default: true }
     AlertRulePayload:
       type: object
       required: [name, metricCode, operator]

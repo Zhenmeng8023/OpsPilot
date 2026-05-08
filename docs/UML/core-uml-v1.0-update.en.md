@@ -125,6 +125,9 @@ Applies to: `OpsPilot V1.0`
 ```mermaid
 flowchart LR
   Metrics["Host / Runtime Metrics"] --> Rules["Alert Rules"]
+  Metrics --> Rollups["5m / 1h Metric Rollups"]
+  Rollups --> TrendAPI["Trend API granularity auto/raw/5m/1h"]
+  TrendAPI --> Dashboards["Saved Dashboards"]
   Rules --> Alerts["alerts"]
   Alerts --> IncidentProject["Incident Projection"]
   IncidentProject --> Incidents["incidents"]
@@ -143,6 +146,7 @@ What changed:
 
 - The original UML mostly stopped at `alert + notification`.
 - The current implementation already has `incidents / incident_alerts / incident_events`, so the operational model must include them.
+- Metrics lifecycle now includes `host_metric_rollups`, saved dashboards, and retention runs. Trend queries can select `auto/raw/5m/1h` data granularity.
 
 ## 7. Updated Diagram 4: V1.0 Data Model Delta
 
@@ -160,6 +164,8 @@ erDiagram
   INCIDENTS ||--o{ INCIDENT_ALERTS : contains
   INCIDENTS ||--o{ INCIDENT_EVENTS : records
   ALERT_RULES ||--o{ INCIDENTS : originates
+  HOST_METRICS ||--o{ HOST_METRIC_ROLLUPS : aggregates
+  WORKSPACES ||--o{ METRIC_DASHBOARDS : owns
 
   WORKFLOW_DEFINITIONS {
     bigint id
@@ -235,6 +241,28 @@ erDiagram
     bigint alert_id
     varchar event_type
   }
+
+  HOST_METRIC_ROLLUPS {
+    bigint id
+    bigint workspace_id
+    bigint host_id
+    varchar metric_code
+    varchar interval_type
+    datetime bucket_start
+    decimal avg_value
+    int sample_count
+  }
+
+  METRIC_DASHBOARDS {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    varchar name
+    varchar metric_code
+    int range_hours
+    varchar granularity
+    varchar status
+  }
 ```
 
 What changed:
@@ -243,6 +271,7 @@ What changed:
 - `workflow_definitions / workflow_runs / workflow_run_nodes / workflow_run_events` come from `000006_v10_workflows.up.sql`.
 - `workflow_versions` comes from `000009_v10_workflow_versions.up.sql`.
 - `incidents / incident_alerts / incident_events` comes from `000005_v10_incidents.up.sql`.
+- `host_metric_rollups / metric_dashboards` come from `000011_v10_metrics_lifecycle.up.sql`.
 
 ## 8. Updated Diagram 5: V1.0 Secret, Webhook, and Audit Governance Flow
 

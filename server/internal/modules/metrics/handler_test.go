@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -50,9 +51,30 @@ func TestListTrendsPassesFilters(t *testing.T) {
 	}
 }
 
+func TestCreateDashboardPassesPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureMetricService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughMetricAuth, passThroughMetricAuth, passThroughMetricPermission)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics/dashboards", strings.NewReader(`{"name":"CPU","metricCode":"agent.os.cpu.percent","rangeHours":72,"pointLimit":180,"granularity":"5m"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.dashboardInput.Name != "CPU" || service.dashboardInput.MetricCode != "agent.os.cpu.percent" || service.dashboardInput.RangeHours != 72 || service.dashboardInput.PointLimit != 180 || service.dashboardInput.Granularity != "5m" {
+		t.Fatalf("unexpected dashboard input: %#v", service.dashboardInput)
+	}
+}
+
 type captureMetricService struct {
-	listInput  ListInput
-	trendInput TrendInput
+	listInput      ListInput
+	trendInput     TrendInput
+	dashboardInput DashboardInput
 }
 
 func (s *captureMetricService) Upload(context.Context, agents.AgentIdentity, []MetricInput) *apperror.Error {
@@ -67,6 +89,28 @@ func (s *captureMetricService) List(_ context.Context, input ListInput) ([]Metri
 func (s *captureMetricService) ListTrends(_ context.Context, input TrendInput) ([]MetricTrendSeries, *apperror.Error) {
 	s.trendInput = input
 	return nil, nil
+}
+
+func (s *captureMetricService) ListDashboards(context.Context) ([]DashboardSummary, *apperror.Error) {
+	return nil, nil
+}
+
+func (s *captureMetricService) CreateDashboard(_ context.Context, input DashboardInput) (DashboardSummary, *apperror.Error) {
+	s.dashboardInput = input
+	return DashboardSummary{}, nil
+}
+
+func (s *captureMetricService) UpdateDashboard(_ context.Context, _ string, input DashboardInput) (DashboardSummary, *apperror.Error) {
+	s.dashboardInput = input
+	return DashboardSummary{}, nil
+}
+
+func (s *captureMetricService) RunRollup(context.Context, RollupInput) (RollupResult, *apperror.Error) {
+	return RollupResult{}, nil
+}
+
+func (s *captureMetricService) RunRetention(context.Context, RetentionInput) (RetentionResult, *apperror.Error) {
+	return RetentionResult{}, nil
 }
 
 func passThroughMetricAuth(c *gin.Context) {
