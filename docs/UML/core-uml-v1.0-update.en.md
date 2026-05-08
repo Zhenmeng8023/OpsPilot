@@ -130,6 +130,8 @@ Applies to: `OpsPilot V1.0`
 flowchart LR
   Metrics["Host / Runtime Metrics"] --> Rules["Alert Rules"]
   Metrics --> Rollups["5m / 1h Metric Rollups"]
+  Metrics --> MetricWorker["Rollup / Retention Worker"]
+  MetricWorker --> Rollups
   Rollups --> TrendAPI["Trend API granularity auto/raw/5m/1h"]
   TrendAPI --> Dashboards["Saved Dashboards"]
   Rules --> Suppression["Suppression Rules"]
@@ -155,7 +157,7 @@ What changed:
 - The original UML mostly stopped at `alert + notification`.
 - The current implementation already has `incidents / incident_alerts / incident_events`, so the operational model must include them.
 - The current implementation adds `alert_suppression_rules` and `alert_routing_policies`; alert firing can suppress or route notifications by rule, host, and severity.
-- Metrics lifecycle now includes `host_metric_rollups`, saved dashboards, and retention runs. Trend queries can select `auto/raw/5m/1h` data granularity.
+- Metrics lifecycle now includes `host_metric_rollups`, saved dashboards, retention runs, and background rollup/retention workers. Trend queries can select `auto/raw/5m/1h` data granularity.
 
 ## 7. Updated Diagram 4: V1.0 Data Model Delta
 

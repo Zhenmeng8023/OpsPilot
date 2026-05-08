@@ -110,6 +110,8 @@ type AlertConfig struct {
 type MetricConfig struct {
 	DetailRetentionDays int
 	RollupRetentionDays int
+	RollupInterval      time.Duration
+	RetentionInterval   time.Duration
 }
 
 type AuditConfig struct {
@@ -199,6 +201,8 @@ func Load() (Config, error) {
 		Metric: MetricConfig{
 			DetailRetentionDays: getEnvInt("METRIC_DETAIL_RETENTION_DAYS", 7),
 			RollupRetentionDays: getEnvInt("METRIC_ROLLUP_RETENTION_DAYS", 90),
+			RollupInterval:      getEnvDurationSeconds("METRIC_ROLLUP_INTERVAL_SECONDS", 5*time.Minute),
+			RetentionInterval:   getEnvDurationSeconds("METRIC_RETENTION_INTERVAL_SECONDS", 24*time.Hour),
 		},
 		Audit: AuditConfig{
 			RetentionDays: getEnvInt("AUDIT_RETENTION_DAYS", 180),

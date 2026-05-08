@@ -130,6 +130,8 @@ flowchart LR
 flowchart LR
   Metrics["Host / Runtime Metrics"] --> Rules["Alert Rules"]
   Metrics --> Rollups["5m / 1h Metric Rollups"]
+  Metrics --> MetricWorker["Rollup / Retention Worker"]
+  MetricWorker --> Rollups
   Rollups --> TrendAPI["Trend API granularity auto/raw/5m/1h"]
   TrendAPI --> Dashboards["Saved Dashboards"]
   Rules --> Suppression["Suppression Rules"]
@@ -155,7 +157,7 @@ flowchart LR
 - 原始 UML 中告警更多停留在 `alert + notification`。
 - 当前实现已经有 `incidents / incident_alerts / incident_events`，因此需要把告警运营模型单独表达。
 - 当前实现新增 `alert_suppression_rules` 和 `alert_routing_policies`，告警触发时可按 rule/host/severity 抑制或路由到指定通知渠道。
-- Metrics 生命周期新增 `host_metric_rollups`、saved dashboard 和 retention run，趋势接口可按 `auto/raw/5m/1h` 粒度选择数据源。
+- Metrics 生命周期新增 `host_metric_rollups`、saved dashboard、retention run 和后台 rollup/retention worker，趋势接口可按 `auto/raw/5m/1h` 粒度选择数据源。
 
 ## 7. 更新图四：V1.0 新增数据模型增量
 

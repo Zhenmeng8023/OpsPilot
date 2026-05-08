@@ -1,5 +1,19 @@
 # OpsPilot Project Summary
 
+## Version Update Log
+
+| Date | Version / Commit | Development Change | Implementation Scope | Documentation / Validation |
+| --- | --- | --- | --- | --- |
+| 2026-05-08 | V1.0 in progress / pending | Added background Metrics rollup and retention maintenance workers. | `server/internal/modules/metrics/scanner.go`, API startup wiring, metric interval config, `.env.example`, Compose, README. | Synced V1.0 release evidence, UML update notes, README config examples; validated `go test ./...`, `go vet ./...`, migration pair check, OpenAPI/router check. |
+| 2026-05-08 | `3870522` | Integrated maintenance windows into runtime behavior. | Alerts suppress notification delivery while recording firing/suppression events; schedules write skipped triggers and advance next fire during maintenance. | Synced V1.0 release evidence and UML flow notes; validated backend tests, vet, migration check, OpenAPI/router check. |
+| 2026-05-08 | `412fd6d` | Completed Agent/Host tags and Host Group baseline. | Added fleet tag APIs, resource tag assignment, host group/member APIs, Agent page UI, OpenAPI routes, shared tag styles. | Synced V1.0 release evidence and UML; OpenAPI/router documented 145 routes; validated backend/frontend builds. |
+| 2026-05-08 | `b443390` | Completed Agent Fleet operations baseline. | Added agent diagnostics snapshots, version inventory display, maintenance window storage/API/UI, heartbeat diagnostic writes. | Added migration pair `000013`, OpenAPI, release evidence, UML ER updates; validated migration check, Go tests/vet, web build. |
+| 2026-05-08 | `ebe1dec` | Added Alert suppression and routing operations. | Added suppression rules and routing policies with API/UI and alert firing integration. | Synced release evidence and OpenAPI; validated backend/frontend checks. |
+| 2026-05-08 | `ff792ad` | Added Metrics lifecycle baseline. | Added 5m/1h rollups, raw/rollup retention dry-run/execution, saved dashboards, trend granularity selection. | Synced V1.0 release evidence and UML metric lifecycle notes; validated Go tests and frontend build. |
+| 2026-05-08 | `82de7fb` / `e1cd3d9` | Added Notification template and bulk retry operations. | Added template rendering/channel-specific templates and failed delivery batch retry. | Synced release evidence, OpenAPI, and UI/API docs; validated backend/frontend checks. |
+| 2026-05-08 | `422b5e5` | Added Workflow node retry, timeout, and failure policy baseline. | Workflow nodes support retry/timeout/failure handling and retry-from-failed behavior. | Synced V1.0 release evidence and UML workflow notes; validated Go tests and web build. |
+| 2026-05-08 | `3a05248` | Landed the first broad V1.0 productization slice. | Workflow, Webhook, Audit, Secret governance, OpenAPI/router validation, E2E smoke script, release notes, and UML updates. | Established V1.0 release evidence and architecture update documents; validated OpenAPI/router and CI-oriented checks. |
+
 ## Project Introduction
 
 OpsPilot is an automation operations platform for managing Agents, Hosts, script templates, task execution, and realtime execution logs. It provides a control plane for administrators to create scripts or inline commands, dispatch tasks to registered Agents, observe execution status, and review audit trails.

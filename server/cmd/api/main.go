@@ -15,6 +15,7 @@ import (
 	"opspilot/server/internal/modules/agents"
 	"opspilot/server/internal/modules/alerts"
 	"opspilot/server/internal/modules/auth"
+	"opspilot/server/internal/modules/metrics"
 	"opspilot/server/internal/modules/notifications"
 	"opspilot/server/internal/modules/schedules"
 	"opspilot/server/internal/platform/db"
@@ -54,6 +55,7 @@ func main() {
 	startOfflineScanner(scannerCtx, log, agents.NewService(dbHandle, cfg), cfg.Agent.OfflineScanInterval)
 	schedules.StartScheduler(scannerCtx, log, schedules.NewService(dbHandle, cfg), cfg.Schedule.ScanInterval)
 	alerts.StartScanner(scannerCtx, log, alerts.NewService(dbHandle, cfg), cfg.Alert.ScanInterval)
+	metrics.StartMaintenance(scannerCtx, log, metrics.NewService(dbHandle, cfg), cfg.Metric.RollupInterval, cfg.Metric.RetentionInterval)
 	notifications.StartDispatcher(scannerCtx, log, notifications.NewService(dbHandle, cfg), cfg.Notify.DispatchInterval)
 
 	redisClient := redisplatform.NewClient(cfg.Redis)
