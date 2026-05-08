@@ -52,6 +52,8 @@ flowchart LR
   API --> Secret["Secret Crypto / Rotation"]
   API --> Audit["Audit"]
   API --> Fleet["Agent Tags / Groups / Diagnostics / Maintenance Windows"]
+  Fleet --> Monitor
+  Fleet --> Ops
 
   Flow --> Ops
   Flow --> Monitor
@@ -69,7 +71,7 @@ flowchart LR
 - 相比原始 DOCX 图，新增 `Workflow Engine` 和 `Incidents`。
 - `Workflow` 与 `Tasks`、`Notifications`、`Webhooks`、`Incidents` 已形成业务关联，而不再只是单一任务执行平台。
 - Secret 加密与 rotation 已成为 Webhook source、Notification channel 等模块的共享治理能力。
-- Agent 管理新增 tags/groups、diagnostics 快照、version inventory 和 maintenance window，形成 Fleet 运维基础面。
+- Agent 管理新增 tags/groups、diagnostics 快照、version inventory 和 maintenance window，形成 Fleet 运维基础面；维护窗口已联动告警通知抑制和调度触发跳过。
 
 ## 5. 更新图二：V1.0 自动化触发与编排链路
 

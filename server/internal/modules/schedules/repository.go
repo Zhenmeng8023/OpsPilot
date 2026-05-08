@@ -80,6 +80,11 @@ type dueScheduleRecord struct {
 	CreatedByID   sql.NullInt64
 }
 
+type maintenanceWindowRecord struct {
+	Name   string
+	Reason sql.NullString
+}
+
 type triggerRecord struct {
 	ID             uint64
 	TaskRunUID     sql.NullString

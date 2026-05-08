@@ -429,6 +429,20 @@ func (s *Service) FireDue(ctx context.Context, now time.Time, limit int) (FireRe
 }
 
 func (s *Service) processDueSchedule(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, now time.Time) (int, int) {
+	suppressed, window, err := activeMaintenanceForSchedule(ctx, tx, schedule, now)
+	if err != nil {
+		return 0, 1
+	}
+	if suppressed {
+		reason := "maintenance window active: " + window.Name
+		if window.Reason.Valid && strings.TrimSpace(window.Reason.String) != "" {
+			reason += " - " + window.Reason.String
+		}
+		if s.skipScheduleWithReason(ctx, tx, schedule, now, reason) {
+			return 0, 0
+		}
+		return 0, 1
+	}
 	switch normalizeMisfirePolicy(schedule.MisfirePolicy) {
 	case "skip":
 		if s.skipSchedule(ctx, tx, schedule, now) {
@@ -475,14 +489,18 @@ func (s *Service) fireAllMissed(ctx context.Context, tx *gorm.DB, schedule dueSc
 }
 
 func (s *Service) skipSchedule(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, now time.Time) bool {
+	return s.skipScheduleWithReason(ctx, tx, schedule, now, "misfire skipped")
+}
+
+func (s *Service) skipScheduleWithReason(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, now time.Time, reason string) bool {
 	plannedAt := parseDBTime(schedule.NextFireAt)
 	if !plannedAt.Valid {
 		plannedAt = sql.NullTime{Time: now, Valid: true}
 	}
 	if err := tx.WithContext(ctx).Exec(
 		`INSERT INTO schedule_triggers(schedule_id, planned_fire_at, actual_fire_at, status, error_message)
-		 VALUES (?, ?, ?, 'skipped', 'misfire skipped')`,
-		schedule.ID, plannedAt, now,
+		 VALUES (?, ?, ?, 'skipped', ?)`,
+		schedule.ID, plannedAt, now, limitString(reason, 1024),
 	).Error; err != nil {
 		return false
 	}
@@ -584,6 +602,70 @@ func (s *Service) advanceSchedule(ctx context.Context, tx *gorm.DB, schedule due
 		"UPDATE schedules SET last_fire_at = ?, next_fire_at = ? WHERE id = ?",
 		now, next, schedule.ID,
 	).Error
+}
+
+func activeMaintenanceForSchedule(ctx context.Context, tx *gorm.DB, schedule dueScheduleRecord, now time.Time) (bool, maintenanceWindowRecord, error) {
+	var rows []maintenanceWindowRecord
+	err := tx.WithContext(ctx).Raw(
+		`SELECT mw.name, mw.reason
+		   FROM maintenance_windows mw
+		  WHERE mw.workspace_id = ?
+		    AND mw.status = 'active'
+		    AND mw.deleted_at IS NULL
+		    AND mw.starts_at <= ?
+		    AND mw.ends_at >= ?
+		    AND (
+		      mw.scope_type = 'all'
+		      OR (
+		        ? = 'task'
+		        AND mw.scope_type = 'host'
+		        AND EXISTS (
+		          SELECT 1
+		            FROM task_targets tt
+		            LEFT JOIN agents direct_agent ON direct_agent.id = tt.agent_id
+		            LEFT JOIN host_group_members hgm ON hgm.host_group_id = tt.host_group_id
+		           WHERE tt.task_id = ?
+		             AND (
+		               mw.host_id = tt.host_id
+		               OR mw.host_id = direct_agent.host_id
+		               OR mw.host_id = hgm.host_id
+		             )
+		        )
+		      )
+		      OR (
+		        ? = 'task'
+		        AND mw.scope_type = 'agent'
+		        AND EXISTS (
+		          SELECT 1
+		            FROM task_targets tt
+		            LEFT JOIN agents direct_agent ON direct_agent.id = tt.agent_id
+		            LEFT JOIN agents host_agent ON host_agent.host_id = tt.host_id AND host_agent.deleted_at IS NULL
+		            LEFT JOIN host_group_members hgm ON hgm.host_group_id = tt.host_group_id
+		            LEFT JOIN agents group_agent ON group_agent.host_id = hgm.host_id AND group_agent.deleted_at IS NULL
+		           WHERE tt.task_id = ?
+		             AND (
+		               mw.agent_id = direct_agent.id
+		               OR mw.agent_id = host_agent.id
+		               OR mw.agent_id = group_agent.id
+		             )
+		        )
+		      )
+		    )
+		  ORDER BY
+		    CASE mw.scope_type WHEN 'agent' THEN 3 WHEN 'host' THEN 2 ELSE 1 END DESC,
+		    mw.updated_at DESC
+		  LIMIT 1`,
+		schedule.WorkspaceID, now, now,
+		normalizeTargetType(schedule.TargetType), schedule.TaskID,
+		normalizeTargetType(schedule.TargetType), schedule.TaskID,
+	).Scan(&rows).Error
+	if err != nil {
+		return false, maintenanceWindowRecord{}, err
+	}
+	if len(rows) == 0 {
+		return false, maintenanceWindowRecord{}, nil
+	}
+	return true, rows[0], nil
 }
 
 func (s *Service) workspace(ctx context.Context) (workspaceRecord, *apperror.Error) {

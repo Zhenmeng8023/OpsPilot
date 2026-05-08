@@ -309,6 +309,15 @@ type suppressionRuleRecord struct {
 	UpdatedAt string
 }
 
+type maintenanceWindowRecord struct {
+	UID       string
+	Name      string
+	ScopeType string
+	Reason    sql.NullString
+	StartsAt  string
+	EndsAt    string
+}
+
 type routingPolicyRecord struct {
 	ID         uint64
 	UID        string
@@ -1180,7 +1189,11 @@ func upsertFiringAlert(ctx context.Context, tx *gorm.DB, rule ruleRecord, hostID
 	if err != nil {
 		return false, err
 	}
-	suppressed := cooldownSuppressed || ruleSuppressed
+	maintenanceSuppressed, maintenanceWindow, err := alertSuppressedByMaintenance(ctx, tx, rule.WorkspaceID, hostID)
+	if err != nil {
+		return false, err
+	}
+	suppressed := cooldownSuppressed || ruleSuppressed || maintenanceSuppressed
 	alertUID, err := uid.New()
 	if err != nil {
 		return false, err
@@ -1202,6 +1215,10 @@ func upsertFiringAlert(ctx context.Context, tx *gorm.DB, rule ruleRecord, hostID
 		meta.SuppressedBy = suppressionRule.Name
 		meta.SuppressionReason = suppressionRule.Reason.String
 	}
+	if maintenanceSuppressed && !ruleSuppressed {
+		meta.SuppressedBy = "maintenance:" + maintenanceWindow.Name
+		meta.SuppressionReason = maintenanceWindow.Reason.String
+	}
 	if err := writeAlertEvent(ctx, tx, alertID, "firing", "metric threshold violated", sql.NullInt64{}, metric); err != nil {
 		return false, err
 	}
@@ -1214,6 +1231,10 @@ func upsertFiringAlert(ctx context.Context, tx *gorm.DB, rule ruleRecord, hostID
 		if ruleSuppressed {
 			eventType = "suppressed"
 			message = "notification suppressed by suppression rule"
+		}
+		if maintenanceSuppressed && !ruleSuppressed {
+			eventType = "maintenance_suppressed"
+			message = "notification suppressed by maintenance window"
 		}
 		if err := writeAlertEvent(ctx, tx, alertID, eventType, message, sql.NullInt64{}, meta); err != nil {
 			return false, err
@@ -1284,6 +1305,44 @@ func alertSuppressedByRule(ctx context.Context, tx *gorm.DB, rule ruleRecord, me
 	}
 	if len(rows) == 0 {
 		return false, suppressionRuleRecord{}, nil
+	}
+	return true, rows[0], nil
+}
+
+func alertSuppressedByMaintenance(ctx context.Context, tx *gorm.DB, workspaceID, hostID uint64) (bool, maintenanceWindowRecord, error) {
+	var rows []maintenanceWindowRecord
+	err := tx.WithContext(ctx).Raw(
+		`SELECT mw.uid, mw.name, mw.scope_type, mw.reason,
+		        DATE_FORMAT(mw.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
+		        DATE_FORMAT(mw.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at
+		   FROM maintenance_windows mw
+		  WHERE mw.workspace_id = ?
+		    AND mw.status = 'active'
+		    AND mw.deleted_at IS NULL
+		    AND mw.starts_at <= NOW(3)
+		    AND mw.ends_at >= NOW(3)
+		    AND (
+		      mw.scope_type = 'all'
+		      OR mw.host_id = ?
+		      OR mw.agent_id IN (
+		        SELECT a.id
+		          FROM agents a
+		         WHERE a.workspace_id = ?
+		           AND a.host_id = ?
+		           AND a.deleted_at IS NULL
+		      )
+		    )
+		  ORDER BY
+		    CASE mw.scope_type WHEN 'agent' THEN 3 WHEN 'host' THEN 2 ELSE 1 END DESC,
+		    mw.updated_at DESC
+		  LIMIT 1`,
+		workspaceID, hostID, workspaceID, hostID,
+	).Scan(&rows).Error
+	if err != nil {
+		return false, maintenanceWindowRecord{}, err
+	}
+	if len(rows) == 0 {
+		return false, maintenanceWindowRecord{}, nil
 	}
 	return true, rows[0], nil
 }
