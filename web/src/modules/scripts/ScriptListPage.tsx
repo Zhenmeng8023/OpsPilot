@@ -10,16 +10,29 @@ import {
   rejectScriptApproval
 } from "../../api/scripts";
 import type { Script } from "../../api/types";
+import { useLanguageStore } from "../../i18n/language";
+import { ConfirmDialog } from "../../shared/components/ConfirmDialog";
+import { FilterToolbar } from "../../shared/components/FilterToolbar";
+import { PaginationBar } from "../../shared/components/PaginationBar";
+import { useToast } from "../../shared/components/ToastProvider";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 
+type PendingAction =
+  | { type: "disable"; script: Script }
+  | { type: "approve"; id: number }
+  | { type: "reject"; id: number };
+
 export function ScriptListPage() {
   const user = useAuthStore((state) => state.user);
+  const t = useLanguageStore((state) => state.t);
+  const { notify } = useToast();
   const queryClient = useQueryClient();
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState("");
   const [scriptType, setScriptType] = useState("");
   const [approvalStatus, setApprovalStatus] = useState("");
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const scriptsQuery = useQuery({
@@ -32,69 +45,97 @@ export function ScriptListPage() {
   });
   const disableMutation = useMutation({
     mutationFn: (script: Script) => disableScript(script.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scripts"] })
+    onSuccess: () => {
+      notify(t("scripts.disabledToast"), "success");
+      queryClient.invalidateQueries({ queryKey: ["scripts"] });
+    }
   });
   const approveMutation = useMutation({
     mutationFn: ({ id, comment }: { id: number; comment: string }) => approveScriptApproval(id, comment),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scriptApprovals"] })
+    onSuccess: () => {
+      notify(t("scripts.approvedToast"), "success");
+      queryClient.invalidateQueries({ queryKey: ["scriptApprovals"] });
+    }
   });
   const rejectMutation = useMutation({
     mutationFn: ({ id, comment }: { id: number; comment: string }) => rejectScriptApproval(id, comment),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scriptApprovals"] })
+    onSuccess: () => {
+      notify(t("scripts.rejectedToast"), "success");
+      queryClient.invalidateQueries({ queryKey: ["scriptApprovals"] });
+    }
   });
   const scripts = useMemo(() => scriptsQuery.data?.items ?? [], [scriptsQuery.data]);
   const total = scriptsQuery.data?.total ?? 0;
   const approvals = useMemo(() => approvalsQuery.data ?? [], [approvalsQuery.data]);
   const canApprove = hasPermission(user, "script:approve");
   const canWrite = hasPermission(user, "script:write");
+  const statusText = (value: string) => t(`common.status.${value}`);
+  const confirmTitle = pendingAction?.type === "disable"
+    ? t("scripts.confirmDisable")
+    : pendingAction?.type === "approve"
+      ? t("scripts.confirmApprove")
+      : t("scripts.confirmReject");
+  const confirmDanger = pendingAction?.type === "disable" || pendingAction?.type === "reject";
+
+  function confirmPendingAction() {
+    if (!pendingAction) return;
+    if (pendingAction.type === "disable") {
+      disableMutation.mutate(pendingAction.script);
+    } else if (pendingAction.type === "approve") {
+      approveMutation.mutate({ id: pendingAction.id, comment: "" });
+    } else {
+      rejectMutation.mutate({ id: pendingAction.id, comment: "" });
+    }
+    setPendingAction(null);
+  }
 
   return (
     <main className="page">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Scripts</p>
-          <h1>Script Templates</h1>
+          <p className="eyebrow">{t("scripts.eyebrow")}</p>
+          <h1>{t("scripts.title")}</h1>
         </div>
-        {canWrite ? <Link className="ghost-button" to="/scripts/new">Create script</Link> : null}
+        {canWrite ? <Link className="ghost-button" to="/scripts/new">{t("scripts.createAction")}</Link> : null}
       </section>
 
       <section className="panel table-panel">
-        <div className="toolbar-row">
-          <input placeholder="Search scripts" value={keyword} onChange={(event) => { setKeyword(event.target.value); setPage(1); }} />
+        <FilterToolbar>
+          <input placeholder={t("scripts.search")} value={keyword} onChange={(event) => { setKeyword(event.target.value); setPage(1); }} />
           <select value={scriptType} onChange={(event) => { setScriptType(event.target.value); setPage(1); }}>
-            <option value="">All type</option>
+            <option value="">{t("scripts.allType")}</option>
             <option value="shell">shell</option>
             <option value="powershell">powershell</option>
             <option value="bash">bash</option>
             <option value="custom">custom</option>
           </select>
           <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
-            <option value="">All status</option>
-            <option value="active">active</option>
-            <option value="disabled">disabled</option>
-            <option value="draft">draft</option>
+            <option value="">{t("common.allStatus")}</option>
+            <option value="active">{statusText("active")}</option>
+            <option value="disabled">{statusText("disabled")}</option>
+            <option value="draft">{statusText("draft")}</option>
           </select>
           <select value={approvalStatus} onChange={(event) => { setApprovalStatus(event.target.value); setPage(1); }}>
-            <option value="">All approval</option>
-            <option value="approved">approved</option>
-            <option value="pending">pending</option>
-            <option value="rejected">rejected</option>
-            <option value="canceled">canceled</option>
-            <option value="not_required">not_required</option>
+            <option value="">{t("scripts.allApproval")}</option>
+            <option value="approved">{statusText("approved")}</option>
+            <option value="pending">{statusText("pending")}</option>
+            <option value="rejected">{statusText("rejected")}</option>
+            <option value="canceled">{statusText("canceled")}</option>
+            <option value="not_required">{statusText("not_required")}</option>
           </select>
-          <button type="button" onClick={() => scriptsQuery.refetch()}>Refresh</button>
-        </div>
+          <button type="button" onClick={() => scriptsQuery.refetch()}>{t("common.refresh")}</button>
+        </FilterToolbar>
         <div className="data-table">
           <table>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Approval</th>
-                <th>Revision</th>
-                <th>Created</th>
-                <th>Action</th>
+                <th>{t("common.name")}</th>
+                <th>{t("common.type")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("scripts.approval")}</th>
+                <th>{t("scripts.revision")}</th>
+                <th>{t("common.created")}</th>
+                <th>{t("common.action")}</th>
               </tr>
             </thead>
             <tbody>
@@ -105,19 +146,19 @@ export function ScriptListPage() {
                     <small>{script.description || script.id}</small>
                   </td>
                   <td>{script.scriptType}</td>
-                  <td><span className={`status-chip status-${script.status}`}>{script.status}</span></td>
+                  <td><span className={`status-chip status-${script.status}`}>{statusText(script.status)}</span></td>
                   <td>
                     <span className={`status-chip status-${script.approvalStatus || "none"}`}>
-                      {script.approvalRequired ? script.approvalStatus || "required" : "not_required"}
+                      {script.approvalRequired ? statusText(script.approvalStatus || "required") : statusText("not_required")}
                     </span>
                   </td>
                   <td>v{script.version}</td>
                   <td>{script.createdAt}</td>
                   <td className="action-cell">
-                    {canWrite ? <Link to={`/scripts/${script.id}`}>Edit</Link> : null}
+                    {canWrite ? <Link to={`/scripts/${script.id}`}>{t("common.edit")}</Link> : null}
                     {canWrite ? (
-                      <button type="button" disabled={script.status === "disabled"} onClick={() => disableMutation.mutate(script)}>
-                        Disable
+                      <button type="button" disabled={script.status === "disabled"} onClick={() => setPendingAction({ type: "disable", script })}>
+                        {t("common.disable")}
                       </button>
                     ) : null}
                   </td>
@@ -126,31 +167,26 @@ export function ScriptListPage() {
             </tbody>
           </table>
         </div>
-        {!scriptsQuery.isLoading && scripts.length === 0 ? <p className="empty-state">No scripts found.</p> : null}
-        <div className="toolbar-row">
-          <span>{total} total</span>
-          <button type="button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button>
-          <span>Page {page}</span>
-          <button type="button" disabled={page * pageSize >= total} onClick={() => setPage((value) => value + 1)}>Next</button>
-        </div>
+        {!scriptsQuery.isLoading && scripts.length === 0 ? <p className="empty-state">{t("scripts.noScripts")}</p> : null}
+        <PaginationBar total={total} page={page} pageSize={pageSize} onPageChange={setPage} />
         {scriptsQuery.isError ? <p className="form-error">{scriptsQuery.error.message}</p> : null}
         {disableMutation.isError ? <p className="form-error">{disableMutation.error.message}</p> : null}
       </section>
 
       <section className="panel table-panel">
         <div className="panel-title">
-          <h3>Pending Approvals</h3>
-          <span>{approvals.length} pending</span>
+          <h3>{t("scripts.pendingApprovals")}</h3>
+          <span>{t("scripts.pendingCount", { count: approvals.length })}</span>
         </div>
         <div className="data-table">
           <table>
             <thead>
               <tr>
-                <th>Script</th>
-                <th>Version</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Action</th>
+                <th>{t("common.name")}</th>
+                <th>{t("common.version")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("common.created")}</th>
+                <th>{t("common.action")}</th>
               </tr>
             </thead>
             <tbody>
@@ -161,7 +197,7 @@ export function ScriptListPage() {
                     <small>{approval.scriptId}</small>
                   </td>
                   <td>v{approval.version}</td>
-                  <td><span className={`status-chip status-${approval.status}`}>{approval.status}</span></td>
+                  <td><span className={`status-chip status-${approval.status}`}>{statusText(approval.status)}</span></td>
                   <td>{approval.createdAt}</td>
                   <td className="action-cell">
                     {canApprove ? (
@@ -169,22 +205,16 @@ export function ScriptListPage() {
                         <button
                           type="button"
                           disabled={approveMutation.isPending || rejectMutation.isPending}
-                          onClick={() => {
-                            const comment = window.prompt("Approval comment (optional):", "") ?? "";
-                            approveMutation.mutate({ id: approval.id, comment });
-                          }}
+                          onClick={() => setPendingAction({ type: "approve", id: approval.id })}
                         >
-                          Approve
+                          {t("scripts.approve")}
                         </button>
                         <button
                           type="button"
                           disabled={approveMutation.isPending || rejectMutation.isPending}
-                          onClick={() => {
-                            const comment = window.prompt("Rejection reason (optional):", "") ?? "";
-                            rejectMutation.mutate({ id: approval.id, comment });
-                          }}
+                          onClick={() => setPendingAction({ type: "reject", id: approval.id })}
                         >
-                          Reject
+                          {t("scripts.reject")}
                         </button>
                       </>
                     ) : null}
@@ -194,11 +224,20 @@ export function ScriptListPage() {
             </tbody>
           </table>
         </div>
-        {!approvalsQuery.isLoading && approvals.length === 0 ? <p className="empty-state">No pending approvals.</p> : null}
+        {!approvalsQuery.isLoading && approvals.length === 0 ? <p className="empty-state">{t("scripts.noPendingApprovals")}</p> : null}
         {approvalsQuery.isError ? <p className="form-error">{approvalsQuery.error.message}</p> : null}
         {approveMutation.isError ? <p className="form-error">{approveMutation.error.message}</p> : null}
         {rejectMutation.isError ? <p className="form-error">{rejectMutation.error.message}</p> : null}
       </section>
+      <ConfirmDialog
+        open={Boolean(pendingAction)}
+        title={confirmTitle}
+        confirmLabel={t("common.confirm")}
+        cancelLabel={t("common.cancel")}
+        danger={confirmDanger}
+        onCancel={() => setPendingAction(null)}
+        onConfirm={confirmPendingAction}
+      />
     </main>
   );
 }

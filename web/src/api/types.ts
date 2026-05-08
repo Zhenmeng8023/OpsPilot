@@ -216,8 +216,11 @@ export interface TaskLogEntry {
 export interface ScheduleSummary {
   id: string;
   name: string;
-  taskId: string;
-  taskName: string;
+  targetType: string;
+  taskId?: string;
+  taskName?: string;
+  workflowId?: string;
+  workflowName?: string;
   scheduleType: string;
   cronExpr: string;
   timezone: string;
@@ -232,6 +235,7 @@ export interface ScheduleSummary {
 export interface ScheduleTrigger {
   id: number;
   taskRunId?: string;
+  workflowRunId?: string;
   plannedFireAt: string;
   actualFireAt?: string;
   status: string;
@@ -255,8 +259,11 @@ export interface WebhookRule {
   id: string;
   sourceId: string;
   sourceName: string;
-  taskId: string;
-  taskName: string;
+  targetType: string;
+  taskId?: string;
+  taskName?: string;
+  workflowId?: string;
+  workflowName?: string;
   name: string;
   eventType?: string;
   matcher?: WebhookMatcher;
@@ -301,6 +308,7 @@ export interface WebhookEventMatch {
   matched: boolean;
   reason?: string;
   taskRunId?: string;
+  workflowRunId?: string;
   createdAt: string;
 }
 
@@ -394,6 +402,105 @@ export interface AlertHistoryPoint {
   resolvedCount: number;
   acknowledgedCount: number;
   silencedCount: number;
+}
+
+export interface IncidentSummary {
+  id: string;
+  alertId?: string;
+  title: string;
+  severity: string;
+  status: string;
+  ruleId?: string;
+  ruleName?: string;
+  hostId?: string;
+  hostName?: string;
+  message?: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt?: string;
+  alertCount: number;
+}
+
+export interface IncidentEvent {
+  id: number;
+  eventType: string;
+  message?: string;
+  actor?: string;
+  payload?: string;
+  createdAt: string;
+}
+
+export interface IncidentDetail extends IncidentSummary {
+  events: IncidentEvent[];
+}
+
+export interface WorkflowDefinitionSummary {
+  id: string;
+  name: string;
+  description?: string;
+  version: number;
+  status: string;
+  nodeCount: number;
+  edgeCount: number;
+  createdBy?: string;
+  publishedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowDefinitionDetail extends WorkflowDefinitionSummary {
+  definition: string;
+}
+
+export interface WorkflowRunSummary {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  workflowVersion: number;
+  status: string;
+  triggerType: string;
+  totalNodes: number;
+  successNodes: number;
+  failedNodes: number;
+  skippedNodes: number;
+  errorMessage?: string;
+  createdBy?: string;
+  queuedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  createdAt: string;
+}
+
+export interface WorkflowRunNode {
+  id: number;
+  nodeId: string;
+  nodeType: string;
+  nodeName?: string;
+  status: string;
+  taskRunId?: string;
+  errorMessage?: string;
+  attempts: number;
+  queuedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface WorkflowRunEvent {
+  id: number;
+  nodeId?: string;
+  eventType: string;
+  message?: string;
+  actor?: string;
+  payload?: string;
+  createdAt: string;
+}
+
+export interface WorkflowRunDetail extends WorkflowRunSummary {
+  input?: string;
+  output?: string;
+  definition: string;
+  nodes: WorkflowRunNode[];
+  events: WorkflowRunEvent[];
 }
 
 export interface NotificationChannel {

@@ -4,9 +4,14 @@ import { Link } from "react-router-dom";
 
 import { createWebhookRule, createWebhookSource, disableWebhookRule, disableWebhookSource, getWebhookEvent, listWebhookEvents, listWebhookRules, listWebhookSources, pauseWebhookRule, pauseWebhookSource, resumeWebhookRule, resumeWebhookSource, updateWebhookRule } from "../../api/webhooks";
 import { listTasks } from "../../api/tasks";
+import { listWorkflows } from "../../api/workflows";
 import { API_BASE_URL } from "../../api/request";
 import type { WebhookEvent, WebhookMatcherCondition, WebhookRule, WebhookSource } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
+import { DataTable } from "../../shared/components/DataTable";
+import { FilterToolbar } from "../../shared/components/FilterToolbar";
+import { JsonViewer } from "../../shared/components/JsonViewer";
+import { PaginationBar } from "../../shared/components/PaginationBar";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 
@@ -32,7 +37,9 @@ export function WebhookPage() {
   const [sourceForm, setSourceForm] = useState({ name: "", sourceType: "custom" });
   const [ruleForm, setRuleForm] = useState({
     sourceId: "",
+    targetType: "task",
     taskId: "",
+    workflowId: "",
     name: "",
     eventType: ""
   });
@@ -55,6 +62,7 @@ export function WebhookPage() {
     queryFn: () => getWebhookEvent(selectedEventID ?? "")
   });
   const tasksQuery = useQuery({ queryKey: ["tasks", "webhook-options"], queryFn: () => listTasks({ pageSize: 100 }) });
+  const workflowsQuery = useQuery({ queryKey: ["workflows", "webhook-options"], queryFn: () => listWorkflows({ pageSize: 100, status: "active" }) });
   const createSourceMutation = useMutation({
     mutationFn: createWebhookSource,
     onSuccess: (source) => {
@@ -81,7 +89,9 @@ export function WebhookPage() {
     onSuccess: () => {
       setRuleForm({
         sourceId: "",
+        targetType: "task",
         taskId: "",
+        workflowId: "",
         name: "",
         eventType: ""
       });
@@ -114,6 +124,7 @@ export function WebhookPage() {
   const rules = useMemo(() => rulesQuery.data ?? [], [rulesQuery.data]);
   const events = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data]);
   const totalEvents = eventsQuery.data?.total ?? 0;
+  const statusText = (value: string) => t(`common.status.${value}`);
   const taskOptions = useMemo(() => {
     const map = new Map<string, NonNullable<typeof tasksQuery.data>["items"][number]>();
     for (const task of tasksQuery.data?.items ?? []) {
@@ -123,6 +134,7 @@ export function WebhookPage() {
     }
     return Array.from(map.values());
   }, [tasksQuery.data]);
+  const workflowOptions = useMemo(() => workflowsQuery.data?.items ?? [], [workflowsQuery.data]);
   const triggerURL = issuedToken ? `${API_BASE_URL || window.location.origin}/api/v1/webhooks/trigger/${issuedToken}` : "";
   const addMatcherDraft = () => {
     setMatcherDrafts((current) => [...current, { ...EMPTY_MATCHER_DRAFT }]);
@@ -150,7 +162,9 @@ export function WebhookPage() {
     setMatcherError("");
     setRuleForm({
       sourceId: rule.sourceId,
-      taskId: rule.taskId,
+      targetType: rule.targetType || "task",
+      taskId: rule.taskId ?? "",
+      workflowId: rule.workflowId ?? "",
       name: rule.name,
       eventType: rule.eventType ?? ""
     });
@@ -162,7 +176,9 @@ export function WebhookPage() {
     setMatcherDrafts([]);
     setRuleForm({
       sourceId: "",
+      targetType: "task",
       taskId: "",
+      workflowId: "",
       name: "",
       eventType: ""
     });
@@ -213,22 +229,6 @@ export function WebhookPage() {
     }
     return value;
   };
-  const formatPayload = (payload?: string) => {
-    const value = payload?.trim() ?? "";
-    if (!value) {
-      return t("webhooks.noPayload");
-    }
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      if (typeof parsed === "string") {
-        return parsed;
-      }
-      return JSON.stringify(parsed, null, 2);
-    } catch {
-      return value;
-    }
-  };
-
   return (
     <main className="page">
       <section className="page-heading">
@@ -266,7 +266,7 @@ export function WebhookPage() {
 
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("webhooks.sources")}</h3><span>{sources.length} {t("common.total")}</span></div>
-        <div className="data-table">
+        <DataTable loading={sourcesQuery.isLoading} empty={sources.length === 0} emptyMessage={t("webhooks.emptySources")} error={sourcesQuery.isError ? sourcesQuery.error.message : null}>
           <table>
             <thead><tr><th>{t("common.name")}</th><th>{t("common.type")}</th><th>{t("common.status")}</th><th>{t("common.created")}</th><th>{t("common.action")}</th></tr></thead>
             <tbody>
@@ -274,7 +274,7 @@ export function WebhookPage() {
                 <tr key={source.id}>
                   <td><strong>{source.name}</strong><small>{source.id}</small></td>
                   <td>{source.sourceType}</td>
-                  <td><span className={`status-chip status-${source.status}`}>{source.status}</span></td>
+                  <td><span className={`status-chip status-${source.status}`}>{statusText(source.status)}</span></td>
                   <td><strong>{source.createdAt}</strong><small>{source.lastReceivedAt || source.createdBy || "-"}</small></td>
                   <td className="action-cell">
                     {canManage && source.status === "active" ? <button type="button" onClick={() => pauseSourceMutation.mutate(source)}>{t("webhooks.pauseSource")}</button> : null}
@@ -285,9 +285,7 @@ export function WebhookPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        {!sourcesQuery.isLoading && sources.length === 0 ? <p className="empty-state">{t("webhooks.emptySources")}</p> : null}
-        {sourcesQuery.isError ? <p className="form-error">{sourcesQuery.error.message}</p> : null}
+        </DataTable>
         {pauseSourceMutation.isError ? <p className="form-error">{pauseSourceMutation.error.message}</p> : null}
         {resumeSourceMutation.isError ? <p className="form-error">{resumeSourceMutation.error.message}</p> : null}
         {disableSourceMutation.isError ? <p className="form-error">{disableSourceMutation.error.message}</p> : null}
@@ -314,7 +312,9 @@ export function WebhookPage() {
             }
             createRuleMutation.mutate({
               sourceId: ruleForm.sourceId,
-              taskId: ruleForm.taskId,
+              targetType: ruleForm.targetType,
+              taskId: ruleForm.targetType === "task" ? ruleForm.taskId : undefined,
+              workflowId: ruleForm.targetType === "workflow" ? ruleForm.workflowId : undefined,
               name: ruleForm.name,
               eventType: ruleForm.eventType,
               matcher: ruleMatcherResult.matcher
@@ -328,12 +328,29 @@ export function WebhookPage() {
               </select>
             </label>
             <label>
-              {t("common.task")}
-              <select value={ruleForm.taskId} onChange={(event) => setRuleForm({ ...ruleForm, taskId: event.target.value })} required disabled={Boolean(editingRuleID)}>
-                <option value="">{t("webhooks.selectTask")}</option>
-                {taskOptions.map((task) => <option key={task.taskId} value={task.taskId}>{task.name}</option>)}
+              {t("common.type")}
+              <select value={ruleForm.targetType} onChange={(event) => setRuleForm({ ...ruleForm, targetType: event.target.value, taskId: "", workflowId: "" })} disabled={Boolean(editingRuleID)}>
+                <option value="task">{t("common.task")}</option>
+                <option value="workflow">{t("workflows.workflow")}</option>
               </select>
             </label>
+            {ruleForm.targetType === "workflow" ? (
+              <label>
+                {t("workflows.workflow")}
+                <select value={ruleForm.workflowId} onChange={(event) => setRuleForm({ ...ruleForm, workflowId: event.target.value })} required disabled={Boolean(editingRuleID)}>
+                  <option value="">{t("common.selectWorkflow")}</option>
+                  {workflowOptions.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name}</option>)}
+                </select>
+              </label>
+            ) : (
+              <label>
+                {t("common.task")}
+                <select value={ruleForm.taskId} onChange={(event) => setRuleForm({ ...ruleForm, taskId: event.target.value })} required disabled={Boolean(editingRuleID)}>
+                  <option value="">{t("webhooks.selectTask")}</option>
+                  {taskOptions.map((task) => <option key={task.taskId} value={task.taskId}>{task.name}</option>)}
+                </select>
+              </label>
+            )}
             <label>{t("common.name")}<input value={ruleForm.name} onChange={(event) => setRuleForm({ ...ruleForm, name: event.target.value })} required /></label>
             <label>{t("webhooks.eventType")}<input value={ruleForm.eventType} onChange={(event) => setRuleForm({ ...ruleForm, eventType: event.target.value })} /></label>
             <div className="matcher-builder">
@@ -395,7 +412,7 @@ export function WebhookPage() {
 
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("webhooks.rules")}</h3><span>{rules.length} {t("common.total")}</span></div>
-        <div className="data-table">
+        <DataTable loading={rulesQuery.isLoading} empty={rules.length === 0} emptyMessage={t("webhooks.emptyRules")} error={rulesQuery.isError ? rulesQuery.error.message : null}>
           <table>
             <thead><tr><th>{t("common.name")}</th><th>{t("common.source")}</th><th>{t("common.task")}</th><th>{t("webhooks.event")}</th><th>{t("common.status")}</th><th>{t("common.created")}</th><th>{t("common.action")}</th></tr></thead>
             <tbody>
@@ -403,9 +420,9 @@ export function WebhookPage() {
                 <tr key={rule.id}>
                   <td><strong>{rule.name}</strong><small>{rule.id}</small></td>
                   <td>{rule.sourceName}</td>
-                  <td><strong>{rule.taskName}</strong><small>{rule.taskId}</small></td>
+                  <td><strong>{rule.targetType === "workflow" ? (rule.workflowName || t("workflows.workflow")) : (rule.taskName || t("common.task"))}</strong><small>{rule.targetType === "workflow" ? rule.workflowId : rule.taskId}</small></td>
                   <td><strong>{rule.eventType || "*"}</strong><small>{formatMatcher(rule.matcher)}</small></td>
-                  <td><span className={`status-chip status-${rule.status}`}>{rule.status}</span></td>
+                  <td><span className={`status-chip status-${rule.status}`}>{statusText(rule.status)}</span></td>
                   <td>{rule.createdAt}</td>
                   <td className="action-cell">
                     {canManage && rule.status !== "disabled" ? <button type="button" onClick={() => startRuleEdit(rule)}>{t("webhooks.editRule")}</button> : null}
@@ -417,8 +434,7 @@ export function WebhookPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        {!rulesQuery.isLoading && rules.length === 0 ? <p className="empty-state">{t("webhooks.emptyRules")}</p> : null}
+        </DataTable>
         {pauseRuleMutation.isError ? <p className="form-error">{pauseRuleMutation.error.message}</p> : null}
         {resumeRuleMutation.isError ? <p className="form-error">{resumeRuleMutation.error.message}</p> : null}
         {disableRuleMutation.isError ? <p className="form-error">{disableRuleMutation.error.message}</p> : null}
@@ -426,7 +442,7 @@ export function WebhookPage() {
 
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("webhooks.events")}</h3><span>{totalEvents} {t("common.total")}</span></div>
-        <div className="toolbar-row">
+        <FilterToolbar>
           <select value={eventFilters.sourceId} onChange={(event) => setEventFilters((current) => ({ ...current, sourceId: event.target.value, page: 1 }))}>
             <option value="">{t("webhooks.allSources")}</option>
             {sources.map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}
@@ -459,8 +475,8 @@ export function WebhookPage() {
             onChange={(event) => setEventFilters((current) => ({ ...current, receivedTo: event.target.value, page: 1 }))}
           />
           <button type="button" onClick={() => eventsQuery.refetch()}>{t("common.refresh")}</button>
-        </div>
-        <div className="data-table">
+        </FilterToolbar>
+        <DataTable loading={eventsQuery.isLoading} empty={events.length === 0} emptyMessage={t("webhooks.emptyEvents")} error={eventsQuery.isError ? eventsQuery.error.message : null}>
           <table>
             <thead><tr><th>{t("common.source")}</th><th>{t("webhooks.event")}</th><th>{t("webhooks.deliveryId")}</th><th>{t("common.status")}</th><th>{t("webhooks.security")}</th><th>{t("common.created")}</th><th>{t("common.action")}</th></tr></thead>
             <tbody>
@@ -469,7 +485,7 @@ export function WebhookPage() {
                   <td><strong>{item.sourceName || "-"}</strong><small>{item.sourceId || item.id}</small></td>
                   <td><strong>{item.eventType || "*"}</strong><small>{item.payloadHash || "-"}</small></td>
                   <td><strong>{item.deliveryId || "-"}</strong><small>{item.nonce || "-"}</small></td>
-                  <td><span className={`status-chip status-${item.status}`}>{item.status}</span></td>
+                  <td><span className={`status-chip status-${item.status}`}>{statusText(item.status)}</span></td>
                   <td>
                     <strong>{formatSecurityStatus(item)}</strong>
                     <small>{formatSecurityDetail(item)}</small>
@@ -480,8 +496,7 @@ export function WebhookPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        {!eventsQuery.isLoading && events.length === 0 ? <p className="empty-state">{t("webhooks.emptyEvents")}</p> : null}
+        </DataTable>
         {selectedEventID && eventDetailQuery.data ? (
           <section className="event-detail">
             <div className="panel-title">
@@ -504,40 +519,28 @@ export function WebhookPage() {
             </div>
             <div className="event-payload">
               <strong>{t("webhooks.payload")}</strong>
-              <pre className="json-block">{formatPayload(eventDetailQuery.data.payload)}</pre>
+              <JsonViewer value={eventDetailQuery.data.payload} emptyLabel={t("webhooks.noPayload")} />
             </div>
-            <div className="data-table">
+            <DataTable empty={eventDetailQuery.data.matches.length === 0}>
               <table>
                 <thead><tr><th>{t("webhooks.rule")}</th><th>{t("common.status")}</th><th>{t("common.reason")}</th><th>{t("common.task")}</th><th>{t("common.created")}</th></tr></thead>
                 <tbody>
                   {eventDetailQuery.data.matches.map((match) => (
                     <tr key={match.id}>
                       <td><strong>{match.ruleName || "-"}</strong><small>{match.ruleId || "-"}</small></td>
-                      <td><span className={`status-chip status-${match.matched ? "success" : "rejected"}`}>{match.matched ? "matched" : "skipped"}</span></td>
+                      <td><span className={`status-chip status-${match.matched ? "success" : "rejected"}`}>{statusText(match.matched ? "matched" : "skipped")}</span></td>
                       <td>{formatMatchReason(match.reason)}</td>
-                      <td>{match.taskRunId ? <Link to={`/tasks/${match.taskRunId}`}>{match.taskRunId}</Link> : "-"}</td>
+                      <td>{match.workflowRunId ? <Link to="/workflows">{match.workflowRunId}</Link> : match.taskRunId ? <Link to={`/tasks/${match.taskRunId}`}>{match.taskRunId}</Link> : "-"}</td>
                       <td>{match.createdAt}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </DataTable>
           </section>
         ) : null}
         {eventDetailQuery.isError ? <p className="form-error">{eventDetailQuery.error.message}</p> : null}
-        <div className="toolbar-row">
-          <span>{totalEvents} {t("common.total")}</span>
-          <button type="button" disabled={eventFilters.page <= 1} onClick={() => setEventFilters((current) => ({ ...current, page: Math.max(1, current.page - 1) }))}>{t("common.previous")}</button>
-          <span>{t("common.page").replace("{page}", String(eventFilters.page))}</span>
-          <button
-            type="button"
-            disabled={eventFilters.page * 20 >= totalEvents}
-            onClick={() => setEventFilters((current) => ({ ...current, page: current.page + 1 }))}
-          >
-            {t("common.next")}
-          </button>
-        </div>
-        {eventsQuery.isError ? <p className="form-error">{eventsQuery.error.message}</p> : null}
+        <PaginationBar total={totalEvents} page={eventFilters.page} pageSize={20} onPageChange={(page) => setEventFilters((current) => ({ ...current, page }))} />
       </section>
     </main>
   );

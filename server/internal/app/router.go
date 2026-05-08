@@ -17,12 +17,14 @@ import (
 	"opspilot/server/internal/modules/alerts"
 	"opspilot/server/internal/modules/audits"
 	"opspilot/server/internal/modules/auth"
+	"opspilot/server/internal/modules/incidents"
 	"opspilot/server/internal/modules/metrics"
 	"opspilot/server/internal/modules/notifications"
 	"opspilot/server/internal/modules/schedules"
 	"opspilot/server/internal/modules/scripts"
 	"opspilot/server/internal/modules/tasks"
 	"opspilot/server/internal/modules/webhooks"
+	"opspilot/server/internal/modules/workflows"
 	"opspilot/server/internal/shared/response"
 )
 
@@ -79,6 +81,8 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 		taskHandler.RegisterAgentRoutes(api, agentHandler.AgentAuthMiddleware())
 		metrics.NewHandler(metrics.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, agentHandler.AgentAuthMiddleware(), authHandler.RequirePermission)
 		alerts.NewHandler(alerts.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
+		incidents.NewHandler(incidents.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
+		workflows.NewHandler(workflows.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 		notifications.NewHandler(notifications.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 		audits.NewHandler(audits.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 	}

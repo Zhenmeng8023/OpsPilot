@@ -52,7 +52,7 @@ export function getWebhookEvent(id: string) {
   return request<WebhookEventDetail>(`/api/v1/webhooks/events/${id}`);
 }
 
-export function createWebhookRule(payload: { sourceId: string; taskId: string; name: string; eventType?: string; matcher?: WebhookMatcher }) {
+export function createWebhookRule(payload: { sourceId: string; targetType?: string; taskId?: string; workflowId?: string; name: string; eventType?: string; matcher?: WebhookMatcher }) {
   return request<WebhookRule>("/api/v1/webhooks/rules", {
     method: "POST",
     body: JSON.stringify(payload)

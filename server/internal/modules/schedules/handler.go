@@ -28,7 +28,9 @@ type Handler struct {
 
 type createRequest struct {
 	Name          string `json:"name" binding:"required"`
-	TaskID        string `json:"taskId" binding:"required"`
+	TargetType    string `json:"targetType"`
+	TaskID        string `json:"taskId"`
+	WorkflowID    string `json:"workflowId"`
 	CronExpr      string `json:"cronExpr" binding:"required"`
 	Timezone      string `json:"timezone"`
 	MisfirePolicy string `json:"misfirePolicy"`
@@ -79,7 +81,9 @@ func (h *Handler) create(c *gin.Context) {
 	}
 	created, appErr := h.service.Create(c.Request.Context(), CreateInput{
 		Name:          req.Name,
+		TargetType:    req.TargetType,
 		TaskID:        req.TaskID,
+		WorkflowID:    req.WorkflowID,
 		CronExpr:      req.CronExpr,
 		Timezone:      req.Timezone,
 		MisfirePolicy: req.MisfirePolicy,

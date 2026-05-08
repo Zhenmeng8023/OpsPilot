@@ -4,6 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { listAuditLogs } from "../../api/audits";
 import type { AuditLog } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
+import { DataTable } from "../../shared/components/DataTable";
+import { FilterToolbar } from "../../shared/components/FilterToolbar";
+import { JsonViewer } from "../../shared/components/JsonViewer";
+import { PaginationBar } from "../../shared/components/PaginationBar";
 
 const pageSize = 20;
 
@@ -47,7 +51,7 @@ export function AuditLogsPage() {
           <h3>{t("audit.events")}</h3>
           <span>{total} {t("common.total")}</span>
         </div>
-        <div className="toolbar-row">
+        <FilterToolbar>
           <input placeholder={t("audit.keyword")} value={filters.keyword} onChange={(event) => updateFilter("keyword", event.target.value)} />
           <input placeholder={t("audit.action")} value={filters.action} onChange={(event) => updateFilter("action", event.target.value)} />
           <select value={filters.actorType} onChange={(event) => updateFilter("actorType", event.target.value)}>
@@ -68,8 +72,8 @@ export function AuditLogsPage() {
           <input type="datetime-local" value={filters.createdFrom} onChange={(event) => updateFilter("createdFrom", event.target.value)} />
           <input type="datetime-local" value={filters.createdTo} onChange={(event) => updateFilter("createdTo", event.target.value)} />
           <button type="button" onClick={() => query.refetch()}>{t("common.refresh")}</button>
-        </div>
-        <div className="data-table">
+        </FilterToolbar>
+        <DataTable loading={query.isLoading} empty={logs.length === 0} emptyMessage={t("audit.empty")} error={query.isError ? query.error.message : null}>
           <table>
             <thead>
               <tr>
@@ -96,14 +100,8 @@ export function AuditLogsPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        {!query.isLoading && logs.length === 0 ? <p className="empty-state">{t("audit.empty")}</p> : null}
-        {query.isError ? <p className="form-error">{query.error.message}</p> : null}
-        <div className="pagination">
-          <button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>{t("common.previous")}</button>
-          <span>{t("common.page").replace("{page}", String(page))}</span>
-          <button type="button" disabled={page * pageSize >= total} onClick={() => setPage((value) => value + 1)}>{t("common.next")}</button>
-        </div>
+        </DataTable>
+        <PaginationBar total={total} page={page} pageSize={pageSize} onPageChange={setPage} />
       </section>
 
       {selected ? (
@@ -135,7 +133,7 @@ function AuditJsonBlock({ title, value }: { title: string; value?: string }) {
   return (
     <div className="event-payload">
       <strong>{title}</strong>
-      <pre className="json-block">{formatJson(value)}</pre>
+      <JsonViewer value={value} emptyLabel="-" />
     </div>
   );
 }
@@ -148,13 +146,4 @@ function requestLine(item: AuditLog) {
   const method = item.requestMethod || "-";
   const path = item.requestPath || "-";
   return `${method} ${path}`;
-}
-
-function formatJson(value?: string) {
-  if (!value) return "-";
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
 }

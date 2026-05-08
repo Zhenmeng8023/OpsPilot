@@ -20,6 +20,7 @@ import (
 
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/modules/execution"
+	"opspilot/server/internal/modules/workflows"
 	"opspilot/server/internal/shared/apperror"
 	"opspilot/server/internal/shared/audit"
 	"opspilot/server/internal/shared/uid"
@@ -46,12 +47,14 @@ type CreateSourceInput struct {
 }
 
 type CreateRuleInput struct {
-	SourceID  string
-	TaskID    string
-	Name      string
-	EventType string
-	Matcher   *Matcher
-	Audit     AuditContext
+	SourceID   string
+	TargetType string
+	TaskID     string
+	WorkflowID string
+	Name       string
+	EventType  string
+	Matcher    *Matcher
+	Audit      AuditContext
 }
 
 type UpdateRuleInput struct {
@@ -106,17 +109,20 @@ type SourceDetail struct {
 }
 
 type RuleSummary struct {
-	ID         string   `json:"id"`
-	SourceID   string   `json:"sourceId"`
-	SourceName string   `json:"sourceName"`
-	TaskID     string   `json:"taskId"`
-	TaskName   string   `json:"taskName"`
-	Name       string   `json:"name"`
-	EventType  string   `json:"eventType,omitempty"`
-	Matcher    *Matcher `json:"matcher,omitempty"`
-	Status     string   `json:"status"`
-	CreatedBy  string   `json:"createdBy,omitempty"`
-	CreatedAt  string   `json:"createdAt"`
+	ID           string   `json:"id"`
+	SourceID     string   `json:"sourceId"`
+	SourceName   string   `json:"sourceName"`
+	TargetType   string   `json:"targetType"`
+	TaskID       string   `json:"taskId,omitempty"`
+	TaskName     string   `json:"taskName,omitempty"`
+	WorkflowID   string   `json:"workflowId,omitempty"`
+	WorkflowName string   `json:"workflowName,omitempty"`
+	Name         string   `json:"name"`
+	EventType    string   `json:"eventType,omitempty"`
+	Matcher      *Matcher `json:"matcher,omitempty"`
+	Status       string   `json:"status"`
+	CreatedBy    string   `json:"createdBy,omitempty"`
+	CreatedAt    string   `json:"createdAt"`
 }
 
 type Matcher struct {
@@ -149,13 +155,14 @@ type EventSummary struct {
 }
 
 type EventMatchSummary struct {
-	ID        uint64 `json:"id"`
-	RuleID    string `json:"ruleId,omitempty"`
-	RuleName  string `json:"ruleName,omitempty"`
-	Matched   bool   `json:"matched"`
-	Reason    string `json:"reason,omitempty"`
-	TaskRunID string `json:"taskRunId,omitempty"`
-	CreatedAt string `json:"createdAt"`
+	ID            uint64 `json:"id"`
+	RuleID        string `json:"ruleId,omitempty"`
+	RuleName      string `json:"ruleName,omitempty"`
+	Matched       bool   `json:"matched"`
+	Reason        string `json:"reason,omitempty"`
+	TaskRunID     string `json:"taskRunId,omitempty"`
+	WorkflowRunID string `json:"workflowRunId,omitempty"`
+	CreatedAt     string `json:"createdAt"`
 }
 
 type EventDetail struct {
@@ -201,22 +208,26 @@ type sourceRecord struct {
 }
 
 type ruleRecord struct {
-	ID          uint64
-	UID         string
-	WorkspaceID uint64
-	SourceID    uint64
-	SourceUID   string
-	SourceName  string
-	TaskID      uint64
-	TaskUID     string
-	TaskName    string
-	Name        string
-	EventType   sql.NullString
-	Matcher     sql.NullString
-	Status      string
-	CreatedBy   sql.NullString
-	CreatedByID sql.NullInt64
-	CreatedAt   string
+	ID           uint64
+	UID          string
+	WorkspaceID  uint64
+	SourceID     uint64
+	SourceUID    string
+	SourceName   string
+	TargetType   string
+	TaskID       uint64
+	TaskUID      string
+	TaskName     string
+	WorkflowID   uint64
+	WorkflowUID  string
+	WorkflowName string
+	Name         string
+	EventType    sql.NullString
+	Matcher      sql.NullString
+	Status       string
+	CreatedBy    sql.NullString
+	CreatedByID  sql.NullInt64
+	CreatedAt    string
 }
 
 type eventRecord struct {
@@ -241,13 +252,14 @@ type eventRecord struct {
 }
 
 type eventMatchRecord struct {
-	ID         uint64
-	RuleUID    sql.NullString
-	RuleName   sql.NullString
-	Matched    bool
-	Reason     sql.NullString
-	TaskRunUID sql.NullString
-	CreatedAt  string
+	ID             uint64
+	RuleUID        sql.NullString
+	RuleName       sql.NullString
+	Matched        bool
+	Reason         sql.NullString
+	TaskRunUID     sql.NullString
+	WorkflowRunUID sql.NullString
+	CreatedAt      string
 }
 
 type workspaceRecord struct {
@@ -260,6 +272,13 @@ type userRecord struct {
 
 type taskRecord struct {
 	ID uint64
+}
+
+type workflowRecord struct {
+	ID     uint64
+	UID    string
+	Name   string
+	Status string
 }
 
 func NewService(db *gorm.DB, cfg config.Config) *Service {
@@ -449,10 +468,18 @@ func (s *Service) ListRules(ctx context.Context) ([]RuleSummary, *apperror.Error
 func (s *Service) CreateRule(ctx context.Context, input CreateRuleInput) (RuleSummary, *apperror.Error) {
 	name := strings.TrimSpace(input.Name)
 	sourceUID := strings.TrimSpace(input.SourceID)
+	targetType := normalizeWebhookTargetType(input.TargetType)
 	taskUID := strings.TrimSpace(input.TaskID)
+	workflowUID := strings.TrimSpace(input.WorkflowID)
 	eventType := strings.TrimSpace(input.EventType)
-	if name == "" || sourceUID == "" || taskUID == "" {
-		return RuleSummary{}, apperror.New(http.StatusBadRequest, 400503, "sourceId, taskId and name are required")
+	if name == "" || sourceUID == "" {
+		return RuleSummary{}, apperror.New(http.StatusBadRequest, 400503, "sourceId and name are required")
+	}
+	if targetType == "workflow" && workflowUID == "" {
+		return RuleSummary{}, apperror.New(http.StatusBadRequest, 400508, "workflowId is required")
+	}
+	if targetType == "task" && taskUID == "" {
+		return RuleSummary{}, apperror.New(http.StatusBadRequest, 400402, "taskId is required")
 	}
 	matcher, appErr := normalizeMatcher(input.Matcher)
 	if appErr != nil {
@@ -471,12 +498,29 @@ func (s *Service) CreateRule(ctx context.Context, input CreateRuleInput) (RuleSu
 		if source.ID == 0 {
 			return apperror.New(http.StatusNotFound, 404501, "webhook source not found")
 		}
-		task, err := taskByUID(ctx, tx, workspace.ID, taskUID)
-		if err != nil {
-			return err
-		}
-		if task.ID == 0 {
-			return apperror.New(http.StatusNotFound, 404401, "task definition not found")
+		taskID := sql.NullInt64{}
+		workflowID := sql.NullInt64{}
+		if targetType == "workflow" {
+			workflow, err := workflowByUID(ctx, tx, workspace.ID, workflowUID)
+			if err != nil {
+				return err
+			}
+			if workflow.ID == 0 {
+				return apperror.New(http.StatusNotFound, 404505, "workflow definition not found")
+			}
+			if workflow.Status != "active" {
+				return apperror.New(http.StatusConflict, 409504, "workflow must be active before it can be attached to a webhook rule")
+			}
+			workflowID = nullID(workflow.ID)
+		} else {
+			task, err := taskByUID(ctx, tx, workspace.ID, taskUID)
+			if err != nil {
+				return err
+			}
+			if task.ID == 0 {
+				return apperror.New(http.StatusNotFound, 404401, "task definition not found")
+			}
+			taskID = nullID(task.ID)
 		}
 		actor, err := userByUID(ctx, tx, input.Audit.ActorUID)
 		if err != nil {
@@ -487,9 +531,9 @@ func (s *Service) CreateRule(ctx context.Context, input CreateRuleInput) (RuleSu
 			return err
 		}
 		if err := tx.WithContext(ctx).Exec(
-			`INSERT INTO webhook_rules(uid, workspace_id, source_id, task_id, name, event_type, matcher, status, created_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-			ruleUID, workspace.ID, source.ID, task.ID, name, nullString(eventType), matcherSQL(matcher), nullID(actor.ID),
+			`INSERT INTO webhook_rules(uid, workspace_id, source_id, task_id, workflow_id, target_type, name, event_type, matcher, status, created_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+			ruleUID, workspace.ID, source.ID, taskID, workflowID, targetType, name, nullString(eventType), matcherSQL(matcher), nullID(actor.ID),
 		).Error; err != nil {
 			return err
 		}
@@ -967,6 +1011,32 @@ func (s *Service) Trigger(ctx context.Context, input TriggerInput) (TriggerResul
 				continue
 			}
 			matched++
+			if normalizeWebhookTargetType(rule.TargetType) == "workflow" {
+				runID, runUID, err := workflows.CreateTriggeredRunTx(
+					ctx,
+					tx,
+					source.WorkspaceID,
+					rule.WorkflowID,
+					"webhook",
+					"",
+					"",
+					rule.CreatedByID,
+					map[string]interface{}{"webhookEventId": eventUID, "webhookRuleId": rule.UID},
+				)
+				if err != nil {
+					_ = tx.WithContext(ctx).Exec(
+						"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, ?)",
+						eventID, rule.ID, limitString(err.Error(), 1024),
+					).Error
+					continue
+				}
+				triggeredRuns = append(triggeredRuns, runUID)
+				_ = tx.WithContext(ctx).Exec(
+					"INSERT INTO webhook_event_matches(event_id, rule_id, workflow_run_id, matched, reason) VALUES (?, ?, ?, 1, 'triggered')",
+					eventID, rule.ID, runID,
+				).Error
+				continue
+			}
 			runID, runUID, err := execution.CreateRunFromTask(ctx, tx, source.WorkspaceID, rule.TaskID, "webhook", nullID(eventID), rule.CreatedByID)
 			if err != nil {
 				_ = tx.WithContext(ctx).Exec(
@@ -1038,6 +1108,18 @@ func taskByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, uid string)
 	return task, err
 }
 
+func workflowByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, uid string) (workflowRecord, error) {
+	var workflow workflowRecord
+	err := db.WithContext(ctx).Raw(
+		`SELECT id, uid, name, status
+		   FROM workflow_definitions
+		  WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL
+		  LIMIT 1`,
+		workspaceID, uid,
+	).Scan(&workflow).Error
+	return workflow, err
+}
+
 func sourceByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, uid string) (sourceRecord, error) {
 	var source sourceRecord
 	err := db.WithContext(ctx).Raw(
@@ -1068,12 +1150,14 @@ func rules(ctx context.Context, db *gorm.DB, workspaceID, sourceID uint64, ruleU
 	var rows []ruleRecord
 	err := db.WithContext(ctx).Raw(
 		`SELECT wr.id, wr.uid, wr.workspace_id, wr.source_id, ws.uid AS source_uid, ws.name AS source_name,
-		        wr.task_id, t.uid AS task_uid, t.name AS task_name, wr.name, wr.event_type, CAST(wr.matcher AS CHAR) AS matcher, wr.status,
+		        wr.target_type, wr.task_id, t.uid AS task_uid, t.name AS task_name, wr.workflow_id, wd.uid AS workflow_uid, wd.name AS workflow_name,
+		        wr.name, wr.event_type, CAST(wr.matcher AS CHAR) AS matcher, wr.status,
 		        u.username AS created_by, wr.created_by AS created_by_id,
 		        DATE_FORMAT(wr.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
 		   FROM webhook_rules wr
 		   JOIN webhook_sources ws ON ws.id = wr.source_id
-		   JOIN tasks t ON t.id = wr.task_id
+		   LEFT JOIN tasks t ON t.id = wr.task_id
+		   LEFT JOIN workflow_definitions wd ON wd.id = wr.workflow_id
 		   LEFT JOIN users u ON u.id = wr.created_by
 		  `+where+`
 		  ORDER BY wr.created_at DESC`,
@@ -1168,10 +1252,12 @@ func eventMatches(ctx context.Context, db *gorm.DB, eventID uint64) ([]eventMatc
 	var rows []eventMatchRecord
 	err := db.WithContext(ctx).Raw(
 		`SELECT wem.id, wr.uid AS rule_uid, wr.name AS rule_name, wem.matched, wem.reason,
-		        tr.uid AS task_run_uid, DATE_FORMAT(wem.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		        tr.uid AS task_run_uid, wfr.uid AS workflow_run_uid,
+		        DATE_FORMAT(wem.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
 		   FROM webhook_event_matches wem
 		   LEFT JOIN webhook_rules wr ON wr.id = wem.rule_id
 		   LEFT JOIN task_runs tr ON tr.id = wem.task_run_id
+		   LEFT JOIN workflow_runs wfr ON wfr.id = wem.workflow_run_id
 		  WHERE wem.event_id = ?
 		  ORDER BY wem.created_at ASC, wem.id ASC`,
 		eventID,
@@ -1194,17 +1280,20 @@ func sourceSummary(row sourceRecord) SourceSummary {
 func ruleSummary(row ruleRecord) RuleSummary {
 	matcher, _ := parseMatcher(row.Matcher.String)
 	return RuleSummary{
-		ID:         row.UID,
-		SourceID:   row.SourceUID,
-		SourceName: row.SourceName,
-		TaskID:     row.TaskUID,
-		TaskName:   row.TaskName,
-		Name:       row.Name,
-		EventType:  row.EventType.String,
-		Matcher:    matcher,
-		Status:     row.Status,
-		CreatedBy:  row.CreatedBy.String,
-		CreatedAt:  row.CreatedAt,
+		ID:           row.UID,
+		SourceID:     row.SourceUID,
+		SourceName:   row.SourceName,
+		TargetType:   normalizeWebhookTargetType(row.TargetType),
+		TaskID:       row.TaskUID,
+		TaskName:     row.TaskName,
+		WorkflowID:   row.WorkflowUID,
+		WorkflowName: row.WorkflowName,
+		Name:         row.Name,
+		EventType:    row.EventType.String,
+		Matcher:      matcher,
+		Status:       row.Status,
+		CreatedBy:    row.CreatedBy.String,
+		CreatedAt:    row.CreatedAt,
 	}
 }
 
@@ -1232,16 +1321,24 @@ func eventMatchSummaries(rows []eventMatchRecord) []EventMatchSummary {
 	out := make([]EventMatchSummary, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, EventMatchSummary{
-			ID:        row.ID,
-			RuleID:    row.RuleUID.String,
-			RuleName:  row.RuleName.String,
-			Matched:   row.Matched,
-			Reason:    row.Reason.String,
-			TaskRunID: row.TaskRunUID.String,
-			CreatedAt: row.CreatedAt,
+			ID:            row.ID,
+			RuleID:        row.RuleUID.String,
+			RuleName:      row.RuleName.String,
+			Matched:       row.Matched,
+			Reason:        row.Reason.String,
+			TaskRunID:     row.TaskRunUID.String,
+			WorkflowRunID: row.WorkflowRunUID.String,
+			CreatedAt:     row.CreatedAt,
 		})
 	}
 	return out
+}
+
+func normalizeWebhookTargetType(value string) string {
+	if strings.TrimSpace(value) == "workflow" {
+		return "workflow"
+	}
+	return "task"
 }
 
 func validSignature(secret string, body []byte, signature string) bool {

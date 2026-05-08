@@ -3,7 +3,9 @@ import type { PageResult, ScheduleSummary, ScheduleTrigger } from "./types";
 
 export interface CreateSchedulePayload {
   name: string;
-  taskId: string;
+  targetType?: string;
+  taskId?: string;
+  workflowId?: string;
   cronExpr: string;
   timezone?: string;
   misfirePolicy?: string;

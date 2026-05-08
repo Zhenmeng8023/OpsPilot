@@ -26,24 +26,36 @@ type taskRecord struct {
 	Name string
 }
 
+type workflowRecord struct {
+	ID      uint64
+	UID     string
+	Name    string
+	Status  string
+	Version uint
+}
+
 type scheduleRecord struct {
-	ID           uint64
-	UID          string
-	WorkspaceID  uint64
-	TaskID       uint64
-	TaskUID      string
-	TaskName     string
-	Name         string
-	ScheduleType string
-	CronExpr     sql.NullString
-	Timezone     string
-	Status       string
+	ID            uint64
+	UID           string
+	WorkspaceID   uint64
+	TaskID        uint64
+	WorkflowID    uint64
+	TargetType    string
+	TaskUID       string
+	TaskName      string
+	WorkflowUID   string
+	WorkflowName  string
+	Name          string
+	ScheduleType  string
+	CronExpr      sql.NullString
+	Timezone      string
+	Status        string
 	MisfirePolicy string
-	NextFireAt   sql.NullString
-	LastFireAt   sql.NullString
-	CreatedBy    sql.NullString
-	CreatedByID  sql.NullInt64
-	CreatedAt    string
+	NextFireAt    sql.NullString
+	LastFireAt    sql.NullString
+	CreatedBy     sql.NullString
+	CreatedByID   sql.NullInt64
+	CreatedAt     string
 }
 
 type listFilter struct {
@@ -55,25 +67,28 @@ type listFilter struct {
 }
 
 type dueScheduleRecord struct {
-	ID          uint64
-	WorkspaceID uint64
-	TaskID      uint64
-	Name        string
-	CronExpr    string
-	Timezone    string
+	ID            uint64
+	WorkspaceID   uint64
+	TaskID        uint64
+	WorkflowID    uint64
+	TargetType    string
+	Name          string
+	CronExpr      string
+	Timezone      string
 	MisfirePolicy string
-	NextFireAt  string
-	CreatedByID sql.NullInt64
+	NextFireAt    string
+	CreatedByID   sql.NullInt64
 }
 
 type triggerRecord struct {
-	ID            uint64
-	TaskRunUID    sql.NullString
-	PlannedFireAt string
-	ActualFireAt  sql.NullString
-	Status        string
-	ErrorMessage  sql.NullString
-	CreatedAt     string
+	ID             uint64
+	TaskRunUID     sql.NullString
+	WorkflowRunUID sql.NullString
+	PlannedFireAt  string
+	ActualFireAt   sql.NullString
+	Status         string
+	ErrorMessage   sql.NullString
+	CreatedAt      string
 }
 
 func newRepository(db *gorm.DB) repository {
@@ -107,6 +122,18 @@ func (r repository) taskByUID(ctx context.Context, workspaceID uint64, uid strin
 	return task, err
 }
 
+func (r repository) workflowByUID(ctx context.Context, workspaceID uint64, uid string) (workflowRecord, error) {
+	var workflow workflowRecord
+	err := r.db.WithContext(ctx).Raw(
+		`SELECT id, uid, name, status, version
+		   FROM workflow_definitions
+		  WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL
+		  LIMIT 1`,
+		workspaceID, uid,
+	).Scan(&workflow).Error
+	return workflow, err
+}
+
 func (r repository) scheduleByUID(ctx context.Context, workspaceID uint64, uid string) (scheduleRecord, error) {
 	var row scheduleRecord
 	err := r.db.WithContext(ctx).Raw(scheduleSelectSQL()+`
@@ -121,23 +148,24 @@ func (r repository) listSchedules(ctx context.Context, workspaceID uint64, filte
 	args := []interface{}{workspaceID}
 	where := "WHERE s.workspace_id = ? AND s.deleted_at IS NULL"
 	if filter.Keyword != "" {
-		where += " AND (s.name LIKE ? OR t.name LIKE ?)"
+		where += " AND (s.name LIKE ? OR COALESCE(t.name, '') LIKE ? OR COALESCE(wd.name, '') LIKE ?)"
 		like := "%" + filter.Keyword + "%"
-		args = append(args, like, like)
+		args = append(args, like, like, like)
 	}
 	if filter.Status != "" {
 		where += " AND s.status = ?"
 		args = append(args, filter.Status)
 	}
 	if filter.TaskUID != "" {
-		where += " AND t.uid = ?"
-		args = append(args, filter.TaskUID)
+		where += " AND (t.uid = ? OR wd.uid = ?)"
+		args = append(args, filter.TaskUID, filter.TaskUID)
 	}
 	var total int64
 	if err := r.db.WithContext(ctx).Raw(
 		`SELECT COUNT(*)
 		   FROM schedules s
-		   JOIN tasks t ON t.id = s.task_id
+		   LEFT JOIN tasks t ON t.id = s.task_id
+		   LEFT JOIN workflow_definitions wd ON wd.id = s.workflow_id
 		   LEFT JOIN users u ON u.id = s.created_by
 		  `+where,
 		args...,
@@ -158,27 +186,30 @@ func (r repository) listSchedules(ctx context.Context, workspaceID uint64, filte
 }
 
 func scheduleSelectSQL() string {
-	return `SELECT s.id, s.uid, s.workspace_id, s.task_id, t.uid AS task_uid, t.name AS task_name,
+	return `SELECT s.id, s.uid, s.workspace_id, s.task_id, s.workflow_id, s.target_type,
+	        t.uid AS task_uid, t.name AS task_name, wd.uid AS workflow_uid, wd.name AS workflow_name,
 	        s.name, s.schedule_type, s.cron_expr, s.timezone, s.status, s.misfire_policy,
 	        DATE_FORMAT(s.next_fire_at, '%Y-%m-%d %H:%i:%s') AS next_fire_at,
 	        DATE_FORMAT(s.last_fire_at, '%Y-%m-%d %H:%i:%s') AS last_fire_at,
 	        u.username AS created_by, s.created_by AS created_by_id,
 	        DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
 	   FROM schedules s
-	   JOIN tasks t ON t.id = s.task_id
+	   LEFT JOIN tasks t ON t.id = s.task_id
+	   LEFT JOIN workflow_definitions wd ON wd.id = s.workflow_id
 	   LEFT JOIN users u ON u.id = s.created_by`
 }
 
 func (r repository) listTriggers(ctx context.Context, scheduleID uint64, limit int) ([]triggerRecord, error) {
 	var rows []triggerRecord
 	err := r.db.WithContext(ctx).Raw(
-		`SELECT st.id, tr.uid AS task_run_uid,
+		`SELECT st.id, tr.uid AS task_run_uid, wr.uid AS workflow_run_uid,
 		        DATE_FORMAT(st.planned_fire_at, '%Y-%m-%d %H:%i:%s') AS planned_fire_at,
 		        DATE_FORMAT(st.actual_fire_at, '%Y-%m-%d %H:%i:%s') AS actual_fire_at,
 		        st.status, st.error_message,
 		        DATE_FORMAT(st.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
 		   FROM schedule_triggers st
 		   LEFT JOIN task_runs tr ON tr.id = st.task_run_id
+		   LEFT JOIN workflow_runs wr ON wr.id = st.workflow_run_id
 		  WHERE st.schedule_id = ?
 		  ORDER BY st.planned_fire_at DESC, st.id DESC
 		  LIMIT ?`,

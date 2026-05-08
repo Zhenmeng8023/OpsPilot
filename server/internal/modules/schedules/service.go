@@ -11,6 +11,7 @@ import (
 
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/modules/execution"
+	"opspilot/server/internal/modules/workflows"
 	"opspilot/server/internal/shared/apperror"
 	"opspilot/server/internal/shared/audit"
 	"opspilot/server/internal/shared/uid"
@@ -41,7 +42,9 @@ type ListInput struct {
 
 type CreateInput struct {
 	Name          string
+	TargetType    string
 	TaskID        string
+	WorkflowID    string
 	CronExpr      string
 	Timezone      string
 	MisfirePolicy string
@@ -55,19 +58,22 @@ type PreviewInput struct {
 }
 
 type ScheduleSummary struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	TaskID       string `json:"taskId"`
-	TaskName     string `json:"taskName"`
-	ScheduleType string `json:"scheduleType"`
-	CronExpr     string `json:"cronExpr"`
-	Timezone     string `json:"timezone"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	TargetType    string `json:"targetType"`
+	TaskID        string `json:"taskId,omitempty"`
+	TaskName      string `json:"taskName,omitempty"`
+	WorkflowID    string `json:"workflowId,omitempty"`
+	WorkflowName  string `json:"workflowName,omitempty"`
+	ScheduleType  string `json:"scheduleType"`
+	CronExpr      string `json:"cronExpr"`
+	Timezone      string `json:"timezone"`
 	MisfirePolicy string `json:"misfirePolicy"`
-	Status       string `json:"status"`
-	NextFireAt   string `json:"nextFireAt,omitempty"`
-	LastFireAt   string `json:"lastFireAt,omitempty"`
-	CreatedBy    string `json:"createdBy,omitempty"`
-	CreatedAt    string `json:"createdAt"`
+	Status        string `json:"status"`
+	NextFireAt    string `json:"nextFireAt,omitempty"`
+	LastFireAt    string `json:"lastFireAt,omitempty"`
+	CreatedBy     string `json:"createdBy,omitempty"`
+	CreatedAt     string `json:"createdAt"`
 }
 
 type PreviewResult struct {
@@ -77,6 +83,7 @@ type PreviewResult struct {
 type TriggerSummary struct {
 	ID            uint64 `json:"id"`
 	TaskRunID     string `json:"taskRunId,omitempty"`
+	WorkflowRunID string `json:"workflowRunId,omitempty"`
 	PlannedFireAt string `json:"plannedFireAt"`
 	ActualFireAt  string `json:"actualFireAt,omitempty"`
 	Status        string `json:"status"`
@@ -125,14 +132,19 @@ func (s *Service) List(ctx context.Context, input ListInput) (ScheduleListResult
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (ScheduleSummary, *apperror.Error) {
 	name := strings.TrimSpace(input.Name)
+	targetType := normalizeTargetType(input.TargetType)
 	taskUID := strings.TrimSpace(input.TaskID)
+	workflowUID := strings.TrimSpace(input.WorkflowID)
 	cronExpr := strings.TrimSpace(input.CronExpr)
 	timezone := normalizeTimezone(input.Timezone)
 	misfirePolicy := normalizeMisfirePolicy(input.MisfirePolicy)
 	if name == "" {
 		return ScheduleSummary{}, apperror.New(http.StatusBadRequest, 400401, "schedule name is required")
 	}
-	if taskUID == "" {
+	if targetType == "workflow" && workflowUID == "" {
+		return ScheduleSummary{}, apperror.New(http.StatusBadRequest, 400406, "workflowId is required")
+	}
+	if targetType == "task" && taskUID == "" {
 		return ScheduleSummary{}, apperror.New(http.StatusBadRequest, 400402, "taskId is required")
 	}
 	if cronExpr == "" {
@@ -157,12 +169,29 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (ScheduleSummar
 		if workspace.ID == 0 {
 			return apperror.New(http.StatusInternalServerError, 500402, "default workspace is not initialized")
 		}
-		task, err := repo.taskByUID(ctx, workspace.ID, taskUID)
-		if err != nil {
-			return err
-		}
-		if task.ID == 0 {
-			return apperror.New(http.StatusNotFound, 404401, "task definition not found")
+		taskID := sql.NullInt64{}
+		workflowID := sql.NullInt64{}
+		if targetType == "workflow" {
+			workflow, err := repo.workflowByUID(ctx, workspace.ID, workflowUID)
+			if err != nil {
+				return err
+			}
+			if workflow.ID == 0 {
+				return apperror.New(http.StatusNotFound, 404403, "workflow definition not found")
+			}
+			if workflow.Status != "active" {
+				return apperror.New(http.StatusConflict, 409402, "workflow must be active before it can be scheduled")
+			}
+			workflowID = sql.NullInt64{Int64: int64(workflow.ID), Valid: true}
+		} else {
+			task, err := repo.taskByUID(ctx, workspace.ID, taskUID)
+			if err != nil {
+				return err
+			}
+			if task.ID == 0 {
+				return apperror.New(http.StatusNotFound, 404401, "task definition not found")
+			}
+			taskID = sql.NullInt64{Int64: int64(task.ID), Valid: true}
 		}
 		actor, err := repo.userByUID(ctx, input.Audit.ActorUID)
 		if err != nil {
@@ -177,9 +206,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (ScheduleSummar
 			return err
 		}
 		if err := tx.WithContext(ctx).Exec(
-			`INSERT INTO schedules(uid, workspace_id, task_id, name, schedule_type, cron_expr, timezone, misfire_policy, status, next_fire_at, created_by)
-			 VALUES (?, ?, ?, ?, 'cron', ?, ?, ?, 'active', ?, ?)`,
-			scheduleUID, workspace.ID, task.ID, name, cronExpr, timezone, misfirePolicy, nextFireAt, actorID,
+			`INSERT INTO schedules(uid, workspace_id, task_id, workflow_id, target_type, name, schedule_type, cron_expr, timezone, misfire_policy, status, next_fire_at, created_by)
+			 VALUES (?, ?, ?, ?, ?, ?, 'cron', ?, ?, ?, 'active', ?, ?)`,
+			scheduleUID, workspace.ID, taskID, workflowID, targetType, name, cronExpr, timezone, misfirePolicy, nextFireAt, actorID,
 		).Error; err != nil {
 			return err
 		}
@@ -271,6 +300,7 @@ func (s *Service) ListTriggers(ctx context.Context, scheduleUID string, limit in
 		out = append(out, TriggerSummary{
 			ID:            trigger.ID,
 			TaskRunID:     trigger.TaskRunUID.String,
+			WorkflowRunID: trigger.WorkflowRunUID.String,
 			PlannedFireAt: trigger.PlannedFireAt,
 			ActualFireAt:  trigger.ActualFireAt.String,
 			Status:        trigger.Status,
@@ -371,7 +401,7 @@ func (s *Service) FireDue(ctx context.Context, now time.Time, limit int) (FireRe
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var due []dueScheduleRecord
 		if err := tx.WithContext(ctx).Raw(
-			`SELECT s.id, s.workspace_id, s.task_id, s.name, s.cron_expr, s.timezone,
+			`SELECT s.id, s.workspace_id, s.task_id, s.workflow_id, s.target_type, s.name, s.cron_expr, s.timezone,
 			        s.misfire_policy,
 			        DATE_FORMAT(s.next_fire_at, '%Y-%m-%d %H:%i:%s') AS next_fire_at,
 			        s.created_by AS created_by_id
@@ -486,6 +516,33 @@ func (s *Service) fireScheduleWithoutAdvance(ctx context.Context, tx *gorm.DB, s
 	if err := tx.WithContext(ctx).Raw("SELECT LAST_INSERT_ID()").Scan(&triggerID).Error; err != nil {
 		return false
 	}
+	if normalizeTargetType(schedule.TargetType) == "workflow" {
+		runID, _, err := workflows.CreateTriggeredRunTx(
+			ctx,
+			tx,
+			schedule.WorkspaceID,
+			schedule.WorkflowID,
+			"schedule",
+			"",
+			"",
+			schedule.CreatedByID,
+			map[string]interface{}{"scheduleTriggerId": triggerID, "scheduleName": schedule.Name},
+		)
+		if err != nil {
+			_ = tx.WithContext(ctx).Exec(
+				"UPDATE schedule_triggers SET status = 'failed', error_message = ? WHERE id = ?",
+				limitString(err.Error(), 1024), triggerID,
+			).Error
+			return false
+		}
+		if err := tx.WithContext(ctx).Exec(
+			"UPDATE schedule_triggers SET status = 'fired', workflow_run_id = ?, actual_fire_at = ? WHERE id = ?",
+			runID, now, triggerID,
+		).Error; err != nil {
+			return false
+		}
+		return true
+	}
 	runID, _, err := execution.CreateRunFromTask(
 		ctx,
 		tx,
@@ -542,19 +599,22 @@ func (s *Service) workspace(ctx context.Context) (workspaceRecord, *apperror.Err
 
 func summaryFromRecord(row scheduleRecord) ScheduleSummary {
 	return ScheduleSummary{
-		ID:           row.UID,
-		Name:         row.Name,
-		TaskID:       row.TaskUID,
-		TaskName:     row.TaskName,
-		ScheduleType: row.ScheduleType,
-		CronExpr:     row.CronExpr.String,
-		Timezone:     row.Timezone,
+		ID:            row.UID,
+		Name:          row.Name,
+		TargetType:    normalizeTargetType(row.TargetType),
+		TaskID:        row.TaskUID,
+		TaskName:      row.TaskName,
+		WorkflowID:    row.WorkflowUID,
+		WorkflowName:  row.WorkflowName,
+		ScheduleType:  row.ScheduleType,
+		CronExpr:      row.CronExpr.String,
+		Timezone:      row.Timezone,
 		MisfirePolicy: row.MisfirePolicy,
-		Status:       row.Status,
-		NextFireAt:   row.NextFireAt.String,
-		LastFireAt:   row.LastFireAt.String,
-		CreatedBy:    row.CreatedBy.String,
-		CreatedAt:    row.CreatedAt,
+		Status:        row.Status,
+		NextFireAt:    row.NextFireAt.String,
+		LastFireAt:    row.LastFireAt.String,
+		CreatedBy:     row.CreatedBy.String,
+		CreatedAt:     row.CreatedAt,
 	}
 }
 
@@ -565,6 +625,13 @@ func normalizeMisfirePolicy(value string) string {
 	default:
 		return "skip"
 	}
+}
+
+func normalizeTargetType(value string) string {
+	if strings.TrimSpace(value) == "workflow" {
+		return "workflow"
+	}
+	return "task"
 }
 
 func normalizePage(page, pageSize int) (int, int) {

@@ -14,7 +14,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             {t("language.toggle")}
           </button>
         </div>
-        <p className="eyebrow">OpsPilot Control Plane</p>
+        <p className="eyebrow">{t("layout.controlPlane")}</p>
         <h1>{t("auth.heroTitle")}</h1>
         <p>{t("auth.heroDescription")}</p>
         <div className="hero-grid">

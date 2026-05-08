@@ -613,6 +613,65 @@ func EnqueueForAlert(ctx context.Context, tx *gorm.DB, workspaceID, alertID uint
 	return nil
 }
 
+func EnqueueForWorkflow(ctx context.Context, tx *gorm.DB, workspaceID, workflowRunID uint64, channelUID, title, content, severity string) (string, error) {
+	notificationUID, err := uid.New()
+	if err != nil {
+		return "", err
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "Workflow notification"
+	}
+	if err := tx.WithContext(ctx).Exec(
+		`INSERT INTO notifications(uid, workspace_id, title, content, category, severity, resource_type, resource_id)
+		 VALUES (?, ?, ?, ?, 'workflow', ?, 'workflow_run', ?)`,
+		notificationUID, workspaceID, title, nullString(content), normalizeSeverity(severity), workflowRunID,
+	).Error; err != nil {
+		return "", err
+	}
+	var notificationID uint64
+	if err := tx.WithContext(ctx).Raw("SELECT id FROM notifications WHERE uid = ? LIMIT 1", notificationUID).Scan(&notificationID).Error; err != nil {
+		return "", err
+	}
+	var channels []struct {
+		ID          uint64
+		ChannelType string
+	}
+	query := "SELECT id, channel_type FROM notification_channels WHERE workspace_id = ? AND status = 'active' AND deleted_at IS NULL"
+	args := []interface{}{workspaceID}
+	if strings.TrimSpace(channelUID) != "" {
+		query += " AND uid = ?"
+		args = append(args, strings.TrimSpace(channelUID))
+	}
+	if err := tx.WithContext(ctx).Raw(query, args...).Scan(&channels).Error; err != nil {
+		return "", err
+	}
+	if len(channels) == 0 {
+		return notificationUID, tx.WithContext(ctx).Exec(
+			"INSERT INTO notification_deliveries(notification_id, status, attempts, delivered_at) VALUES (?, 'success', 1, NOW(3))",
+			notificationID,
+		).Error
+	}
+	for _, channel := range channels {
+		status := "pending"
+		attempts := 0
+		deliveredAt := sql.NullTime{}
+		if channel.ChannelType == "site" {
+			status = "success"
+			attempts = 1
+			deliveredAt.Valid = true
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`INSERT INTO notification_deliveries(notification_id, channel_id, status, attempts, delivered_at)
+			 VALUES (?, ?, ?, ?, CASE WHEN ? THEN NOW(3) ELSE NULL END)`,
+			notificationID, channel.ID, status, attempts, deliveredAt.Valid,
+		).Error; err != nil {
+			return "", err
+		}
+	}
+	return notificationUID, nil
+}
+
 func (s *Service) workspace(ctx context.Context) (workspaceRecord, *apperror.Error) {
 	workspace, err := defaultWorkspace(ctx, s.db, s.cfg.Bootstrap.WorkspaceSlug)
 	if err != nil {

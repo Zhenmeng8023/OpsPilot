@@ -39,11 +39,13 @@ type createSourceRequest struct {
 }
 
 type createRuleRequest struct {
-	SourceID  string   `json:"sourceId" binding:"required"`
-	TaskID    string   `json:"taskId" binding:"required"`
-	Name      string   `json:"name" binding:"required"`
-	EventType string   `json:"eventType"`
-	Matcher   *Matcher `json:"matcher"`
+	SourceID   string   `json:"sourceId" binding:"required"`
+	TargetType string   `json:"targetType"`
+	TaskID     string   `json:"taskId"`
+	WorkflowID string   `json:"workflowId"`
+	Name       string   `json:"name" binding:"required"`
+	EventType  string   `json:"eventType"`
+	Matcher    *Matcher `json:"matcher"`
 }
 
 type updateRuleRequest struct {
@@ -169,12 +171,14 @@ func (h *Handler) createRule(c *gin.Context) {
 		return
 	}
 	rule, appErr := h.service.CreateRule(c.Request.Context(), CreateRuleInput{
-		SourceID:  req.SourceID,
-		TaskID:    req.TaskID,
-		Name:      req.Name,
-		EventType: req.EventType,
-		Matcher:   req.Matcher,
-		Audit:     auditContext(c),
+		SourceID:   req.SourceID,
+		TargetType: req.TargetType,
+		TaskID:     req.TaskID,
+		WorkflowID: req.WorkflowID,
+		Name:       req.Name,
+		EventType:  req.EventType,
+		Matcher:    req.Matcher,
+		Audit:      auditContext(c),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)

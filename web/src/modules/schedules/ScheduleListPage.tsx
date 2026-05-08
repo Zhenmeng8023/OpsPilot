@@ -2,9 +2,13 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { listTasks } from "../../api/tasks";
+import { listWorkflows } from "../../api/workflows";
 import { createSchedule, disableSchedule, listScheduleTriggers, listSchedules, pauseSchedule, previewSchedule, resumeSchedule } from "../../api/schedules";
 import type { ScheduleSummary } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
+import { DataTable } from "../../shared/components/DataTable";
+import { FilterToolbar } from "../../shared/components/FilterToolbar";
+import { PaginationBar } from "../../shared/components/PaginationBar";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 
@@ -17,7 +21,9 @@ export function ScheduleListPage() {
   const [page, setPage] = useState(1);
   const [form, setForm] = useState({
     name: "",
+    targetType: "task",
     taskId: "",
+    workflowId: "",
     cronExpr: "*/5 * * * *",
     timezone: "Asia/Shanghai",
     misfirePolicy: "skip"
@@ -32,6 +38,10 @@ export function ScheduleListPage() {
   const tasksQuery = useQuery({
     queryKey: ["tasks", "schedule-options"],
     queryFn: () => listTasks({ pageSize: 100 })
+  });
+  const workflowsQuery = useQuery({
+    queryKey: ["workflows", "schedule-options"],
+    queryFn: () => listWorkflows({ pageSize: 100, status: "active" })
   });
   const triggerQuery = useQuery({
     queryKey: ["scheduleTriggers", selectedSchedule?.id],
@@ -62,6 +72,7 @@ export function ScheduleListPage() {
   });
   const schedules = useMemo(() => schedulesQuery.data?.items ?? [], [schedulesQuery.data]);
   const total = schedulesQuery.data?.total ?? 0;
+  const statusText = (value: string) => t(`common.status.${value}`);
   const taskOptions = useMemo(() => {
     const map = new Map<string, NonNullable<typeof tasksQuery.data>["items"][number]>();
     for (const task of tasksQuery.data?.items ?? []) {
@@ -71,6 +82,7 @@ export function ScheduleListPage() {
     }
     return Array.from(map.values());
   }, [tasksQuery.data]);
+  const workflowOptions = useMemo(() => workflowsQuery.data?.items ?? [], [workflowsQuery.data]);
 
   return (
     <main className="page">
@@ -99,14 +111,33 @@ export function ScheduleListPage() {
               <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
             </label>
             <label>
-              {t("common.task")}
-              <select value={form.taskId} onChange={(event) => setForm({ ...form, taskId: event.target.value })} required>
-                <option value="">{t("common.selectTask")}</option>
-                {taskOptions.map((task) => (
-                  <option key={task.taskId} value={task.taskId}>{task.name}</option>
-                ))}
+              {t("common.type")}
+              <select value={form.targetType} onChange={(event) => setForm({ ...form, targetType: event.target.value, taskId: "", workflowId: "" })}>
+                <option value="task">{t("common.task")}</option>
+                <option value="workflow">{t("workflows.workflow")}</option>
               </select>
             </label>
+            {form.targetType === "workflow" ? (
+              <label>
+                {t("workflows.workflow")}
+                <select value={form.workflowId} onChange={(event) => setForm({ ...form, workflowId: event.target.value })} required>
+                  <option value="">{t("common.selectWorkflow")}</option>
+                  {workflowOptions.map((workflow) => (
+                    <option key={workflow.id} value={workflow.id}>{workflow.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label>
+                {t("common.task")}
+                <select value={form.taskId} onChange={(event) => setForm({ ...form, taskId: event.target.value })} required>
+                  <option value="">{t("common.selectTask")}</option>
+                  {taskOptions.map((task) => (
+                    <option key={task.taskId} value={task.taskId}>{task.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label>
               {t("schedules.cron")}
               <input value={form.cronExpr} onChange={(event) => setForm({ ...form, cronExpr: event.target.value })} required />
@@ -148,17 +179,17 @@ export function ScheduleListPage() {
       ) : null}
 
       <section className="panel table-panel">
-        <div className="toolbar-row">
+        <FilterToolbar>
           <input placeholder={t("schedules.search")} value={keyword} onChange={(event) => { setKeyword(event.target.value); setPage(1); }} />
           <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
             <option value="">{t("common.allStatus")}</option>
-            <option value="active">active</option>
-            <option value="paused">paused</option>
-            <option value="disabled">disabled</option>
+            <option value="active">{statusText("active")}</option>
+            <option value="paused">{statusText("paused")}</option>
+            <option value="disabled">{statusText("disabled")}</option>
           </select>
           <button type="button" onClick={() => schedulesQuery.refetch()}>{t("common.refresh")}</button>
-        </div>
-        <div className="data-table">
+        </FilterToolbar>
+        <DataTable loading={schedulesQuery.isLoading} empty={schedules.length === 0} emptyMessage={t("schedules.empty")} error={schedulesQuery.isError ? schedulesQuery.error.message : null}>
           <table>
             <thead>
               <tr>
@@ -180,15 +211,15 @@ export function ScheduleListPage() {
                     <small>{schedule.id}</small>
                   </td>
                   <td>
-                    <strong>{schedule.taskName}</strong>
-                    <small>{schedule.taskId}</small>
+                    <strong>{schedule.targetType === "workflow" ? (schedule.workflowName || t("workflows.workflow")) : (schedule.taskName || t("common.task"))}</strong>
+                    <small>{schedule.targetType === "workflow" ? schedule.workflowId : schedule.taskId}</small>
                   </td>
                   <td>
                     <strong>{schedule.cronExpr}</strong>
                     <small>{schedule.timezone}</small>
                   </td>
                   <td>{schedule.misfirePolicy}</td>
-                  <td><span className={`status-chip status-${schedule.status}`}>{schedule.status}</span></td>
+                  <td><span className={`status-chip status-${schedule.status}`}>{statusText(schedule.status)}</span></td>
                   <td>{schedule.nextFireAt || "-"}</td>
                   <td>{schedule.lastFireAt || "-"}</td>
                   <td className="action-cell">
@@ -201,15 +232,8 @@ export function ScheduleListPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        {!schedulesQuery.isLoading && schedules.length === 0 ? <p className="empty-state">{t("schedules.empty")}</p> : null}
-        <div className="toolbar-row">
-          <span>{total} {t("common.total")}</span>
-          <button type="button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>{t("common.previous")}</button>
-          <span>{t("common.page").replace("{page}", String(page))}</span>
-          <button type="button" disabled={page * pageSize >= total} onClick={() => setPage((value) => value + 1)}>{t("common.next")}</button>
-        </div>
-        {schedulesQuery.isError ? <p className="form-error">{schedulesQuery.error.message}</p> : null}
+        </DataTable>
+        <PaginationBar total={total} page={page} pageSize={pageSize} onPageChange={setPage} />
         {pauseMutation.isError ? <p className="form-error">{pauseMutation.error.message}</p> : null}
         {resumeMutation.isError ? <p className="form-error">{resumeMutation.error.message}</p> : null}
         {disableMutation.isError ? <p className="form-error">{disableMutation.error.message}</p> : null}
@@ -221,7 +245,7 @@ export function ScheduleListPage() {
             <h3>{t("schedules.triggers")}</h3>
             <span>{selectedSchedule.name}</span>
           </div>
-          <div className="data-table">
+          <DataTable loading={triggerQuery.isLoading} empty={(triggerQuery.data ?? []).length === 0} emptyMessage={t("schedules.emptyTriggers")} error={triggerQuery.isError ? triggerQuery.error.message : null}>
             <table>
               <thead>
                 <tr>
@@ -237,16 +261,14 @@ export function ScheduleListPage() {
                   <tr key={trigger.id}>
                     <td>{trigger.plannedFireAt}</td>
                     <td>{trigger.actualFireAt || "-"}</td>
-                    <td><span className={`status-chip status-${trigger.status}`}>{trigger.status}</span></td>
-                    <td>{trigger.taskRunId || "-"}</td>
+                    <td><span className={`status-chip status-${trigger.status}`}>{statusText(trigger.status)}</span></td>
+                    <td>{trigger.workflowRunId || trigger.taskRunId || "-"}</td>
                     <td>{trigger.errorMessage || "-"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-          {!triggerQuery.isLoading && (triggerQuery.data ?? []).length === 0 ? <p className="empty-state">{t("schedules.emptyTriggers")}</p> : null}
-          {triggerQuery.isError ? <p className="form-error">{triggerQuery.error.message}</p> : null}
+          </DataTable>
         </section>
       ) : null}
     </main>

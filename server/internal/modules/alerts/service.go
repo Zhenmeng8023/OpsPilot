@@ -221,6 +221,25 @@ type alertEventRecord struct {
 	CreatedAt string
 }
 
+type incidentProjectionAlert struct {
+	ID           uint64
+	UID          string
+	WorkspaceID  uint64
+	AlertRuleID  sql.NullInt64
+	ResourceType string
+	ResourceID   sql.NullInt64
+	Title        string
+	Message      sql.NullString
+	Severity     string
+	Status       string
+	Metadata     sql.NullString
+	FirstSeenAt  string
+	LastSeenAt   string
+	ResolvedAt   sql.NullString
+	CreatedAt    string
+	UpdatedAt    string
+}
+
 func NewService(db *gorm.DB, cfg config.Config) *Service {
 	return &Service{db: db, cfg: cfg}
 }
@@ -1128,10 +1147,13 @@ func userByUID(ctx context.Context, db *gorm.DB, uid string) (userRecord, error)
 }
 
 func writeAlertEvent(ctx context.Context, tx *gorm.DB, alertID uint64, eventType, message string, actorID sql.NullInt64, payload interface{}) error {
-	return tx.WithContext(ctx).Exec(
+	if err := tx.WithContext(ctx).Exec(
 		"INSERT INTO alert_events(alert_id, event_type, message, actor_id, payload) VALUES (?, ?, ?, ?, ?)",
 		alertID, eventType, nullString(message), actorID, jsonNull(payload),
-	).Error
+	).Error; err != nil {
+		return err
+	}
+	return writeIncidentEvent(ctx, tx, alertID, eventType, message, actorID, payload)
 }
 
 func alertByUID(ctx context.Context, tx *gorm.DB, workspaceID uint64, alertUID string) (alertRecord, error) {
@@ -1172,6 +1194,127 @@ func resolveAlertRecord(ctx context.Context, tx *gorm.DB, row alertRecord, reaso
 		message = reason
 	}
 	return notifications.EnqueueForAlert(ctx, tx, row.WorkspaceID, row.ID, "Resolved: "+row.Title, message, "info")
+}
+
+func writeIncidentEvent(ctx context.Context, tx *gorm.DB, alertID uint64, eventType, message string, actorID sql.NullInt64, payload interface{}) error {
+	incidentID, err := ensureIncidentForAlert(ctx, tx, alertID)
+	if err != nil || incidentID == 0 {
+		return err
+	}
+	if err := tx.WithContext(ctx).Exec(
+		"INSERT INTO incident_events(incident_id, alert_id, event_type, message, actor_id, payload) VALUES (?, ?, ?, ?, ?, ?)",
+		incidentID, alertID, eventType, nullString(message), actorID, jsonNull(payload),
+	).Error; err != nil {
+		return err
+	}
+	status := incidentStatusFromAlertEvent(eventType)
+	if status == "" {
+		return nil
+	}
+	if status == "resolved" {
+		return tx.WithContext(ctx).Exec(
+			"UPDATE incidents SET status = ?, resolved_at = NOW(3), last_seen_at = NOW(3), updated_at = NOW(3) WHERE id = ?",
+			status, incidentID,
+		).Error
+	}
+	return tx.WithContext(ctx).Exec(
+		"UPDATE incidents SET status = ?, last_seen_at = NOW(3), updated_at = NOW(3) WHERE id = ?",
+		status, incidentID,
+	).Error
+}
+
+func ensureIncidentForAlert(ctx context.Context, tx *gorm.DB, alertID uint64) (uint64, error) {
+	var existing struct {
+		IncidentID uint64
+	}
+	if err := tx.WithContext(ctx).Raw(
+		"SELECT incident_id FROM incident_alerts WHERE alert_id = ? LIMIT 1",
+		alertID,
+	).Scan(&existing).Error; err != nil {
+		return 0, err
+	}
+	if existing.IncidentID != 0 {
+		return existing.IncidentID, nil
+	}
+	var alert incidentProjectionAlert
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT id, uid, workspace_id, alert_rule_id, resource_type, resource_id, title, message,
+		        severity, status, metadata,
+		        DATE_FORMAT(first_seen_at, '%Y-%m-%d %H:%i:%s') AS first_seen_at,
+		        DATE_FORMAT(last_seen_at, '%Y-%m-%d %H:%i:%s') AS last_seen_at,
+		        DATE_FORMAT(resolved_at, '%Y-%m-%d %H:%i:%s') AS resolved_at,
+		        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+		        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		   FROM alerts
+		  WHERE id = ?
+		  LIMIT 1`,
+		alertID,
+	).Scan(&alert).Error; err != nil {
+		return 0, err
+	}
+	if alert.ID == 0 {
+		return 0, nil
+	}
+	incidentUID, err := uid.New()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.WithContext(ctx).Exec(
+		`INSERT INTO incidents(uid, workspace_id, alert_rule_id, resource_type, resource_id, title, message, severity, status,
+		                      first_seen_at, last_seen_at, resolved_at, metadata)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		incidentUID, alert.WorkspaceID, alert.AlertRuleID, alert.ResourceType, alert.ResourceID, alert.Title, alert.Message,
+		alert.Severity, incidentStatusFromAlertStatus(alert.Status), alert.FirstSeenAt, alert.LastSeenAt, alert.ResolvedAt, alert.Metadata,
+	).Error; err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+			return 0, err
+		}
+	}
+	var incidentID uint64
+	if err := tx.WithContext(ctx).Raw(
+		"SELECT id FROM incidents WHERE uid = ? LIMIT 1",
+		incidentUID,
+	).Scan(&incidentID).Error; err != nil {
+		return 0, err
+	}
+	if incidentID == 0 {
+		return 0, nil
+	}
+	if err := tx.WithContext(ctx).Exec(
+		"INSERT IGNORE INTO incident_alerts(incident_id, alert_id) VALUES (?, ?)",
+		incidentID, alertID,
+	).Error; err != nil {
+		return 0, err
+	}
+	return incidentID, nil
+}
+
+func incidentStatusFromAlertStatus(status string) string {
+	switch status {
+	case "acknowledged":
+		return "acknowledged"
+	case "silenced":
+		return "silenced"
+	case "resolved":
+		return "resolved"
+	default:
+		return "open"
+	}
+}
+
+func incidentStatusFromAlertEvent(eventType string) string {
+	switch eventType {
+	case "firing", "unsilenced", "cooldown_suppressed":
+		return "open"
+	case "acknowledged":
+		return "acknowledged"
+	case "silenced":
+		return "silenced"
+	case "resolved":
+		return "resolved"
+	default:
+		return ""
+	}
 }
 
 func ruleSummary(row ruleRecord) AlertRuleSummary {

@@ -1,0 +1,223 @@
+# OpsPilot UML 更新说明（V1.0）
+
+> Language: 简体中文（当前） | [English](./core-uml-v1.0-update.en.md)
+
+生成日期：2026-05-08
+
+## 1. 目的
+
+本文用于补充和修正以下两份 UML 基线：
+
+- 原始方案文档中的 UML：`docs/OpsPilot_技术与开发方案_V2.docx`
+- 当前仓库中的 UML 基线：`docs/core-uml.md`
+
+结论很明确：随着 `Incident`、`Workflow` 以及相关前后端模块落地，原有 UML 已不能完整表达当前实现，尤其是自动化编排链路、事件化告警链路和新增数据模型。因此，本文件给出一组新的版本化 UML 图，作为 `OpsPilot V1.0` 当前实现快照的补充基线。
+
+## 2. 版本对应关系
+
+| 基线 | 文件 | 对应版本 | 说明 |
+| --- | --- | --- | --- |
+| 原始 UML 基线 | `docs/OpsPilot_技术与开发方案_V2.docx` | 早期 V2 方案草案 | 反映的是早期任务调度/告警能力，不包含 `Workflow` 与 `Incident` 落地模型 |
+| 仓库 UML 基线 | `docs/core-uml.md` | 通用核心 UML 基线 | 适合作为总览，但未显式按本轮实现变更给出版本化修订说明 |
+| 本次更新 UML | `docs/core-uml-v1.0-update.md` | `OpsPilot V1.0` 当前实现快照（2026-05-08） | 用于覆盖本轮新增或已发生结构变化的图 |
+
+## 3. 为什么原图需要更新
+
+以下变化已经超出旧图表达范围：
+
+1. 新增 `Workflow` 模块，已包含定义、发布、运行、节点、事件、取消、DAG 推进等后端能力。
+2. 新增 `Incident` 模块，告警不再只停留在 `alert` 层，而是形成 `incident + incident_events` 的运营视角。
+3. 触发链路从“主要触发 Task”扩展为“Manual / Schedule / Webhook / Incident 可驱动 Workflow”。
+4. 前端信息架构已经加入 `Workflows` 和 `Incidents`，不再是旧版仅任务/调度/告警的导航结构。
+5. 数据库新增 `000005_v10_incidents` 与 `000006_v10_workflows`，原始数据模型图缺少关键实体。
+
+## 4. 更新图一：V1.0 系统上下文
+
+适用版本：`OpsPilot V1.0`
+
+```mermaid
+flowchart LR
+  Admin["Operator / Admin"] --> Web["React + Vite Web"]
+  Web -->|"HTTP JSON + JWT"| API["Go API / Gin"]
+  Web -->|"SSE Logs"| API
+
+  Agent["OpsPilot Agent"] -->|"register / heartbeat / claim / report"| API
+  External["External Systems"] -->|"Webhook + HMAC"| API
+
+  API --> Auth["Auth / RBAC"]
+  API --> Ops["Scripts / Tasks / Schedules / Webhooks"]
+  API --> Monitor["Metrics / Alerts / Notifications / Incidents"]
+  API --> Flow["Workflow Engine"]
+  API --> Audit["Audit"]
+
+  Flow --> Ops
+  Flow --> Monitor
+  Monitor --> Flow
+
+  API --> MySQL[("MySQL")]
+  API --> Redis[("Redis")]
+  Monitor --> Channels["Email / Webhook / DingTalk / WeChat / Slack / Site"]
+```
+
+更新点：
+
+- 相比原始 DOCX 图，新增 `Workflow Engine` 和 `Incidents`。
+- `Workflow` 与 `Tasks`、`Notifications`、`Incidents` 已形成双向业务关联，而不再只是单一任务执行平台。
+
+## 5. 更新图二：V1.0 自动化触发与编排链路
+
+适用版本：`OpsPilot V1.0`
+
+```mermaid
+flowchart LR
+  Manual["Manual Run"] --> Trigger["Workflow Trigger Layer"]
+  Schedule["Cron Schedule"] --> Trigger
+  Webhook["Webhook Event"] --> Trigger
+  Incident["Incident Action / Event"] --> Trigger
+
+  Trigger --> Run["workflow_runs"]
+  Run --> Nodes["workflow_run_nodes"]
+  Nodes --> Condition{"condition"}
+
+  Condition -->|true| TaskNode["task node"]
+  Condition -->|false + skip| WaitNode["wait node"]
+  Condition -->|false + fail| EndFail["run failed"]
+
+  TaskNode --> TaskRun["task_runs"]
+  TaskRun --> Agent["Agent execution"]
+  Agent --> TaskEvent["task_run_events / logs"]
+  TaskEvent --> Reconcile["workflow reconcile"]
+
+  WaitNode --> Reconcile
+  Reconcile --> Notify["notification node / channels"]
+  Notify --> EndOK["run success"]
+```
+
+更新点：
+
+- 旧图主要表达 `Schedule/Webhook -> Task`，这里改为 `Trigger -> Workflow -> Node -> Task/Wait/Condition`。
+- 已体现当前仓库中存在的 `workflow_runs`、`workflow_run_nodes`、`task_runs` 以及 reconcile 推进过程。
+
+## 6. 更新图三：V1.0 告警到事件的运营链路
+
+适用版本：`OpsPilot V1.0`
+
+```mermaid
+flowchart LR
+  Metrics["Host / Runtime Metrics"] --> Rules["Alert Rules"]
+  Rules --> Alerts["alerts"]
+  Alerts --> IncidentProject["Incident Projection"]
+  IncidentProject --> Incidents["incidents"]
+  Alerts --> IncidentLinks["incident_alerts"]
+  Incidents --> IncidentEvents["incident_events"]
+
+  Incidents --> Console["Incident Center UI"]
+  Alerts --> Notifications["Notification Dispatcher"]
+  Notifications --> Channels["Email / Webhook / IM / Site"]
+
+  Incidents -.optional trigger.-> Workflows["workflow_runs"]
+  Workflows --> Notifications
+```
+
+更新点：
+
+- 原始 UML 中告警更多停留在 `alert + notification`。
+- 当前实现已经有 `incidents / incident_alerts / incident_events`，因此需要把告警运营模型单独表达。
+
+## 7. 更新图四：V1.0 新增数据模型增量
+
+适用版本：`OpsPilot V1.0`
+
+```mermaid
+erDiagram
+  WORKFLOW_DEFINITIONS ||--o{ WORKFLOW_RUNS : runs
+  WORKFLOW_RUNS ||--o{ WORKFLOW_RUN_NODES : contains
+  WORKFLOW_RUNS ||--o{ WORKFLOW_RUN_EVENTS : records
+  WORKFLOW_RUN_NODES }o--|| TASK_RUNS : links_task_run
+
+  ALERTS }o--o{ INCIDENT_ALERTS : grouped_into
+  INCIDENTS ||--o{ INCIDENT_ALERTS : contains
+  INCIDENTS ||--o{ INCIDENT_EVENTS : records
+  ALERT_RULES ||--o{ INCIDENTS : originates
+
+  WORKFLOW_DEFINITIONS {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    varchar name
+    json definition
+    int version
+    varchar status
+  }
+
+  WORKFLOW_RUNS {
+    bigint id
+    varchar uid
+    bigint workflow_id
+    int workflow_version
+    varchar trigger_type
+    varchar status
+  }
+
+  WORKFLOW_RUN_NODES {
+    bigint id
+    bigint run_id
+    varchar node_key
+    varchar node_type
+    varchar status
+    bigint task_run_id
+  }
+
+  WORKFLOW_RUN_EVENTS {
+    bigint id
+    bigint run_id
+    varchar event_type
+    text message
+  }
+
+  INCIDENTS {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    bigint alert_rule_id
+    varchar severity
+    varchar status
+  }
+
+  INCIDENT_ALERTS {
+    bigint incident_id
+    bigint alert_id
+  }
+
+  INCIDENT_EVENTS {
+    bigint id
+    bigint incident_id
+    bigint alert_id
+    varchar event_type
+  }
+```
+
+更新点：
+
+- 本图仅表达相对旧模型的“新增增量”。
+- `workflow_*` 来自 `000006_v10_workflows.up.sql`。
+- `incidents / incident_alerts / incident_events` 来自 `000005_v10_incidents.up.sql`。
+
+## 8. 建议的基线替换策略
+
+不建议直接覆盖 `docs/core-uml.md`，原因如下：
+
+1. `docs/core-uml.md` 仍适合作为通用总览。
+2. 本文件更适合承担“版本化变更说明”的角色。
+3. 如果后续需要收敛为单一文件，建议在 `V1.0` 发布时将本文件中的 4 张图并回 `docs/core-uml.md`，并在标题处标注版本号。
+
+## 9. 当前结论
+
+按当前实现情况，至少以下旧 UML 应视为已过期或需要版本化补充：
+
+- 系统上下文图
+- 任务/调度/Webhook 触发图
+- 告警与通知链路图
+- 数据库增量模型图
+
+本文件即为这些修改后的 `OpsPilot V1.0` UML 补充基线。

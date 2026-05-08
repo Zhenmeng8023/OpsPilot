@@ -13,7 +13,11 @@ const permissionAliases: Record<string, string[]> = {
   "metric:read": ["metric:read", "metric.read"],
   "alert:write": ["alert:write", "alert.write"],
   "webhook:manage": ["webhook:manage", "webhook.manage"],
-  "notification:write": ["notification:write", "notification.write"]
+  "notification:write": ["notification:write", "notification.write"],
+  "workflow:read": ["workflow:read", "workflow.read"],
+  "workflow:write": ["workflow:write", "workflow.write"],
+  "workflow:execute": ["workflow:execute", "workflow.execute"],
+  "workflow:cancel": ["workflow:cancel", "workflow.cancel"]
 };
 
 const permissionCanonical = Object.fromEntries(

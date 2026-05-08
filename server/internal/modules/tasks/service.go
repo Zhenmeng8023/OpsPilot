@@ -418,43 +418,7 @@ func (s *Service) Cancel(ctx context.Context, runUID string, auditCtx AuditConte
 		if actor.ID != 0 {
 			actorID = sql.NullInt64{Int64: int64(actor.ID), Valid: true}
 		}
-		if err := tx.WithContext(ctx).Exec(
-			`UPDATE task_run_targets
-			    SET status = 'canceled', finished_at = NOW(3)
-			  WHERE run_id = ? AND status IN ('pending', 'queued')`,
-			run.ID,
-		).Error; err != nil {
-			return err
-		}
-		if err := tx.WithContext(ctx).Exec(
-			`UPDATE task_run_targets
-			    SET status = 'canceling'
-			  WHERE run_id = ? AND status IN ('running', 'canceling')`,
-			run.ID,
-		).Error; err != nil {
-			return err
-		}
-		if err := tx.WithContext(ctx).Exec(
-			`UPDATE task_run_attempts ta
-			    JOIN task_run_targets rt ON rt.id = ta.run_target_id
-			    SET ta.status = 'canceling'
-			  WHERE rt.run_id = ? AND ta.status = 'running'`,
-			run.ID,
-		).Error; err != nil {
-			return err
-		}
-		if err := tx.WithContext(ctx).Exec(
-			`UPDATE task_runs
-			    SET cancel_requested_by = ?, cancel_reason = 'user requested'
-			  WHERE id = ?`,
-			actorID, run.ID,
-		).Error; err != nil {
-			return err
-		}
-		if err := refreshRunAggregate(ctx, tx, run.ID); err != nil {
-			return err
-		}
-		if err := writeRunEvent(ctx, tx, run.ID, 0, 0, run.Status, string(StatusCanceled), "task cancellation requested", nil); err != nil {
+		if err := CancelRunByIDTx(ctx, tx, run.ID, actorID, "user requested"); err != nil {
 			return err
 		}
 		audit.Write(ctx, tx, audit.Event{

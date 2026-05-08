@@ -60,6 +60,10 @@ var basePermissions = []permissionSeed{
 	{"notification:write", "notification", "Write notifications", "Manage notification channels"},
 	{"notification.write", "notification", "Write notifications", "Manage notification channels"},
 	{"audit.read", "audit", "Read audit logs", "View audit log entries"},
+	{"workflow:read", "workflow", "Read workflows", "View workflow definitions and runs"},
+	{"workflow:write", "workflow", "Write workflows", "Create, update, publish, and disable workflows"},
+	{"workflow:execute", "workflow", "Execute workflows", "Start workflow runs"},
+	{"workflow:cancel", "workflow", "Cancel workflows", "Cancel running workflow runs"},
 }
 
 func Seed(ctx context.Context, db *gorm.DB, cfg config.Config) error {
