@@ -30,6 +30,19 @@ func definitionSummary(row workflowRecord) DefinitionSummary {
 	}
 }
 
+func versionSummary(row versionRecord) VersionSummary {
+	return VersionSummary{
+		ID:             row.UID,
+		WorkflowID:     row.WorkflowUID,
+		Version:        row.VersionNo,
+		Status:         row.Status,
+		DefinitionHash: row.DefinitionHash,
+		CreatedBy:      row.CreatedBy.String,
+		PublishedAt:    row.PublishedAt.String,
+		CreatedAt:      row.CreatedAt,
+	}
+}
+
 func runSummary(row runRecord) RunSummary {
 	return RunSummary{
 		ID:              row.UID,

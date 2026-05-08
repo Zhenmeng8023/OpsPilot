@@ -171,6 +171,10 @@ func (s *captureListEventsService) CreateSource(_ context.Context, _ CreateSourc
 	return SourceDetail{}, nil
 }
 
+func (s *captureListEventsService) RotateSourceSecrets(_ context.Context, _ RotateSourceSecretsInput) (SourceDetail, *apperror.Error) {
+	return SourceDetail{}, nil
+}
+
 func (s *captureListEventsService) PauseSource(_ context.Context, id string, _ AuditContext) *apperror.Error {
 	s.sourceID = id
 	s.sourceAction = "pause"
@@ -228,6 +232,14 @@ func (s *captureListEventsService) ListEvents(_ context.Context, input ListEvent
 func (s *captureListEventsService) GetEvent(_ context.Context, input EventDetailInput) (EventDetail, *apperror.Error) {
 	s.eventID = input.EventID
 	return EventDetail{}, nil
+}
+
+func (s *captureListEventsService) SimulateMatcher(context.Context, MatcherSimulationInput) (MatcherSimulationResult, *apperror.Error) {
+	return MatcherSimulationResult{}, nil
+}
+
+func (s *captureListEventsService) ReplayEvent(context.Context, ReplayEventInput) (TriggerResult, *apperror.Error) {
+	return TriggerResult{}, nil
 }
 
 func (s *captureListEventsService) Trigger(_ context.Context, _ TriggerInput) (TriggerResult, *apperror.Error) {

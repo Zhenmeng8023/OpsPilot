@@ -15,6 +15,7 @@ import (
 type ServiceContract interface {
 	ListChannels(context.Context) ([]ChannelSummary, *apperror.Error)
 	CreateChannel(context.Context, CreateChannelInput) (ChannelSummary, *apperror.Error)
+	UpdateChannel(context.Context, UpdateChannelInput) (ChannelSummary, *apperror.Error)
 	TestChannel(context.Context, string, AuditContext) (ChannelTestResult, *apperror.Error)
 	ListNotifications(context.Context, bool) ([]NotificationSummary, *apperror.Error)
 	ListDeliveries(context.Context, ListDeliveriesInput) ([]DeliverySummary, *apperror.Error)
@@ -41,6 +42,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.Use(userAuth)
 	protected.GET("/notification-channels", requirePermission("notification:read"), h.listChannels)
 	protected.POST("/notification-channels", requirePermission("notification:write"), h.createChannel)
+	protected.PUT("/notification-channels/:id", requirePermission("notification:write"), h.updateChannel)
 	protected.POST("/notification-channels/:id/test", requirePermission("notification:write"), h.testChannel)
 	protected.GET("/notifications", requirePermission("notification:read"), h.listNotifications)
 	protected.POST("/notifications/:id/read", requirePermission("notification:read"), h.markRead)
@@ -64,6 +66,26 @@ func (h *Handler) createChannel(c *gin.Context) {
 		return
 	}
 	channel, appErr := h.service.CreateChannel(c.Request.Context(), CreateChannelInput{
+		Name:        req.Name,
+		ChannelType: req.ChannelType,
+		Config:      req.Config,
+		Audit:       auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, channel)
+}
+
+func (h *Handler) updateChannel(c *gin.Context) {
+	var req createChannelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	channel, appErr := h.service.UpdateChannel(c.Request.Context(), UpdateChannelInput{
+		ID:          c.Param("id"),
 		Name:        req.Name,
 		ChannelType: req.ChannelType,
 		Config:      req.Config,

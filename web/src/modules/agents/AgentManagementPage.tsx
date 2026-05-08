@@ -261,7 +261,7 @@ export function AgentManagementPage() {
                 disabled={createEnrollmentMutation.isPending}
                 onClick={() => createEnrollmentMutation.mutate()}
               >
-                {createEnrollmentMutation.isPending ? "Creating" : "Create token"}
+                {createEnrollmentMutation.isPending ? t("agents.creating") : t("agents.createToken")}
               </button>
               {issuedToken?.token ? (
                 <button className="ghost-button" type="button" onClick={() => copyToken(issuedToken.token ?? "")}>
@@ -283,7 +283,7 @@ export function AgentManagementPage() {
               <thead>
                 <tr>
                   <th>Prefix</th>
-                  <th>Status</th>
+                  <th>{t("common.status")}</th>
                   <th>Usage</th>
                   <th>Expires</th>
                   <th>Created by</th>

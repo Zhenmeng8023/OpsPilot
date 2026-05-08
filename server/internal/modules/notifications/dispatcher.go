@@ -139,7 +139,7 @@ func (s *Service) sendEmailDelivery(ctx context.Context, row pendingDelivery) er
 	if host == "" || username == "" || password == "" || from == "" {
 		return errors.New("email delivery is not configured")
 	}
-	to := deliveryEmail(row.Config)
+	to := deliveryEmail(s.channelConfigMap(row.Config))
 	if to == "" {
 		return errors.New("notification email recipient is required")
 	}
@@ -219,7 +219,8 @@ func (s *Service) sendEmailDelivery(ctx context.Context, row pendingDelivery) er
 }
 
 func (s *Service) postDelivery(ctx context.Context, row pendingDelivery) error {
-	url := deliveryURL(row.Config)
+	configMap := s.channelConfigMap(row.Config)
+	url := deliveryURL(configMap)
 	if url == "" {
 		return errors.New("notification channel url is required")
 	}
@@ -240,7 +241,7 @@ func (s *Service) postDelivery(ctx context.Context, row pendingDelivery) error {
 	req.Header.Set("User-Agent", "OpsPilot-Notification/1.0")
 	req.Header.Set("X-OpsPilot-Delivery-Id", strconv.FormatUint(row.ID, 10))
 	req.Header.Set("X-OpsPilot-Notification-Id", row.NotificationUID)
-	if secret := deliverySigningSecret(row.Config); secret != "" {
+	if secret := deliverySigningSecret(configMap); secret != "" {
 		timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 		req.Header.Set("X-OpsPilot-Timestamp", timestamp)
 		req.Header.Set("X-OpsPilot-Signature", buildDeliverySignature(secret, timestamp, body))
@@ -273,14 +274,7 @@ func (s *Service) markDeliveryFailed(ctx context.Context, row pendingDelivery, c
 	).Error
 }
 
-func deliveryURL(raw sql.NullString) string {
-	if !raw.Valid {
-		return ""
-	}
-	var cfg map[string]interface{}
-	if err := json.Unmarshal([]byte(raw.String), &cfg); err != nil {
-		return ""
-	}
+func deliveryURL(cfg map[string]interface{}) string {
 	for _, key := range []string{"url", "webhookUrl", "webhook_url"} {
 		if value, ok := cfg[key].(string); ok && strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
@@ -289,14 +283,7 @@ func deliveryURL(raw sql.NullString) string {
 	return ""
 }
 
-func deliveryEmail(raw sql.NullString) string {
-	if !raw.Valid {
-		return ""
-	}
-	var cfg map[string]interface{}
-	if err := json.Unmarshal([]byte(raw.String), &cfg); err != nil {
-		return ""
-	}
+func deliveryEmail(cfg map[string]interface{}) string {
 	for _, key := range []string{"email", "to", "address", "recipient"} {
 		if value, ok := cfg[key].(string); ok && strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
@@ -305,14 +292,7 @@ func deliveryEmail(raw sql.NullString) string {
 	return ""
 }
 
-func deliverySigningSecret(raw sql.NullString) string {
-	if !raw.Valid {
-		return ""
-	}
-	var cfg map[string]interface{}
-	if err := json.Unmarshal([]byte(raw.String), &cfg); err != nil {
-		return ""
-	}
+func deliverySigningSecret(cfg map[string]interface{}) string {
 	for _, key := range []string{"signingSecret", "signing_secret", "secret"} {
 		if value, ok := cfg[key].(string); ok && strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -250,6 +251,25 @@ func TestNormalizeMatcherSupportsEventAndRefConditions(t *testing.T) {
 	}
 }
 
+func TestWorkflowTriggerInputJSONIncludesPayloadAndHeaders(t *testing.T) {
+	value := workflowTriggerInputJSON(
+		"push",
+		"delivery-1",
+		map[string]string{"X-GitHub-Event": "push"},
+		map[string]interface{}{"ref": "refs/heads/main"},
+		nil,
+	)
+	if value == "" {
+		t.Fatal("expected workflow trigger input JSON")
+	}
+	if !strings.Contains(value, `"eventType":"push"`) || !strings.Contains(value, `"deliveryId":"delivery-1"`) {
+		t.Fatalf("unexpected workflow trigger input: %s", value)
+	}
+	if !strings.Contains(value, `"payload":{"ref":"refs/heads/main"}`) {
+		t.Fatalf("expected payload in workflow trigger input: %s", value)
+	}
+}
+
 type captureWebhookService struct {
 	input TriggerInput
 }
@@ -259,6 +279,10 @@ func (s *captureWebhookService) ListSources(context.Context) ([]SourceSummary, *
 }
 
 func (s *captureWebhookService) CreateSource(context.Context, CreateSourceInput) (SourceDetail, *apperror.Error) {
+	return SourceDetail{}, nil
+}
+
+func (s *captureWebhookService) RotateSourceSecrets(context.Context, RotateSourceSecretsInput) (SourceDetail, *apperror.Error) {
 	return SourceDetail{}, nil
 }
 
@@ -304,6 +328,14 @@ func (s *captureWebhookService) ListEvents(context.Context, ListEventsInput) (Ev
 
 func (s *captureWebhookService) GetEvent(context.Context, EventDetailInput) (EventDetail, *apperror.Error) {
 	return EventDetail{}, nil
+}
+
+func (s *captureWebhookService) SimulateMatcher(context.Context, MatcherSimulationInput) (MatcherSimulationResult, *apperror.Error) {
+	return MatcherSimulationResult{}, nil
+}
+
+func (s *captureWebhookService) ReplayEvent(context.Context, ReplayEventInput) (TriggerResult, *apperror.Error) {
+	return TriggerResult{}, nil
 }
 
 func (s *captureWebhookService) Trigger(_ context.Context, input TriggerInput) (TriggerResult, *apperror.Error) {

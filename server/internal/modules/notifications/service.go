@@ -37,6 +37,14 @@ type CreateChannelInput struct {
 	Audit       AuditContext
 }
 
+type UpdateChannelInput struct {
+	ID          string
+	Name        string
+	ChannelType string
+	Config      map[string]interface{}
+	Audit       AuditContext
+}
+
 type ChannelTestResult struct {
 	ChannelID      string `json:"channelId"`
 	NotificationID string `json:"notificationId"`
@@ -169,7 +177,7 @@ func (s *Service) ListChannels(ctx context.Context) ([]ChannelSummary, *apperror
 	}
 	out := make([]ChannelSummary, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, channelSummary(row))
+		out = append(out, channelSummary(row, s.channelConfigMap(row.Config)))
 	}
 	return out, nil
 }
@@ -196,6 +204,10 @@ func (s *Service) CreateChannel(ctx context.Context, input CreateChannelInput) (
 		if err != nil {
 			return err
 		}
+		configValue, err := s.encryptChannelConfig(input.Config)
+		if err != nil {
+			return err
+		}
 		channelUID, err := uid.New()
 		if err != nil {
 			return err
@@ -203,7 +215,7 @@ func (s *Service) CreateChannel(ctx context.Context, input CreateChannelInput) (
 		if err := tx.WithContext(ctx).Exec(
 			`INSERT INTO notification_channels(uid, workspace_id, name, channel_type, config, status, created_by)
 			 VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-			channelUID, workspace.ID, name, channelType, jsonNull(input.Config), nullID(actor.ID),
+			channelUID, workspace.ID, name, channelType, configValue, nullID(actor.ID),
 		).Error; err != nil {
 			return err
 		}
@@ -211,7 +223,7 @@ func (s *Service) CreateChannel(ctx context.Context, input CreateChannelInput) (
 		if err != nil {
 			return err
 		}
-		created = channelSummary(row)
+		created = channelSummary(row, s.channelConfigMap(row.Config))
 		audit.Write(ctx, tx, audit.Event{
 			WorkspaceID:   workspace.ID,
 			ActorUserID:   nullID(actor.ID),
@@ -234,6 +246,85 @@ func (s *Service) CreateChannel(ctx context.Context, input CreateChannelInput) (
 		return ChannelSummary{}, apperror.Wrap(http.StatusInternalServerError, 500802, "create notification channel failed", txErr)
 	}
 	return created, nil
+}
+
+func (s *Service) UpdateChannel(ctx context.Context, input UpdateChannelInput) (ChannelSummary, *apperror.Error) {
+	id := strings.TrimSpace(input.ID)
+	name := strings.TrimSpace(input.Name)
+	channelType := strings.TrimSpace(input.ChannelType)
+	if id == "" {
+		return ChannelSummary{}, apperror.New(http.StatusBadRequest, 400807, "notification channel id is required")
+	}
+	if name == "" {
+		return ChannelSummary{}, apperror.New(http.StatusBadRequest, 400801, "notification channel name is required")
+	}
+	if channelType == "" {
+		channelType = "site"
+	}
+	if !validChannelType(channelType) {
+		return ChannelSummary{}, apperror.New(http.StatusBadRequest, 400802, "unsupported notification channel type")
+	}
+	var updated ChannelSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		actor, err := userByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		before, err := channelByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		if before.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404804, "notification channel not found")
+		}
+		mergedConfig := mergeChannelConfig(s.channelConfigMap(before.Config), input.Config, channelType)
+		configValue, err := s.encryptChannelConfig(mergedConfig)
+		if err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`UPDATE notification_channels
+			    SET name = ?, channel_type = ?, config = ?, updated_at = NOW(3)
+			  WHERE id = ?`,
+			name, channelType, configValue, before.ID,
+		).Error; err != nil {
+			return err
+		}
+		after, err := channelByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		updated = channelSummary(after, s.channelConfigMap(after.Config))
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   nullID(actor.ID),
+			Action:        "notification.channel.update",
+			ResourceType:  "notification_channel",
+			ResourceID:    nullID(before.ID),
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Before:        channelSummary(before, s.channelConfigMap(before.Config)),
+			After:         updated,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return ChannelSummary{}, appErr
+		}
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return ChannelSummary{}, apperror.New(http.StatusConflict, 409801, "notification channel already exists")
+		}
+		return ChannelSummary{}, apperror.Wrap(http.StatusInternalServerError, 500807, "update notification channel failed", txErr)
+	}
+	return updated, nil
 }
 
 func (s *Service) TestChannel(ctx context.Context, channelUID string, auditCtx AuditContext) (ChannelTestResult, *apperror.Error) {
@@ -742,12 +833,12 @@ func channelDispatchByUID(ctx context.Context, db *gorm.DB, workspaceID uint64, 
 	return row, err
 }
 
-func channelSummary(row channelRecord) ChannelSummary {
+func channelSummary(row channelRecord, cfg map[string]interface{}) ChannelSummary {
 	return ChannelSummary{
 		ID:          row.UID,
 		Name:        row.Name,
 		ChannelType: row.ChannelType,
-		Target:      maskChannelTarget(row.ChannelType, row.Config),
+		Target:      maskChannelTarget(row.ChannelType, cfg),
 		Status:      row.Status,
 		CreatedBy:   row.CreatedBy.String,
 		CreatedAt:   row.CreatedAt,
@@ -790,14 +881,14 @@ func deliverySummary(row deliveryRecord) DeliverySummary {
 	}
 }
 
-func maskChannelTarget(channelType string, raw sql.NullString) string {
+func maskChannelTarget(channelType string, cfg map[string]interface{}) string {
 	switch channelType {
 	case "site":
 		return "in-app"
 	case "email":
-		return maskEmailAddress(deliveryEmail(raw))
+		return maskEmailAddress(deliveryEmail(cfg))
 	default:
-		return maskWebhookTarget(deliveryURL(raw))
+		return maskWebhookTarget(deliveryURL(cfg))
 	}
 }
 

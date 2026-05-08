@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
-import { listAuditLogs } from "../../api/audits";
+import { exportAuditLogs, listAuditLogs, runAuditRetention } from "../../api/audits";
 import type { AuditLog } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { DataTable } from "../../shared/components/DataTable";
@@ -15,15 +15,37 @@ export function AuditLogsPage() {
   const t = useLanguageStore((state) => state.t);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<AuditLog | null>(null);
+  const [retentionDays, setRetentionDays] = useState("90");
   const [filters, setFilters] = useState({
     keyword: "",
     action: "",
+    actor: "",
     actorType: "",
     result: "",
     resourceType: "",
+    resourceId: "",
     traceId: "",
     createdFrom: "",
     createdTo: ""
+  });
+  const exportMutation = useMutation({
+    mutationFn: async (format: "csv" | "json") => {
+      const response = await exportAuditLogs({ ...filters, format });
+      if (!response.ok) {
+        throw new Error(`Export failed with status ${response.status}`);
+      }
+      const blob = await response.blob();
+      const filename = response.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ?? `audit-logs.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+  });
+  const retentionMutation = useMutation({
+    mutationFn: (dryRun: boolean) => runAuditRetention({ dryRun, days: Number(retentionDays) || undefined })
   });
   const query = useQuery({
     queryKey: ["auditLogs", filters, page],
@@ -54,6 +76,7 @@ export function AuditLogsPage() {
         <FilterToolbar>
           <input placeholder={t("audit.keyword")} value={filters.keyword} onChange={(event) => updateFilter("keyword", event.target.value)} />
           <input placeholder={t("audit.action")} value={filters.action} onChange={(event) => updateFilter("action", event.target.value)} />
+          <input placeholder={t("audit.actor")} value={filters.actor} onChange={(event) => updateFilter("actor", event.target.value)} />
           <select value={filters.actorType} onChange={(event) => updateFilter("actorType", event.target.value)}>
             <option value="">{t("audit.allActorTypes")}</option>
             <option value="user">user</option>
@@ -68,10 +91,16 @@ export function AuditLogsPage() {
             <option value="denied">denied</option>
           </select>
           <input placeholder={t("audit.resourceType")} value={filters.resourceType} onChange={(event) => updateFilter("resourceType", event.target.value)} />
+          <input placeholder={t("audit.resourceId")} value={filters.resourceId} onChange={(event) => updateFilter("resourceId", event.target.value)} />
           <input placeholder={t("audit.traceId")} value={filters.traceId} onChange={(event) => updateFilter("traceId", event.target.value)} />
           <input type="datetime-local" value={filters.createdFrom} onChange={(event) => updateFilter("createdFrom", event.target.value)} />
           <input type="datetime-local" value={filters.createdTo} onChange={(event) => updateFilter("createdTo", event.target.value)} />
+          <input placeholder={t("audit.retentionDays")} value={retentionDays} onChange={(event) => setRetentionDays(event.target.value)} />
           <button type="button" onClick={() => query.refetch()}>{t("common.refresh")}</button>
+          <button type="button" onClick={() => exportMutation.mutate("csv")}>{t("audit.exportCsv")}</button>
+          <button type="button" onClick={() => exportMutation.mutate("json")}>{t("audit.exportJson")}</button>
+          <button type="button" onClick={() => retentionMutation.mutate(true)}>{t("audit.retentionDryRun")}</button>
+          <button type="button" className="danger-button" onClick={() => retentionMutation.mutate(false)}>{t("audit.retentionExecute")}</button>
         </FilterToolbar>
         <DataTable loading={query.isLoading} empty={logs.length === 0} emptyMessage={t("audit.empty")} error={query.isError ? query.error.message : null}>
           <table>
@@ -102,6 +131,18 @@ export function AuditLogsPage() {
           </table>
         </DataTable>
         <PaginationBar total={total} page={page} pageSize={pageSize} onPageChange={setPage} />
+        {retentionMutation.data ? (
+          <p className="empty-state">
+            {t("audit.retentionResult", {
+              mode: retentionMutation.data.dryRun ? t("audit.retentionDryRun") : t("audit.retentionExecute"),
+              matched: retentionMutation.data.matched,
+              deleted: retentionMutation.data.deleted,
+              cutoff: retentionMutation.data.cutoffAt
+            })}
+          </p>
+        ) : null}
+        {exportMutation.isError ? <p className="form-error">{exportMutation.error.message}</p> : null}
+        {retentionMutation.isError ? <p className="form-error">{retentionMutation.error.message}</p> : null}
       </section>
 
       {selected ? (

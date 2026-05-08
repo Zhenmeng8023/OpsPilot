@@ -2,8 +2,10 @@ package workflows
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -52,6 +54,12 @@ type UpdateInput struct {
 	Audit       AuditContext
 }
 
+type CopyInput struct {
+	ID    string
+	Name  string
+	Audit AuditContext
+}
+
 type RunInput struct {
 	ID             string
 	TriggerType    string
@@ -71,6 +79,13 @@ type RetryInput struct {
 	Audit AuditContext
 }
 
+type ApprovalInput struct {
+	RunID   string
+	NodeID  string
+	Comment string
+	Audit   AuditContext
+}
+
 type DefinitionSummary struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -88,6 +103,17 @@ type DefinitionSummary struct {
 type DefinitionDetail struct {
 	DefinitionSummary
 	Definition string `json:"definition"`
+}
+
+type VersionSummary struct {
+	ID             string `json:"id"`
+	WorkflowID     string `json:"workflowId"`
+	Version        uint   `json:"version"`
+	Status         string `json:"status"`
+	DefinitionHash string `json:"definitionHash"`
+	CreatedBy      string `json:"createdBy,omitempty"`
+	PublishedAt    string `json:"publishedAt,omitempty"`
+	CreatedAt      string `json:"createdAt"`
 }
 
 type DefinitionListResult struct {
@@ -123,6 +149,8 @@ type RunNodeSummary struct {
 	NodeName     string `json:"nodeName,omitempty"`
 	Status       string `json:"status"`
 	TaskRunID    string `json:"taskRunId,omitempty"`
+	Input        string `json:"input,omitempty"`
+	Output       string `json:"output,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
 	Attempts     uint   `json:"attempts"`
 	QueuedAt     string `json:"queuedAt,omitempty"`
@@ -176,6 +204,18 @@ type workflowRecord struct {
 	UpdatedAt   string
 }
 
+type versionRecord struct {
+	ID             uint64
+	UID            string
+	WorkflowUID    string
+	VersionNo      uint
+	Status         string
+	DefinitionHash string
+	CreatedBy      sql.NullString
+	PublishedAt    sql.NullString
+	CreatedAt      string
+}
+
 type runRecord struct {
 	ID                 uint64
 	WorkflowDBID       uint64
@@ -207,6 +247,8 @@ type nodeRecord struct {
 	NodeName     sql.NullString
 	Status       string
 	TaskRunUID   sql.NullString
+	Input        sql.NullString
+	Output       sql.NullString
 	ErrorMessage sql.NullString
 	Attempts     uint
 	QueuedAt     sql.NullString
@@ -293,6 +335,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (DefinitionDeta
 		if err != nil {
 			return err
 		}
+		if err := insertWorkflowVersion(ctx, tx, row.ID, row.Version, row.Definition, "draft", actorID); err != nil {
+			return err
+		}
 		created = DefinitionDetail{DefinitionSummary: definitionSummary(row), Definition: row.Definition}
 		audit.Write(ctx, tx, audit.Event{
 			WorkspaceID:   workspace.ID,
@@ -365,6 +410,9 @@ func (s *Service) Update(ctx context.Context, input UpdateInput) (DefinitionDeta
 		if err != nil {
 			return err
 		}
+		if err := insertWorkflowVersion(ctx, tx, after.ID, after.Version, after.Definition, "draft", actorID); err != nil {
+			return err
+		}
 		updated = DefinitionDetail{DefinitionSummary: definitionSummary(after), Definition: after.Definition}
 		audit.Write(ctx, tx, audit.Event{
 			WorkspaceID:   workspace.ID,
@@ -419,6 +467,14 @@ func (s *Service) Publish(ctx context.Context, id string, auditCtx AuditContext)
 		if err := tx.WithContext(ctx).Exec("UPDATE workflow_definitions SET status = 'active', published_at = NOW(3) WHERE id = ?", before.ID).Error; err != nil {
 			return err
 		}
+		if err := tx.WithContext(ctx).Exec(
+			`UPDATE workflow_versions
+			    SET status = 'published', published_at = NOW(3)
+			  WHERE workflow_id = ? AND version_no = ?`,
+			before.ID, before.Version,
+		).Error; err != nil {
+			return err
+		}
 		after, err := workflowRowByUID(ctx, tx, workspace.ID, id)
 		if err != nil {
 			return err
@@ -444,6 +500,176 @@ func (s *Service) Publish(ctx context.Context, id string, auditCtx AuditContext)
 		return DefinitionDetail{}, wrapAppError(txErr, 501005, "publish workflow failed")
 	}
 	return published, nil
+}
+
+func (s *Service) Disable(ctx context.Context, id string, auditCtx AuditContext) (DefinitionDetail, *apperror.Error) {
+	id = strings.TrimSpace(id)
+	var disabled DefinitionDetail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		before, err := workflowRowByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		if before.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404001, "workflow not found")
+		}
+		if before.Status == "archived" {
+			return apperror.New(http.StatusConflict, 409011, "archived workflow cannot be disabled")
+		}
+		actorID, err := audit.UserIDByUID(ctx, tx, auditCtx.ActorUID)
+		if err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec("UPDATE workflow_definitions SET status = 'disabled' WHERE id = ?", before.ID).Error; err != nil {
+			return err
+		}
+		after, err := workflowRowByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		disabled = DefinitionDetail{DefinitionSummary: definitionSummary(after), Definition: after.Definition}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "workflow.disable",
+			ResourceType:  "workflow",
+			ResourceID:    sql.NullInt64{Int64: int64(before.ID), Valid: true},
+			IP:            auditCtx.IP,
+			UserAgent:     auditCtx.UserAgent,
+			TraceID:       auditCtx.TraceID,
+			RequestMethod: auditCtx.RequestMethod,
+			RequestPath:   auditCtx.RequestPath,
+			Before:        DefinitionDetail{DefinitionSummary: definitionSummary(before), Definition: before.Definition},
+			After:         disabled,
+		})
+		return nil
+	})
+	if txErr != nil {
+		return DefinitionDetail{}, wrapAppError(txErr, 501018, "disable workflow failed")
+	}
+	return disabled, nil
+}
+
+func (s *Service) Copy(ctx context.Context, input CopyInput) (DefinitionDetail, *apperror.Error) {
+	id := strings.TrimSpace(input.ID)
+	name := strings.TrimSpace(input.Name)
+	var copied DefinitionDetail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		source, err := workflowRowByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		if source.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404001, "workflow not found")
+		}
+		actorID, err := audit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		if name == "" {
+			generated, err := nextWorkflowCopyName(ctx, tx, workspace.ID, source.Name)
+			if err != nil {
+				return err
+			}
+			name = generated
+		}
+		workflowUID, err := uid.New()
+		if err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`INSERT INTO workflow_definitions(uid, workspace_id, name, description, definition, version, status, created_by)
+			 VALUES (?, ?, ?, ?, ?, 1, 'draft', ?)`,
+			workflowUID, workspace.ID, name, source.Description, source.Definition, actorID,
+		).Error; err != nil {
+			return err
+		}
+		row, err := workflowRowByUID(ctx, tx, workspace.ID, workflowUID)
+		if err != nil {
+			return err
+		}
+		if err := insertWorkflowVersion(ctx, tx, row.ID, row.Version, row.Definition, "draft", actorID); err != nil {
+			return err
+		}
+		copied = DefinitionDetail{DefinitionSummary: definitionSummary(row), Definition: row.Definition}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "workflow.copy",
+			ResourceType:  "workflow",
+			ResourceID:    sql.NullInt64{Int64: int64(row.ID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Before:        DefinitionDetail{DefinitionSummary: definitionSummary(source), Definition: source.Definition},
+			After:         copied,
+		})
+		return nil
+	})
+	if txErr != nil {
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return DefinitionDetail{}, apperror.New(http.StatusConflict, 409001, "workflow name already exists")
+		}
+		return DefinitionDetail{}, wrapAppError(txErr, 501019, "copy workflow failed")
+	}
+	return copied, nil
+}
+
+func (s *Service) ListVersions(ctx context.Context, id string) ([]VersionSummary, *apperror.Error) {
+	workflow, appErr := s.workflowByUID(ctx, id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	rows, err := workflowVersionRows(ctx, s.db, workflow.ID)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 501020, "list workflow versions failed", err)
+	}
+	items := make([]VersionSummary, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, versionSummary(row))
+	}
+	return items, nil
+}
+
+func insertWorkflowVersion(ctx context.Context, tx *gorm.DB, workflowID uint64, version uint, definition string, status string, actorID sql.NullInt64) error {
+	versionUID, err := uid.New()
+	if err != nil {
+		return err
+	}
+	return tx.WithContext(ctx).Exec(
+		`INSERT INTO workflow_versions(uid, workflow_id, version_no, definition, definition_hash, status, created_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON DUPLICATE KEY UPDATE
+		   definition = VALUES(definition),
+		   definition_hash = VALUES(definition_hash),
+		   status = VALUES(status),
+		   created_by = VALUES(created_by)`,
+		versionUID, workflowID, version, definition, definitionHash(definition), normalizeWorkflowVersionStatus(status), actorID,
+	).Error
+}
+
+func definitionHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return fmt.Sprintf("%x", sum)
+}
+
+func normalizeWorkflowVersionStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case "published", "deprecated", "archived":
+		return strings.TrimSpace(value)
+	default:
+		return "draft"
+	}
 }
 
 func (s *Service) Run(ctx context.Context, input RunInput) (RunDetail, *apperror.Error) {
@@ -589,6 +815,115 @@ func (s *Service) RetryRun(ctx context.Context, input RetryInput) (RunDetail, *a
 		return RunDetail{}, wrapAppError(txErr, 501016, "retry workflow run failed")
 	}
 	return retried, nil
+}
+
+func (s *Service) ApproveNode(ctx context.Context, input ApprovalInput) (RunDetail, *apperror.Error) {
+	return s.resolveApprovalNode(ctx, input, true)
+}
+
+func (s *Service) RejectNode(ctx context.Context, input ApprovalInput) (RunDetail, *apperror.Error) {
+	return s.resolveApprovalNode(ctx, input, false)
+}
+
+func (s *Service) resolveApprovalNode(ctx context.Context, input ApprovalInput, approved bool) (RunDetail, *apperror.Error) {
+	var detail RunDetail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		run, err := runByUID(ctx, tx, workspace.ID, strings.TrimSpace(input.RunID))
+		if err != nil {
+			return err
+		}
+		if run.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404002, "workflow run not found")
+		}
+		if !activeWorkflowStatus(run.Status) {
+			return apperror.New(http.StatusConflict, 409009, "workflow run is not waiting for approval")
+		}
+		nodes, err := workflowNodeStates(ctx, tx, run.ID)
+		if err != nil {
+			return err
+		}
+		targetNodeID := strings.TrimSpace(input.NodeID)
+		var target *workflowRunNodeState
+		for index := range nodes {
+			if nodes[index].NodeID == targetNodeID {
+				target = &nodes[index]
+				break
+			}
+		}
+		if target == nil {
+			return apperror.New(http.StatusNotFound, 404004, "workflow node not found")
+		}
+		if target.NodeType != "approval" || target.Status != "running" {
+			return apperror.New(http.StatusConflict, 409010, "workflow node is not waiting for approval")
+		}
+		actorID, err := audit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		comment := limitString(strings.TrimSpace(input.Comment), 512)
+		status := "success"
+		message := "Approval granted"
+		errorMessage := sql.NullString{}
+		if !approved {
+			status = "failed"
+			message = "Approval rejected"
+			errorMessage = nullString(message)
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`UPDATE workflow_run_nodes
+			    SET status = ?, output = ?, error_message = ?, finished_at = COALESCE(finished_at, NOW(3))
+			  WHERE id = ? AND status = 'running'`,
+			status,
+			jsonStringOrNull(map[string]interface{}{
+				"decision": map[string]interface{}{
+					"approved": approved,
+					"comment":  comment,
+					"actorId":  actorID.Int64,
+				},
+			}),
+			errorMessage,
+			target.ID,
+		).Error; err != nil {
+			return err
+		}
+		if err := writeWorkflowEvent(ctx, tx, run.ID, target.NodeID, "node_"+status, message, actorID, map[string]string{"comment": comment}); err != nil {
+			return err
+		}
+		var def Definition
+		if err := json.Unmarshal([]byte(run.DefinitionSnapshot), &def); err != nil {
+			return err
+		}
+		runInput, err := parseWorkflowInput(run.Input.String)
+		if err != nil {
+			return err
+		}
+		for index := 0; index <= len(def.Nodes); index++ {
+			changed, err := progressReadyNodes(ctx, tx, workspace.ID, run.ID, def, runInput)
+			if err != nil {
+				return err
+			}
+			if !changed {
+				break
+			}
+		}
+		if err := refreshWorkflowRunAggregate(ctx, tx, run.ID); err != nil {
+			return err
+		}
+		loaded, err := runDetailByUID(ctx, tx, workspace.ID, run.UID)
+		if err != nil {
+			return err
+		}
+		detail = loaded
+		return nil
+	})
+	if txErr != nil {
+		return RunDetail{}, wrapAppError(txErr, 501017, "resolve approval node failed")
+	}
+	return detail, nil
 }
 
 func (s *Service) ListRuns(ctx context.Context, input ListInput) (RunListResult, *apperror.Error) {

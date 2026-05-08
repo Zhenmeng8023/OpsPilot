@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### V1.0 Productization Validation Engineering
+
+- Added `scripts/openapi-router-check.ps1`, which extracts routes from Go router/handler source and compares them with `server/docs/openapi/openapi.yaml`.
+- Added `scripts/e2e-smoke.ps1` for health, version, login, and authenticated core-route smoke checks against a running environment.
+- CI now includes OpenAPI/router diff and `docker compose --profile full config` validation.
+- Added `docs/v1.0-release-notes.md` and the English version to record V1.0 validation commands, results, environment, and remaining blockers.
+- Fixed README V1.0 design document links and added the V1.0 release evidence entry.
+- Aligned Workflow permissions on `workflow:manage` while keeping `workflow:write` / `workflow:cancel` as compatibility aliases.
+- Removed several hard-coded English labels from Audit, Workflow, Agent, and Webhook pages by adding zh/en i18n keys.
+
 ### V0.7 Release Closure And Documentation
 
 - Added `docs/v0.7-release-notes.md` and `docs/v0.7-release-notes.en.md` for V0.7 positioning, completed capabilities, validation commands, known gaps, and follow-up order.

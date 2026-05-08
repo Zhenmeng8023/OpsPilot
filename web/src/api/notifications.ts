@@ -12,6 +12,13 @@ export function createNotificationChannel(payload: { name: string; channelType?:
   });
 }
 
+export function updateNotificationChannel(id: string, payload: { name: string; channelType?: string; config?: Record<string, unknown> }) {
+  return request<NotificationChannel>(`/api/v1/notification-channels/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
 export function testNotificationChannel(id: string) {
   return request<NotificationChannelTestResult>(`/api/v1/notification-channels/${id}/test`, {
     method: "POST"

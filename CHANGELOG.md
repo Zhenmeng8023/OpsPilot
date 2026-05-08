@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### V1.0 产品化验收工程
+
+- 新增 `scripts/openapi-router-check.ps1`，从 Go router/handler 源码提取实际路由并与 `server/docs/openapi/openapi.yaml` 对比。
+- 新增 `scripts/e2e-smoke.ps1`，用于运行中环境的 health、version、login 和核心鉴权路由 smoke 检查。
+- CI 增加 OpenAPI/router diff 和 `docker compose --profile full config` 验证。
+- 新增 `docs/v1.0-release-notes.md` 与英文版，记录 V1.0 验收命令、结果、环境和剩余阻塞项。
+- 修正 README 中 V1.0 设计书路径，并补充 V1.0 验收记录入口。
+- Workflow 权限收敛为 `workflow:manage`，并保留 `workflow:write` / `workflow:cancel` 兼容别名。
+- 清理 Audit、Workflow、Agent、Webhook 页面部分硬编码英文文案，补齐对应 zh/en i18n key。
+
 ### V0.7 发布收尾与文档
 
 - 新增 `docs/v0.7-release-notes.md` 与 `docs/v0.7-release-notes.en.md`，记录 V0.7 定位、已完成能力、验收命令、已知缺口和后续顺序。

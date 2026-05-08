@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -49,6 +50,36 @@ func validateWaitNode(node Node) error {
 		return fmt.Errorf("wait node %s config.seconds cannot exceed %d", node.ID, maxWaitSeconds)
 	}
 	return nil
+}
+
+func validateApprovalNode(node Node) error {
+	mode := nodeConfigString(node, "mode")
+	if mode == "" {
+		return nil
+	}
+	switch mode {
+	case "any":
+		return nil
+	default:
+		return fmt.Errorf("approval node %s has unsupported config.mode", node.ID)
+	}
+}
+
+func validateWebhookCallNode(node Node) error {
+	url := nodeConfigString(node, "url")
+	if url == "" {
+		return fmt.Errorf("webhook-call node %s requires config.url", node.ID)
+	}
+	method := strings.ToUpper(nodeConfigString(node, "method"))
+	if method == "" {
+		return nil
+	}
+	switch method {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return nil
+	default:
+		return fmt.Errorf("webhook-call node %s has unsupported config.method", node.ID)
+	}
 }
 
 func evaluateCondition(node Node, input interface{}) (bool, map[string]interface{}, error) {

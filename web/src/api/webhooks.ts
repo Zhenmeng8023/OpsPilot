@@ -1,5 +1,5 @@
 import { request } from "./request";
-import type { PageResult, WebhookEvent, WebhookEventDetail, WebhookMatcher, WebhookRule, WebhookSource } from "./types";
+import type { PageResult, WebhookEvent, WebhookEventDetail, WebhookMatcher, WebhookMatcherSimulationResult, WebhookRule, WebhookSource } from "./types";
 
 export function listWebhookSources() {
   return request<WebhookSource[]>("/api/v1/webhooks/sources");
@@ -22,6 +22,13 @@ export function resumeWebhookSource(id: string) {
 
 export function disableWebhookSource(id: string) {
   return request<{ ok: boolean }>(`/api/v1/webhooks/sources/${id}/disable`, { method: "POST" });
+}
+
+export function rotateWebhookSourceSecret(id: string, payload: { rotateToken?: boolean } = {}) {
+  return request<WebhookSource>(`/api/v1/webhooks/sources/${id}/rotate-secret`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function listWebhookRules() {
@@ -76,4 +83,24 @@ export function resumeWebhookRule(id: string) {
 
 export function disableWebhookRule(id: string) {
   return request<{ ok: boolean }>(`/api/v1/webhooks/rules/${id}/disable`, { method: "POST" });
+}
+
+export function simulateWebhookMatcher(payload: {
+  ruleId?: string;
+  eventType?: string;
+  matcher?: WebhookMatcher;
+  headers?: Record<string, string>;
+  payload?: string;
+}) {
+  return request<WebhookMatcherSimulationResult>("/api/v1/webhooks/matcher/simulate", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function replayWebhookEvent(id: string, payload: { simulateOnly?: boolean; idempotencyKey?: string } = {}) {
+  return request<{ eventId: string; status: string; matchedRules: number; triggeredRuns: string[] }>(`/api/v1/webhooks/events/${id}/replay`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }

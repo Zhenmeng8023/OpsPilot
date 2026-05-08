@@ -19,6 +19,9 @@ var permissionAliases = map[string][]string{
 	"alert:write":        {"alert:write", "alert.write"},
 	"webhook:manage":     {"webhook:manage", "webhook.manage"},
 	"notification:write": {"notification:write", "notification.write"},
+	"workflow:read":       {"workflow:read", "workflow.read"},
+	"workflow:manage":     {"workflow:manage", "workflow:write", "workflow.write", "workflow:cancel", "workflow.cancel"},
+	"workflow:execute":    {"workflow:execute", "workflow.execute"},
 }
 
 var permissionCanonical = buildPermissionCanonical(permissionAliases)

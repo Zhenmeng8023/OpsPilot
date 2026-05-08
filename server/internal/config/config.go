@@ -28,11 +28,13 @@ type Config struct {
 	Database  DatabaseConfig
 	Redis     RedisConfig
 	JWT       JWTConfig
+	Security  SecurityConfig
 	Auth      AuthConfig
 	Agent     AgentConfig
 	Command   CommandPolicyConfig
 	Schedule  ScheduleConfig
 	Alert     AlertConfig
+	Audit     AuditConfig
 	Notify    NotificationConfig
 	Bootstrap BootstrapConfig
 }
@@ -68,6 +70,10 @@ type JWTConfig struct {
 	RefreshTTL    time.Duration
 }
 
+type SecurityConfig struct {
+	SecretEncryptionKey string
+}
+
 type AuthConfig struct {
 	PublicRegistrationEnabled bool
 }
@@ -98,6 +104,10 @@ type ScheduleConfig struct {
 
 type AlertConfig struct {
 	ScanInterval time.Duration
+}
+
+type AuditConfig struct {
+	RetentionDays int
 }
 
 type NotificationConfig struct {
@@ -150,6 +160,9 @@ func Load() (Config, error) {
 			AccessTTL:     getEnvDuration("JWT_ACCESS_TTL", 15*time.Minute),
 			RefreshTTL:    getEnvDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
 		},
+		Security: SecurityConfig{
+			SecretEncryptionKey: getEnv("SECRET_ENCRYPTION_KEY", "dev-secret-encryption-key-change-me"),
+		},
 		Auth: AuthConfig{
 			PublicRegistrationEnabled: getEnvBool("AUTH_PUBLIC_REGISTRATION_ENABLED", getEnv("APP_ENV", "local") != "prod"),
 		},
@@ -176,6 +189,9 @@ func Load() (Config, error) {
 		},
 		Alert: AlertConfig{
 			ScanInterval: getEnvDurationSeconds("ALERT_SCAN_INTERVAL_SECONDS", 30*time.Second),
+		},
+		Audit: AuditConfig{
+			RetentionDays: getEnvInt("AUDIT_RETENTION_DAYS", 180),
 		},
 		Notify: NotificationConfig{
 			DispatchInterval: getEnvDurationSeconds("NOTIFICATION_DISPATCH_INTERVAL_SECONDS", 15*time.Second),
@@ -212,6 +228,9 @@ func Load() (Config, error) {
 		if err := validateProdJWTSecret("JWT_REFRESH_SECRET", cfg.JWT.RefreshSecret, defaultRefreshSecret); err != nil {
 			return Config{}, err
 		}
+		if err := validateProdSecretEncryptionKey(cfg.Security.SecretEncryptionKey); err != nil {
+			return Config{}, err
+		}
 	}
 	if cfg.Agent.MaxConcurrentTasks <= 0 {
 		cfg.Agent.MaxConcurrentTasks = 1
@@ -227,6 +246,9 @@ func Load() (Config, error) {
 	}
 	if cfg.Notify.SMTPSecurity != "starttls" && cfg.Notify.SMTPSecurity != "tls" && cfg.Notify.SMTPSecurity != "plain" {
 		return Config{}, errors.New("NOTIFICATION_SMTP_SECURITY must be one of starttls, tls or plain")
+	}
+	if cfg.Audit.RetentionDays <= 0 {
+		cfg.Audit.RetentionDays = 180
 	}
 
 	return cfg, nil
@@ -280,6 +302,20 @@ func validateProdJWTSecret(name, value, defaultValue string) error {
 		return errors.New(name + " cannot use the default development value in prod")
 	case len(value) < minJWTSecretLength:
 		return errors.New(name + " must be at least 32 characters in prod")
+	default:
+		return nil
+	}
+}
+
+func validateProdSecretEncryptionKey(value string) error {
+	value = strings.TrimSpace(value)
+	switch {
+	case value == "":
+		return errors.New("SECRET_ENCRYPTION_KEY cannot be empty in prod")
+	case value == "dev-secret-encryption-key-change-me":
+		return errors.New("SECRET_ENCRYPTION_KEY cannot use the default development value in prod")
+	case len(value) < minJWTSecretLength:
+		return errors.New("SECRET_ENCRYPTION_KEY must be at least 32 characters in prod")
 	default:
 		return nil
 	}

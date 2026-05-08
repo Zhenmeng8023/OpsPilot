@@ -147,9 +147,17 @@ func validateNodeConfig(node Node) error {
 		if err := validateConditionNode(node); err != nil {
 			return err
 		}
+	case "approval":
+		if err := validateApprovalNode(node); err != nil {
+			return err
+		}
 	case "notification":
 		if nodeConfigString(node, "title") == "" && node.Name == "" {
 			return fmt.Errorf("notification node %s requires name or config.title", node.ID)
+		}
+	case "webhook", "webhook-call":
+		if err := validateWebhookCallNode(node); err != nil {
+			return err
 		}
 	case "wait":
 		if err := validateWaitNode(node); err != nil {
@@ -161,7 +169,7 @@ func validateNodeConfig(node Node) error {
 
 func validNodeType(value string) bool {
 	switch value {
-	case "task", "condition", "approval", "notification", "webhook", "wait", "incident":
+	case "task", "condition", "approval", "notification", "webhook", "webhook-call", "wait", "incident":
 		return true
 	default:
 		return false

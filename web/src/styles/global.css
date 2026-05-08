@@ -1230,10 +1230,24 @@ a {
   margin: 0;
 }
 
-.confirm-dialog p {
+.confirm-dialog p,
+.confirm-message {
   margin: 0.75rem 0 0;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.confirm-message label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.confirm-message textarea {
+  width: 100%;
+  min-height: 9rem;
+  resize: vertical;
 }
 
 .confirm-actions {

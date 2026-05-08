@@ -526,6 +526,21 @@ paths:
               $ref: "#/components/schemas/WebhookSourcePayload"
       responses:
         "200": { description: Source detail with one-time trigger token and signing secret }
+  /api/v1/webhooks/sources/{id}/rotate-secret:
+    post:
+      summary: Rotate webhook source signing secret and optional trigger token
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rotateToken: { type: boolean, default: false }
+      responses:
+        "200": { description: Source detail with one-time signing secret and optional trigger token }
   /api/v1/webhooks/sources/{id}/pause:
     post:
       summary: Pause webhook source
@@ -620,6 +635,38 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: OK }
+  /api/v1/webhooks/matcher/simulate:
+    post:
+      summary: Simulate webhook matcher evaluation
+      description: Requires `webhook:manage`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ruleId: { type: string }
+                eventType: { type: string }
+                headers:
+                  type: object
+                  additionalProperties: { type: string }
+                payload:
+                  type: string
+                matcher:
+                  type: object
+                  properties:
+                    conditions:
+                      type: array
+                      items:
+                        type: object
+                        required: [type, value]
+                        properties:
+                          type: { type: string, enum: [header_equals, payload_equals, payload_contains, event_type_equals, ref_equals, branch_equals] }
+                          key: { type: string }
+                          path: { type: string }
+                          value: { type: string }
+      responses:
+        "200": { description: Matcher simulation result }
   /api/v1/webhook-events:
     get:
       summary: List webhook events
@@ -652,6 +699,22 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Webhook event detail with headers, payload, and match results }
+  /api/v1/webhooks/events/{id}/replay:
+    post:
+      summary: Replay webhook event
+      description: Requires `webhook:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                simulateOnly: { type: boolean, default: false }
+                idempotencyKey: { type: string }
+      responses:
+        "200": { description: Trigger result with replay status and triggered runs }
   /api/v1/agent/metrics:
     post:
       security:
@@ -902,7 +965,7 @@ paths:
                 $ref: "#/components/schemas/WorkflowDefinitionPage"
     post:
       summary: Create workflow definition
-      description: Requires `workflow:write`. The `definition` field is a JSON string containing a DAG with nodes and edges.
+      description: Requires `workflow:manage`. The `definition` field is a JSON string containing a DAG with nodes and edges.
       requestBody:
         content:
           application/json:
@@ -930,7 +993,7 @@ paths:
                 $ref: "#/components/schemas/WorkflowDefinitionDetail"
     put:
       summary: Update workflow definition
-      description: Requires `workflow:write`. Updating an active workflow returns it to draft status.
+      description: Requires `workflow:manage`. Updating an active workflow returns it to draft status.
       parameters:
         - $ref: "#/components/parameters/id"
       requestBody:
@@ -943,11 +1006,54 @@ paths:
   /api/v1/workflows/{id}/publish:
     post:
       summary: Publish workflow definition
-      description: Requires `workflow:write`.
+      description: Requires `workflow:manage`.
       parameters:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Workflow definition detail }
+  /api/v1/workflows/{id}/disable:
+    post:
+      summary: Disable workflow definition
+      description: Requires `workflow:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Workflow definition detail }
+  /api/v1/workflows/{id}/copy:
+    post:
+      summary: Copy workflow definition
+      description: Requires `workflow:manage`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        "200": { description: Workflow definition detail }
+  /api/v1/workflows/{id}/versions:
+    get:
+      summary: List workflow versions
+      description: Requires `workflow:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Workflow versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer }
+                  message: { type: string }
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WorkflowVersionSummary"
   /api/v1/workflows/{id}/run:
     post:
       summary: Start workflow run
@@ -1000,7 +1106,7 @@ paths:
   /api/v1/workflow-runs/{id}/cancel:
     post:
       summary: Cancel workflow run
-      description: Requires `workflow:cancel`.
+      description: Requires `workflow:manage`.
       parameters:
         - $ref: "#/components/parameters/id"
       requestBody:
@@ -1020,6 +1126,44 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Workflow run detail }
+  /api/v1/workflow-runs/{id}/nodes/{nodeId}/approve:
+    post:
+      summary: Approve workflow approval node
+      description: Requires `workflow:execute`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: nodeId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: { type: string }
+      responses:
+        "200": { description: Workflow run detail }
+  /api/v1/workflow-runs/{id}/nodes/{nodeId}/reject:
+    post:
+      summary: Reject workflow approval node
+      description: Requires `workflow:execute`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: nodeId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: { type: string }
+      responses:
+        "200": { description: Workflow run detail }
   /api/v1/notification-channels:
     get:
       summary: List notification channels
@@ -1029,6 +1173,19 @@ paths:
     post:
       summary: Create notification channel
       description: Requires `notification:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelPayload"
+      responses:
+        "200": { description: Channel summary }
+  /api/v1/notification-channels/{id}:
+    put:
+      summary: Update notification channel
+      description: Requires `notification:write`. Secret fields remain write-only and are never returned.
+      parameters:
+        - $ref: "#/components/parameters/id"
       requestBody:
         content:
           application/json:
@@ -1094,6 +1251,9 @@ paths:
         - name: action
           in: query
           schema: { type: string }
+        - name: actor
+          in: query
+          schema: { type: string }
         - name: actorType
           in: query
           schema: { type: string, enum: [user, agent, webhook, system] }
@@ -1101,6 +1261,9 @@ paths:
           in: query
           schema: { type: string, enum: [success, failed, denied] }
         - name: resourceType
+          in: query
+          schema: { type: string }
+        - name: resourceId
           in: query
           schema: { type: string }
         - name: traceId
@@ -1122,6 +1285,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditLogPage"
+  /api/v1/audit-logs/export:
+    get:
+      summary: Export audit logs
+      description: Requires `audit.read`. Supports JSON and CSV export with the same filters as list.
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, csv], default: json }
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: actor
+          in: query
+          schema: { type: string }
+        - name: actorType
+          in: query
+          schema: { type: string, enum: [user, agent, webhook, system] }
+        - name: result
+          in: query
+          schema: { type: string, enum: [success, failed, denied] }
+        - name: resourceType
+          in: query
+          schema: { type: string }
+        - name: resourceId
+          in: query
+          schema: { type: string }
+        - name: traceId
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/keyword"
+        - name: createdFrom
+          in: query
+          schema: { type: string, format: date-time }
+        - name: createdTo
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200": { description: Downloaded audit export file }
+  /api/v1/audit-logs/retention/run:
+    post:
+      summary: Run audit log retention
+      description: Requires `audit.read`. Supports dry run and execute mode.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dryRun: { type: boolean, default: true }
+                days: { type: integer, minimum: 1 }
+      responses:
+        "200": { description: Retention execution result }
 components:
   securitySchemes:
     bearerAuth:
@@ -1342,6 +1557,17 @@ components:
         total: { type: integer }
         page: { type: integer }
         pageSize: { type: integer }
+    WorkflowVersionSummary:
+      type: object
+      properties:
+        id: { type: string }
+        workflowId: { type: string }
+        version: { type: integer }
+        status: { type: string, enum: [draft, published, deprecated, archived] }
+        definitionHash: { type: string }
+        createdBy: { type: string }
+        publishedAt: { type: string }
+        createdAt: { type: string }
     WorkflowRunPayload:
       type: object
       properties:

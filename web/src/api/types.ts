@@ -318,6 +318,26 @@ export interface WebhookEventDetail extends WebhookEvent {
   matches: WebhookEventMatch[];
 }
 
+export interface WebhookMatcherSimulationCondition {
+  type: string;
+  key?: string;
+  path?: string;
+  value: string;
+  matched: boolean;
+  reason?: string;
+  actual?: string;
+}
+
+export interface WebhookMatcherSimulationResult {
+  ruleId?: string;
+  ruleName?: string;
+  eventType?: string;
+  matched: boolean;
+  reason?: string;
+  conditions: WebhookMatcherSimulationCondition[];
+  payloadUsed?: string;
+}
+
 export interface HostMetric {
   id: number;
   hostId: string;
@@ -452,6 +472,17 @@ export interface WorkflowDefinitionDetail extends WorkflowDefinitionSummary {
   definition: string;
 }
 
+export interface WorkflowVersionSummary {
+  id: string;
+  workflowId: string;
+  version: number;
+  status: string;
+  definitionHash: string;
+  createdBy?: string;
+  publishedAt?: string;
+  createdAt: string;
+}
+
 export interface WorkflowRunSummary {
   id: string;
   workflowId: string;
@@ -478,6 +509,8 @@ export interface WorkflowRunNode {
   nodeName?: string;
   status: string;
   taskRunId?: string;
+  input?: string;
+  output?: string;
   errorMessage?: string;
   attempts: number;
   queuedAt?: string;
@@ -567,4 +600,12 @@ export interface AuditLog {
   after?: string;
   metadata?: string;
   createdAt: string;
+}
+
+export interface AuditRetentionResult {
+  cutoffAt: string;
+  days: number;
+  matched: number;
+  deleted: number;
+  dryRun: boolean;
 }

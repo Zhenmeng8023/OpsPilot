@@ -9,7 +9,7 @@ Generated: 2026-05-08
 This document supplements and corrects the following UML baselines:
 
 - The original UML in `docs/OpsPilot_技术与开发方案_V2.docx`
-- The repository UML baseline in `docs/core-uml.md`
+- The repository UML baseline in `docs/UML/core-uml.md`
 
 The conclusion is straightforward: once `Incident`, `Workflow`, and their related backend/frontend modules were implemented, the older UML stopped reflecting the actual system. The biggest gaps are in orchestration flow, alert-to-incident operations, and the new database entities. This file provides a versioned UML supplement for the current `OpsPilot V1.0` implementation snapshot.
 
@@ -18,18 +18,19 @@ The conclusion is straightforward: once `Incident`, `Workflow`, and their relate
 | Baseline | File | Software version | Notes |
 | --- | --- | --- | --- |
 | Original UML baseline | `docs/OpsPilot_技术与开发方案_V2.docx` | Early V2 design draft | Captures early task scheduling and alerting concepts, but does not include implemented `Workflow` and `Incident` models |
-| Repository UML baseline | `docs/core-uml.md` | Generic core UML baseline | Good for broad system overview, but not a versioned update for the recent implementation changes |
-| Updated UML in this document | `docs/core-uml-v1.0-update.en.md` | `OpsPilot V1.0` current implementation snapshot (2026-05-08) | Covers the parts that changed and now need revised diagrams |
+| Repository UML baseline | `docs/UML/core-uml.md` | Generic core UML baseline | Good for broad system overview, but not a versioned update for the recent implementation changes |
+| Updated UML in this document | `docs/UML/core-uml-v1.0-update.en.md` | `OpsPilot V1.0` current implementation snapshot (2026-05-08) | Covers the parts that changed and now need revised diagrams |
 
 ## 3. Why the Old UML Needs an Update
 
 The old diagrams no longer cover these changes:
 
-1. A new `Workflow` module now exists, including definition, publish, run, node, event, cancel, and DAG progression behavior.
+1. A new `Workflow` module now exists, including definition, independent versions, publish, disable, copy, manual runs with input, nodes, events, cancel, retry, approval node handling, and DAG progression behavior.
 2. A new `Incident` module now exists, so alert handling is no longer only `alert`-level state.
-3. The trigger chain has expanded from "mainly trigger a Task" to "Manual / Schedule / Webhook / Incident can drive a Workflow".
+3. The trigger chain has expanded from "mainly trigger a Task" to "Manual / Schedule / Webhook / Incident can drive a Workflow"; Webhook also has matcher simulation and event replay.
 4. The frontend information architecture now includes `Workflows` and `Incidents`.
-5. The database now includes `000005_v10_incidents` and `000006_v10_workflows`, which are missing from the older model diagrams.
+5. Secret, Webhook, Notification, and Audit governance have been hardened with encrypted config, secret rotation, audit export, and retention runs.
+6. The database now includes or extends `000005_v10_incidents`, `000006_v10_workflows`, `000008_v10_secret_audit_webhook_hardening`, and `000009_v10_workflow_versions`, which are missing from the older model diagrams.
 
 ## 4. Updated Diagram 1: V1.0 System Context
 
@@ -48,11 +49,14 @@ flowchart LR
   API --> Ops["Scripts / Tasks / Schedules / Webhooks"]
   API --> Monitor["Metrics / Alerts / Notifications / Incidents"]
   API --> Flow["Workflow Engine"]
+  API --> Secret["Secret Crypto / Rotation"]
   API --> Audit["Audit"]
 
   Flow --> Ops
   Flow --> Monitor
   Monitor --> Flow
+  Ops --> Secret
+  Monitor --> Secret
 
   API --> MySQL[("MySQL")]
   API --> Redis[("Redis")]
@@ -62,7 +66,8 @@ flowchart LR
 What changed:
 
 - `Workflow Engine` and `Incidents` are now first-class modules in the system context.
-- `Workflow` now interacts with tasks, notifications, and incidents instead of the platform being only task-centric.
+- `Workflow` now interacts with tasks, notifications, webhooks, and incidents instead of the platform being only task-centric.
+- Secret encryption and rotation are now shared governance capabilities for webhook sources, notification channels, and similar sensitive configuration.
 
 ## 5. Updated Diagram 2: V1.0 Trigger and Orchestration Flow
 
@@ -70,12 +75,16 @@ Applies to: `OpsPilot V1.0`
 
 ```mermaid
 flowchart LR
-  Manual["Manual Run"] --> Trigger["Workflow Trigger Layer"]
+  Definition["workflow_definitions"] --> Version["workflow_versions"]
+  Version --> Publish["publish / disable / copy"]
+
+  Manual["Manual Run + JSON Input"] --> Trigger["Workflow Trigger Layer"]
   Schedule["Cron Schedule"] --> Trigger
   Webhook["Webhook Event"] --> Trigger
   Incident["Incident Action / Event"] --> Trigger
 
   Trigger --> Run["workflow_runs"]
+  Version --> Run
   Run --> Nodes["workflow_run_nodes"]
   Nodes --> Condition{"condition"}
 
@@ -83,6 +92,10 @@ flowchart LR
   Condition -->|false + skip| WaitNode["wait node"]
   Condition -->|false + fail| EndFail["run failed"]
 
+  Nodes --> Approval["approval node"]
+  Approval -->|approve / reject| Reconcile
+  Nodes --> WebhookCall["webhook-call node"]
+  WebhookCall --> Reconcile
   TaskNode --> TaskRun["task_runs"]
   TaskRun --> Agent["Agent execution"]
   Agent --> TaskEvent["task_run_events / logs"]
@@ -97,6 +110,7 @@ What changed:
 
 - The older model was mostly `Schedule/Webhook -> Task`.
 - The current model is `Trigger -> Workflow -> Node -> Task/Wait/Condition`, which matches the current implementation direction.
+- The diagram now includes `workflow_versions`, manual JSON input, approval handling, and webhook-call nodes. Runs still store a definition snapshot so historical runs are not affected by later definition edits.
 
 ## 6. Updated Diagram 3: V1.0 Alert-to-Incident Operations Flow
 
@@ -130,6 +144,7 @@ Applies to: `OpsPilot V1.0`
 
 ```mermaid
 erDiagram
+  WORKFLOW_DEFINITIONS ||--o{ WORKFLOW_VERSIONS : versions
   WORKFLOW_DEFINITIONS ||--o{ WORKFLOW_RUNS : runs
   WORKFLOW_RUNS ||--o{ WORKFLOW_RUN_NODES : contains
   WORKFLOW_RUNS ||--o{ WORKFLOW_RUN_EVENTS : records
@@ -150,29 +165,48 @@ erDiagram
     varchar status
   }
 
+  WORKFLOW_VERSIONS {
+    bigint id
+    varchar uid
+    bigint workflow_id
+    int version_no
+    json definition
+    char definition_hash
+    varchar status
+    bigint created_by
+    datetime published_at
+  }
+
   WORKFLOW_RUNS {
     bigint id
     varchar uid
     bigint workflow_id
     int workflow_version
+    json definition_snapshot
     varchar trigger_type
     varchar status
+    json input
+    json output
   }
 
   WORKFLOW_RUN_NODES {
     bigint id
     bigint run_id
-    varchar node_key
+    varchar node_id
     varchar node_type
     varchar status
     bigint task_run_id
+    json input
+    json output
   }
 
   WORKFLOW_RUN_EVENTS {
     bigint id
     bigint run_id
+    varchar node_id
     varchar event_type
     text message
+    json payload
   }
 
   INCIDENTS {
@@ -200,18 +234,54 @@ erDiagram
 What changed:
 
 - This diagram only captures the delta relative to the older model.
-- `workflow_*` comes from `000006_v10_workflows.up.sql`.
+- `workflow_definitions / workflow_runs / workflow_run_nodes / workflow_run_events` come from `000006_v10_workflows.up.sql`.
+- `workflow_versions` comes from `000009_v10_workflow_versions.up.sql`.
 - `incidents / incident_alerts / incident_events` comes from `000005_v10_incidents.up.sql`.
 
-## 8. Recommended Baseline Strategy
+## 8. Updated Diagram 5: V1.0 Secret, Webhook, and Audit Governance Flow
 
-Do not overwrite `docs/core-uml.md` directly yet:
+Applies to: `OpsPilot V1.0`
 
-1. `docs/core-uml.md` still works as the general system-wide UML baseline.
+```mermaid
+flowchart LR
+  Operator["Operator"] --> UI["Admin UI"]
+  UI --> WebhookAPI["Webhook Source / Rule API"]
+  UI --> NotificationAPI["Notification Channel API"]
+  UI --> AuditAPI["Audit Export / Retention API"]
+
+  WebhookAPI --> SecretCrypto["Secret JSON Crypto"]
+  NotificationAPI --> SecretCrypto
+  SecretCrypto --> DB[("Encrypted config / signing secret")]
+
+  External["External Webhook Sender"] --> Ingest["Webhook Ingest"]
+  Ingest --> Verify["Token + HMAC Verify"]
+  Verify --> Match["Matcher Evaluate"]
+  Match --> Replay["Replay / Simulate"]
+  Match --> TaskOrWorkflow["Task Run / Workflow Run"]
+
+  WebhookAPI --> Rotate["Rotate secret / token"]
+  Rotate --> SecretCrypto
+
+  AuditAPI --> AuditLogs["audit_logs filters"]
+  AuditLogs --> Export["JSON / CSV export"]
+  AuditLogs --> Retention["dry-run / execute retention"]
+```
+
+What changed:
+
+- Webhook source signing secrets and notification channel sensitive config now go through shared encrypted secret handling.
+- Webhook operations now include matcher simulation, event replay, and secret/token rotation.
+- Audit now includes advanced filters, export, and retention runs as V1.0 release governance behavior.
+
+## 9. Recommended Baseline Strategy
+
+Do not overwrite `docs/UML/core-uml.md` directly yet:
+
+1. `docs/UML/core-uml.md` still works as the general system-wide UML baseline.
 2. This file is better positioned as a versioned change supplement.
-3. If the project later wants one single canonical UML file for release, merge these four diagrams back into `docs/core-uml.md` and add the version marker there.
+3. If the project later wants one single canonical UML file for release, merge these five diagrams back into `docs/UML/core-uml.md` and add the version marker there.
 
-## 9. Conclusion
+## 10. Conclusion
 
 Based on the current implementation, at least these older UML areas should be treated as outdated or in need of versioned supplements:
 
@@ -219,5 +289,6 @@ Based on the current implementation, at least these older UML areas should be tr
 - Task/schedule/webhook trigger flow
 - Alert and notification flow
 - Database delta model
+- Secret, Webhook operations, and Audit governance flow
 
 This document is the revised `OpsPilot V1.0` UML supplement for those parts.

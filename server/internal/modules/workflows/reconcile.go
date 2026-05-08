@@ -99,10 +99,11 @@ func syncTaskNodeStates(ctx context.Context, tx *gorm.DB, runID uint64) error {
 		if err := tx.WithContext(ctx).Exec(
 			`UPDATE workflow_run_nodes
 			    SET status = ?,
+			        output = ?,
 			        started_at = CASE WHEN ? = 'running' THEN COALESCE(started_at, NOW(3)) ELSE started_at END,
 			        finished_at = CASE WHEN ? IN ('success', 'failed', 'canceled') THEN COALESCE(finished_at, NOW(3)) ELSE finished_at END
 			  WHERE id = ?`,
-			next, next, next, node.ID,
+			next, jsonStringOrNull(map[string]interface{}{"taskStatus": node.TaskStatus.String}), next, next, node.ID,
 		).Error; err != nil {
 			return err
 		}
@@ -136,8 +137,9 @@ func syncRuntimeNodeStates(ctx context.Context, tx *gorm.DB, runID uint64, def D
 		}
 		if err := tx.WithContext(ctx).Exec(
 			`UPDATE workflow_run_nodes
-			    SET status = 'success', error_message = NULL, finished_at = COALESCE(finished_at, NOW(3))
+			    SET status = 'success', output = ?, error_message = NULL, finished_at = COALESCE(finished_at, NOW(3))
 			  WHERE id = ? AND status = 'running'`,
+			jsonStringOrNull(map[string]interface{}{"seconds": int(waitFor / time.Second), "completedAt": now.Format(time.RFC3339)}),
 			node.ID,
 		).Error; err != nil {
 			return err
@@ -182,8 +184,14 @@ func dispatchWorkflowNode(ctx context.Context, tx *gorm.DB, workspaceID, runID u
 	if node.Type == "condition" {
 		return dispatchConditionNode(ctx, tx, runID, node, input, actorID)
 	}
+	if node.Type == "approval" {
+		return dispatchApprovalNode(ctx, tx, runID, node, actorID)
+	}
 	if node.Type == "notification" {
 		return dispatchNotificationNode(ctx, tx, workspaceID, runID, node, actorID)
+	}
+	if node.Type == "webhook" || node.Type == "webhook-call" {
+		return dispatchWebhookCallNode(ctx, tx, runID, node, input, actorID)
 	}
 	if node.Type == "wait" {
 		return dispatchWaitNode(ctx, tx, runID, node, actorID)
@@ -208,9 +216,13 @@ func dispatchWorkflowNode(ctx context.Context, tx *gorm.DB, workspaceID, runID u
 	}
 	if err := tx.WithContext(ctx).Exec(
 		`UPDATE workflow_run_nodes
-		    SET status = 'queued', task_run_id = ?, attempts = attempts + 1, queued_at = NOW(3)
+		    SET status = 'queued', task_run_id = ?, input = ?, output = ?, attempts = attempts + 1, queued_at = NOW(3)
 		  WHERE run_id = ? AND node_id = ? AND status = 'pending'`,
-		taskRunID, runID, node.ID,
+		taskRunID,
+		jsonStringOrNull(map[string]interface{}{"taskId": taskUID}),
+		jsonStringOrNull(map[string]interface{}{"taskRunId": taskRunUID, "taskStatus": "queued"}),
+		runID,
+		node.ID,
 	).Error; err != nil {
 		return err
 	}
@@ -236,14 +248,31 @@ func dispatchConditionNode(ctx context.Context, tx *gorm.DB, runID uint64, node 
 	}
 	if err := tx.WithContext(ctx).Exec(
 		`UPDATE workflow_run_nodes
-		    SET status = ?, attempts = attempts + 1, error_message = ?, started_at = COALESCE(started_at, NOW(3)),
+		    SET status = ?, attempts = attempts + 1, input = ?, output = ?, error_message = ?, started_at = COALESCE(started_at, NOW(3)),
 		        finished_at = COALESCE(finished_at, NOW(3))
 		  WHERE run_id = ? AND node_id = ? AND status = 'pending'`,
-		status, errorMessage, runID, node.ID,
+		status, jsonStringOrNull(map[string]interface{}{"operator": conditionOperator(node), "path": nodeConfigString(node, "path")}), jsonStringOrNull(payload), errorMessage, runID, node.ID,
 	).Error; err != nil {
 		return err
 	}
 	return writeWorkflowEvent(ctx, tx, runID, node.ID, "node_"+status, message, actorID, payload)
+}
+
+func dispatchApprovalNode(ctx context.Context, tx *gorm.DB, runID uint64, node Node, actorID sql.NullInt64) error {
+	comment := nodeConfigString(node, "comment")
+	if comment == "" {
+		comment = "Approval requested"
+	}
+	if err := tx.WithContext(ctx).Exec(
+		`UPDATE workflow_run_nodes
+		    SET status = 'running', attempts = attempts + 1, input = ?, error_message = ?, queued_at = COALESCE(queued_at, NOW(3)),
+		        started_at = COALESCE(started_at, NOW(3))
+		  WHERE run_id = ? AND node_id = ? AND status = 'pending'`,
+		jsonStringOrNull(map[string]interface{}{"comment": comment, "mode": nodeConfigString(node, "mode")}), nullString(comment), runID, node.ID,
+	).Error; err != nil {
+		return err
+	}
+	return writeWorkflowEvent(ctx, tx, runID, node.ID, "node_running", "Approval node is waiting for a decision", actorID, map[string]string{"comment": comment})
 }
 
 func dispatchNotificationNode(ctx context.Context, tx *gorm.DB, workspaceID, runID uint64, node Node, actorID sql.NullInt64) error {
@@ -260,9 +289,11 @@ func dispatchNotificationNode(ctx context.Context, tx *gorm.DB, workspaceID, run
 	}
 	if err := tx.WithContext(ctx).Exec(
 		`UPDATE workflow_run_nodes
-		    SET status = 'success', attempts = attempts + 1, error_message = NULL,
+		    SET status = 'success', attempts = attempts + 1, input = ?, output = ?, error_message = NULL,
 		        started_at = COALESCE(started_at, NOW(3)), finished_at = COALESCE(finished_at, NOW(3))
 		  WHERE run_id = ? AND node_id = ? AND status = 'pending'`,
+		jsonStringOrNull(map[string]interface{}{"channelId": channelUID, "title": title, "severity": severity}),
+		jsonStringOrNull(map[string]interface{}{"notificationId": notificationUID}),
 		runID,
 		node.ID,
 	).Error; err != nil {
@@ -278,10 +309,13 @@ func dispatchWaitNode(ctx context.Context, tx *gorm.DB, runID uint64, node Node,
 	}
 	if err := tx.WithContext(ctx).Exec(
 		`UPDATE workflow_run_nodes
-		    SET status = 'running', attempts = attempts + 1, error_message = NULL,
+		    SET status = 'running', attempts = attempts + 1, input = ?, output = ?, error_message = NULL,
 		        queued_at = COALESCE(queued_at, NOW(3)), started_at = COALESCE(started_at, NOW(3))
 		  WHERE run_id = ? AND node_id = ? AND status = 'pending'`,
-		runID, node.ID,
+		jsonStringOrNull(map[string]interface{}{"seconds": int(waitFor / time.Second)}),
+		jsonStringOrNull(map[string]interface{}{"waitUntil": time.Now().Add(waitFor).Format(time.RFC3339)}),
+		runID,
+		node.ID,
 	).Error; err != nil {
 		return err
 	}
@@ -292,10 +326,11 @@ func markWorkflowNode(ctx context.Context, tx *gorm.DB, runID uint64, nodeID, st
 	if err := tx.WithContext(ctx).Exec(
 		`UPDATE workflow_run_nodes
 		    SET status = ?,
+		        output = ?,
 		        started_at = COALESCE(started_at, NOW(3)),
 		        finished_at = CASE WHEN ? IN ('success', 'failed', 'skipped', 'canceled') THEN COALESCE(finished_at, NOW(3)) ELSE finished_at END
 		  WHERE run_id = ? AND node_id = ? AND status = 'pending'`,
-		status, status, runID, nodeID,
+		status, jsonStringOrNull(map[string]interface{}{"message": message}), status, runID, nodeID,
 	).Error; err != nil {
 		return err
 	}

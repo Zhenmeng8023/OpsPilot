@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 import {
+  approveWorkflowNode,
   cancelWorkflowRun,
+  copyWorkflow,
   createWorkflow,
+  disableWorkflow,
   getWorkflow,
   getWorkflowRun,
+  listWorkflowVersions,
   listWorkflowRuns,
   listWorkflows,
   publishWorkflow,
+  rejectWorkflowNode,
   retryWorkflowRun,
   runWorkflow,
   updateWorkflow
@@ -29,12 +35,14 @@ const sampleDefinition = JSON.stringify({
   nodes: [
     { id: "collect", type: "task", name: "Collect diagnostics", config: { taskId: "replace-with-task-id" } },
     { id: "gate", type: "condition", name: "Prod gate", config: { path: "environment", operator: "equals", value: "prod", onFalse: "skip" } },
+    { id: "callback", type: "webhook-call", name: "POST callback", config: { url: "https://example.com/hooks/${payload.service}", method: "POST", bodyPath: "payload", headers: { "X-Env": "${payload.environment}" } } },
     { id: "cooldown", type: "wait", name: "Cooldown", config: { seconds: 30 } },
     { id: "notify", type: "notification", name: "Notify owner", config: { title: "Workflow completed", channelId: "optional-channel-id" } }
   ],
   edges: [
     { from: "collect", to: "gate" },
-    { from: "gate", to: "cooldown" },
+    { from: "gate", to: "callback" },
+    { from: "callback", to: "cooldown" },
     { from: "cooldown", to: "notify" }
   ],
   maxParallel: 2,
@@ -43,9 +51,13 @@ const sampleDefinition = JSON.stringify({
 
 type PendingAction =
   | { type: "publish"; workflow: WorkflowDefinitionSummary }
+  | { type: "disable"; workflow: WorkflowDefinitionSummary }
+  | { type: "copy"; workflow: WorkflowDefinitionSummary }
   | { type: "run"; workflow: WorkflowDefinitionSummary }
   | { type: "cancel"; run: WorkflowRunSummary }
-  | { type: "retry"; run: WorkflowRunSummary };
+  | { type: "retry"; run: WorkflowRunSummary }
+  | { type: "approve"; runId: string; nodeId: string }
+  | { type: "reject"; runId: string; nodeId: string };
 
 export function WorkflowPage() {
   const t = useLanguageStore((state) => state.t);
@@ -61,10 +73,11 @@ export function WorkflowPage() {
   const [selectedRunId, setSelectedRunId] = useState("");
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [form, setForm] = useState({ name: "", description: "", definition: sampleDefinition });
+  const [runInput, setRunInput] = useState("{}");
   const pageSize = 20;
-  const canWrite = hasPermission(user, "workflow:write");
+  const canWrite = hasPermission(user, "workflow:manage");
   const canExecute = hasPermission(user, "workflow:execute");
-  const canCancel = hasPermission(user, "workflow:cancel");
+  const canCancel = hasPermission(user, "workflow:manage");
   const workflowQuery = useQuery({
     queryKey: ["workflows", keyword, status, page],
     queryFn: () => listWorkflows({ keyword, status, page, pageSize })
@@ -73,6 +86,11 @@ export function WorkflowPage() {
     queryKey: ["workflow", selectedWorkflowId],
     enabled: Boolean(selectedWorkflowId),
     queryFn: () => getWorkflow(selectedWorkflowId)
+  });
+  const versionsQuery = useQuery({
+    queryKey: ["workflowVersions", selectedWorkflowId],
+    enabled: Boolean(selectedWorkflowId),
+    queryFn: () => listWorkflowVersions(selectedWorkflowId)
   });
   const runsQuery = useQuery({
     queryKey: ["workflowRuns", keyword, status, runPage],
@@ -116,8 +134,24 @@ export function WorkflowPage() {
       queryClient.invalidateQueries({ queryKey: ["workflow", item.id] });
     }
   });
+  const disableMutation = useMutation({
+    mutationFn: (workflow: WorkflowDefinitionSummary) => disableWorkflow(workflow.id),
+    onSuccess: (item) => {
+      notify(t("workflows.disabledToast"), "success");
+      queryClient.invalidateQueries({ queryKey: ["workflows"] });
+      queryClient.invalidateQueries({ queryKey: ["workflow", item.id] });
+    }
+  });
+  const copyMutation = useMutation({
+    mutationFn: (workflow: WorkflowDefinitionSummary) => copyWorkflow(workflow.id),
+    onSuccess: (item) => {
+      notify(t("workflows.copiedToast"), "success");
+      setSelectedWorkflowId(item.id);
+      queryClient.invalidateQueries({ queryKey: ["workflows"] });
+    }
+  });
   const runMutation = useMutation({
-    mutationFn: (workflow: WorkflowDefinitionSummary) => runWorkflow(workflow.id, { triggerType: "manual" }),
+    mutationFn: ({ workflow, input }: { workflow: WorkflowDefinitionSummary; input: string }) => runWorkflow(workflow.id, { triggerType: "manual", input: input.trim() }),
     onSuccess: (run) => {
       notify(t("workflows.runCreatedToast"), "success");
       setTab("runs");
@@ -144,7 +178,25 @@ export function WorkflowPage() {
       queryClient.invalidateQueries({ queryKey: ["workflowRun", run.id] });
     }
   });
-  const currentError = saveMutation.error ?? publishMutation.error ?? runMutation.error ?? cancelMutation.error ?? retryMutation.error;
+  const approveMutation = useMutation({
+    mutationFn: ({ runId, nodeId }: { runId: string; nodeId: string }) => approveWorkflowNode(runId, nodeId, "Approved from UI"),
+    onSuccess: (run) => {
+      notify(t("workflows.savedToast"), "success");
+      setSelectedRunId(run.id);
+      queryClient.invalidateQueries({ queryKey: ["workflowRuns"] });
+      queryClient.invalidateQueries({ queryKey: ["workflowRun", run.id] });
+    }
+  });
+  const rejectMutation = useMutation({
+    mutationFn: ({ runId, nodeId }: { runId: string; nodeId: string }) => rejectWorkflowNode(runId, nodeId, "Rejected from UI"),
+    onSuccess: (run) => {
+      notify(t("workflows.canceledToast"), "success");
+      setSelectedRunId(run.id);
+      queryClient.invalidateQueries({ queryKey: ["workflowRuns"] });
+      queryClient.invalidateQueries({ queryKey: ["workflowRun", run.id] });
+    }
+  });
+  const currentError = saveMutation.error ?? publishMutation.error ?? disableMutation.error ?? copyMutation.error ?? runMutation.error ?? cancelMutation.error ?? retryMutation.error ?? approveMutation.error ?? rejectMutation.error;
 
   return (
     <main className="page">
@@ -193,7 +245,9 @@ export function WorkflowPage() {
                       <td className="action-cell">
                         <button type="button" onClick={() => setSelectedWorkflowId(workflow.id)}>{t("common.edit")}</button>
                         {canWrite ? <button type="button" disabled={publishMutation.isPending} onClick={() => setPendingAction({ type: "publish", workflow })}>{t("workflows.publish")}</button> : null}
-                        {canExecute ? <button type="button" disabled={workflow.status !== "active" || runMutation.isPending} onClick={() => setPendingAction({ type: "run", workflow })}>{t("workflows.run")}</button> : null}
+                        {canWrite ? <button type="button" disabled={copyMutation.isPending} onClick={() => setPendingAction({ type: "copy", workflow })}>{t("workflows.copy")}</button> : null}
+                        {canWrite && workflow.status !== "disabled" ? <button type="button" disabled={disableMutation.isPending} onClick={() => setPendingAction({ type: "disable", workflow })}>{t("workflows.disable")}</button> : null}
+                        {canExecute ? <button type="button" disabled={workflow.status !== "active" || runMutation.isPending} onClick={() => { setRunInput("{}"); setPendingAction({ type: "run", workflow }); }}>{t("workflows.run")}</button> : null}
                       </td>
                     </tr>
                   ))}
@@ -227,6 +281,33 @@ export function WorkflowPage() {
                 <button type="submit" disabled={saveMutation.isPending}>{t("common.save")}</button>
               </form>
               {selectedWorkflow ? <JsonViewer value={selectedWorkflow.definition} /> : null}
+              {selectedWorkflowId ? (
+                <div className="event-payload">
+                  <strong>{t("workflows.versions")}</strong>
+                  <DataTable loading={versionsQuery.isLoading} empty={(versionsQuery.data ?? []).length === 0} emptyMessage={t("common.empty")} error={versionsQuery.isError ? versionsQuery.error.message : null}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>{t("common.version")}</th>
+                          <th>{t("common.status")}</th>
+                          <th>{t("workflows.versionHash")}</th>
+                          <th>{t("common.created")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(versionsQuery.data ?? []).map((version) => (
+                          <tr key={version.id}>
+                            <td>v{version.version}</td>
+                            <td><span className={`status-chip status-${version.status}`}>{statusText(version.status)}</span></td>
+                            <td><small>{version.definitionHash.slice(0, 12)}</small></td>
+                            <td><strong>{version.createdAt}</strong><small>{version.publishedAt || version.createdBy || "-"}</small></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </DataTable>
+                </div>
+              ) : null}
             </section>
           ) : null}
         </section>
@@ -299,7 +380,7 @@ export function WorkflowPage() {
                         <th>{t("workflows.node")}</th>
                         <th>{t("common.type")}</th>
                         <th>{t("common.status")}</th>
-                        <th>TaskRun</th>
+                        <th>{t("workflows.links")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -309,10 +390,16 @@ export function WorkflowPage() {
                             <strong>{node.nodeName || node.nodeId}</strong>
                             <small>{node.nodeId}</small>
                             {node.errorMessage ? <small>{node.errorMessage}</small> : null}
+                            {node.input ? <small>{truncateJSON(node.input)}</small> : null}
+                            {node.output ? <small>{truncateJSON(node.output)}</small> : null}
                           </td>
                           <td>{node.nodeType}</td>
                           <td><span className={`status-chip status-${node.status}`}>{statusText(node.status)}</span></td>
-                          <td>{node.taskRunId || "-"}</td>
+                          <td className="action-cell">
+                            {node.taskRunId ? <Link to={`/tasks/${node.taskRunId}`}>{node.taskRunId}</Link> : "-"}
+                            {canExecute && node.nodeType === "approval" && node.status === "running" ? <button type="button" onClick={() => setPendingAction({ type: "approve", runId: selectedRun.id, nodeId: node.nodeId })}>{t("incidents.acknowledge")}</button> : null}
+                            {canExecute && node.nodeType === "approval" && node.status === "running" ? <button type="button" onClick={() => setPendingAction({ type: "reject", runId: selectedRun.id, nodeId: node.nodeId })}>{t("common.cancel")}</button> : null}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -327,6 +414,26 @@ export function WorkflowPage() {
                     tone: event.eventType === "canceled" ? "danger" : "default"
                   }))}
                 />
+                <div className="event-payload-stack">
+                  <div className="event-payload">
+                    <strong>{t("workflows.runInput")}</strong>
+                    <JsonViewer value={selectedRun.input} emptyLabel="-" />
+                  </div>
+                  <div className="event-payload">
+                    <strong>{t("workflows.runOutput")}</strong>
+                    <JsonViewer value={selectedRun.output} emptyLabel="-" />
+                  </div>
+                  <div className="event-payload">
+                    <strong>Definition</strong>
+                    <JsonViewer value={selectedRun.definition} emptyLabel="-" />
+                  </div>
+                  {selectedRun.events.filter((event) => event.payload).map((event) => (
+                    <div className="event-payload" key={`workflow-event-${event.id}`}>
+                      <strong>{event.eventType}</strong>
+                      <JsonViewer value={event.payload} emptyLabel="-" />
+                    </div>
+                  ))}
+                </div>
               </>
             ) : <p className="empty-state">{t("workflows.selectRunHint")}</p>}
             {selectedRunQuery.isError ? <p className="form-error">{selectedRunQuery.error.message}</p> : null}
@@ -338,15 +445,25 @@ export function WorkflowPage() {
       <ConfirmDialog
         open={Boolean(pendingAction)}
         title={confirmTitle(pendingAction, t)}
+        message={pendingAction?.type === "run" ? (
+          <label>
+            {t("workflows.runInputJson")}
+            <textarea className="code-input" value={runInput} onChange={(event) => setRunInput(event.target.value)} />
+          </label>
+        ) : null}
         confirmLabel={t("common.confirm")}
         cancelLabel={t("common.cancel")}
         danger={pendingAction?.type === "cancel"}
         onCancel={() => setPendingAction(null)}
         onConfirm={() => {
           if (pendingAction?.type === "publish") publishMutation.mutate(pendingAction.workflow);
-          if (pendingAction?.type === "run") runMutation.mutate(pendingAction.workflow);
+          if (pendingAction?.type === "disable") disableMutation.mutate(pendingAction.workflow);
+          if (pendingAction?.type === "copy") copyMutation.mutate(pendingAction.workflow);
+          if (pendingAction?.type === "run") runMutation.mutate({ workflow: pendingAction.workflow, input: runInput });
           if (pendingAction?.type === "cancel") cancelMutation.mutate(pendingAction.run);
           if (pendingAction?.type === "retry") retryMutation.mutate(pendingAction.run);
+          if (pendingAction?.type === "approve") approveMutation.mutate({ runId: pendingAction.runId, nodeId: pendingAction.nodeId });
+          if (pendingAction?.type === "reject") rejectMutation.mutate({ runId: pendingAction.runId, nodeId: pendingAction.nodeId });
           setPendingAction(null);
         }}
       />
@@ -362,6 +479,13 @@ function formatJSON(value: string) {
   }
 }
 
+function truncateJSON(value?: string) {
+  if (!value) return "";
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length <= 140) return text;
+  return `${text.slice(0, 137)}...`;
+}
+
 function cancelable(status: string) {
   return ["pending", "queued", "running", "canceling"].includes(status);
 }
@@ -373,7 +497,11 @@ function retryable(status: string) {
 function confirmTitle(action: PendingAction | null, t: (key: string) => string) {
   if (!action) return "";
   if (action.type === "publish") return t("workflows.confirmPublish");
+  if (action.type === "disable") return t("workflows.confirmDisable");
+  if (action.type === "copy") return t("workflows.confirmCopy");
   if (action.type === "run") return t("workflows.confirmRun");
   if (action.type === "retry") return t("workflows.confirmRun");
+  if (action.type === "approve") return t("incidents.confirmAcknowledge");
+  if (action.type === "reject") return t("workflows.confirmCancel");
   return t("workflows.confirmCancel");
 }

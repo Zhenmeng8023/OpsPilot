@@ -25,7 +25,7 @@ func TestDeliveryURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := deliveryURL(tt.raw); got != tt.want {
+			if got := deliveryURL(configMapFromRaw(tt.raw)); got != tt.want {
 				t.Fatalf("deliveryURL() = %q, want %q", got, tt.want)
 			}
 		})
@@ -45,7 +45,7 @@ func TestDeliveryEmail(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := deliveryEmail(tt.raw); got != tt.want {
+			if got := deliveryEmail(configMapFromRaw(tt.raw)); got != tt.want {
 				t.Fatalf("deliveryEmail() = %q, want %q", got, tt.want)
 			}
 		})
@@ -98,7 +98,7 @@ func TestDeliverySigningSecret(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := deliverySigningSecret(tt.raw); got != tt.want {
+			if got := deliverySigningSecret(configMapFromRaw(tt.raw)); got != tt.want {
 				t.Fatalf("deliverySigningSecret() = %q, want %q", got, tt.want)
 			}
 		})

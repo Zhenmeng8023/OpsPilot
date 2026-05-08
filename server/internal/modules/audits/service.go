@@ -2,13 +2,18 @@ package audits
 
 import (
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"database/sql"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
 	"opspilot/server/internal/config"
+	sharedaudit "opspilot/server/internal/shared/audit"
 	"opspilot/server/internal/shared/apperror"
 )
 
@@ -19,9 +24,11 @@ type Service struct {
 
 type ListInput struct {
 	Action       string
+	Actor        string
 	ActorType    string
 	Result       string
 	ResourceType string
+	ResourceID   string
 	TraceID      string
 	Keyword      string
 	CreatedFrom  string
@@ -35,6 +42,35 @@ type ListResult struct {
 	Total    int64        `json:"total"`
 	Page     int          `json:"page"`
 	PageSize int          `json:"pageSize"`
+}
+
+type ExportResult struct {
+	FileName    string
+	ContentType string
+	Content     []byte
+}
+
+type RetentionInput struct {
+	Days  int
+	DryRun bool
+	Audit AuditContext
+}
+
+type RetentionResult struct {
+	CutoffAt string `json:"cutoffAt"`
+	Days     int    `json:"days"`
+	Matched  int64  `json:"matched"`
+	Deleted  int64  `json:"deleted"`
+	DryRun   bool   `json:"dryRun"`
+}
+
+type AuditContext struct {
+	ActorUID      string
+	IP            string
+	UserAgent     string
+	TraceID       string
+	RequestMethod string
+	RequestPath   string
 }
 
 type LogSummary struct {
@@ -91,28 +127,8 @@ func (s *Service) List(ctx context.Context, input ListInput) (ListResult, *apper
 		return ListResult{}, appErr
 	}
 	page, pageSize := normalizePage(input.Page, input.PageSize)
-	where, args := auditWhere(workspace.ID, input)
-
-	var total int64
-	if err := s.db.WithContext(ctx).Raw("SELECT COUNT(*) FROM audit_logs al "+where, args...).Scan(&total).Error; err != nil {
-		return ListResult{}, apperror.Wrap(http.StatusInternalServerError, 500901, "count audit logs failed", err)
-	}
-
-	queryArgs := append(append([]interface{}{}, args...), pageSize, (page-1)*pageSize)
-	var rows []logRecord
-	if err := s.db.WithContext(ctx).Raw(
-		`SELECT al.id, al.actor_type, u.username AS actor_user, ag.name AS actor_agent,
-		        al.action, al.resource_type, al.resource_id, al.result, al.ip, al.user_agent,
-		        al.trace_id, al.request_method, al.request_path, al.before_data, al.after_data, al.metadata,
-		        DATE_FORMAT(al.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
-		   FROM audit_logs al
-		   LEFT JOIN users u ON u.id = al.actor_user_id
-		   LEFT JOIN agents ag ON ag.id = al.actor_agent_id
-		  `+where+`
-		  ORDER BY al.created_at DESC, al.id DESC
-		  LIMIT ? OFFSET ?`,
-		queryArgs...,
-	).Scan(&rows).Error; err != nil {
+	rows, total, err := s.listRows(ctx, workspace.ID, input, pageSize, (page-1)*pageSize)
+	if err != nil {
 		return ListResult{}, apperror.Wrap(http.StatusInternalServerError, 500902, "list audit logs failed", err)
 	}
 
@@ -121,6 +137,127 @@ func (s *Service) List(ctx context.Context, input ListInput) (ListResult, *apper
 		items = append(items, summary(row))
 	}
 	return ListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+func (s *Service) Export(ctx context.Context, input ListInput, format string, auditCtx AuditContext) (ExportResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return ExportResult{}, appErr
+	}
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = "csv"
+	}
+	if format != "csv" && format != "json" {
+		return ExportResult{}, apperror.New(http.StatusBadRequest, 400905, "unsupported audit export format")
+	}
+	rows, _, err := s.listRows(ctx, workspace.ID, input, 10000, 0)
+	if err != nil {
+		return ExportResult{}, apperror.Wrap(http.StatusInternalServerError, 500905, "export audit logs failed", err)
+	}
+	items := make([]LogSummary, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, summary(row))
+	}
+	var result ExportResult
+	if format == "json" {
+		bytes, err := json.MarshalIndent(items, "", "  ")
+		if err != nil {
+			return ExportResult{}, apperror.Wrap(http.StatusInternalServerError, 500906, "marshal audit export failed", err)
+		}
+		result = ExportResult{
+			FileName:    "audit-logs-export.json",
+			ContentType: "application/json",
+			Content:     bytes,
+		}
+	} else {
+		bytes, err := exportCSV(items)
+		if err != nil {
+			return ExportResult{}, apperror.Wrap(http.StatusInternalServerError, 500906, "marshal audit export failed", err)
+		}
+		result = ExportResult{
+			FileName:    "audit-logs-export.csv",
+			ContentType: "text/csv; charset=utf-8",
+			Content:     bytes,
+		}
+	}
+	actorID, _ := sharedaudit.UserIDByUID(ctx, s.db, auditCtx.ActorUID)
+	sharedaudit.Write(ctx, s.db, sharedaudit.Event{
+		WorkspaceID:   workspace.ID,
+		ActorUserID:   actorID,
+		Action:        "audit.export",
+		ResourceType:  "audit_log",
+		IP:            auditCtx.IP,
+		UserAgent:     auditCtx.UserAgent,
+		TraceID:       auditCtx.TraceID,
+		RequestMethod: auditCtx.RequestMethod,
+		RequestPath:   auditCtx.RequestPath,
+		Metadata: map[string]interface{}{
+			"format": format,
+			"count":  len(items),
+			"filter": input,
+		},
+	})
+	return result, nil
+}
+
+func (s *Service) RunRetention(ctx context.Context, input RetentionInput) (RetentionResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return RetentionResult{}, appErr
+	}
+	days := input.Days
+	if days <= 0 {
+		days = s.cfg.Audit.RetentionDays
+	}
+	if days <= 0 {
+		days = 180
+	}
+	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	result := RetentionResult{
+		CutoffAt: cutoff.Format("2006-01-02 15:04:05"),
+		Days:     days,
+		DryRun:   input.DryRun,
+	}
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.WithContext(ctx).Raw(
+			"SELECT COUNT(*) FROM audit_logs WHERE (workspace_id = ? OR workspace_id IS NULL) AND created_at < ?",
+			workspace.ID, cutoff,
+		).Scan(&result.Matched).Error; err != nil {
+			return err
+		}
+		if !input.DryRun && result.Matched > 0 {
+			exec := tx.WithContext(ctx).Exec(
+				"DELETE FROM audit_logs WHERE (workspace_id = ? OR workspace_id IS NULL) AND created_at < ?",
+				workspace.ID, cutoff,
+			)
+			if exec.Error != nil {
+				return exec.Error
+			}
+			result.Deleted = exec.RowsAffected
+		}
+		actorID, _ := sharedaudit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		sharedaudit.Write(ctx, tx, sharedaudit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "audit.retention.run",
+			ResourceType:  "audit_log",
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Metadata:      result,
+		})
+		return nil
+	})
+	if txErr != nil {
+		return RetentionResult{}, apperror.Wrap(http.StatusInternalServerError, 500907, "run audit retention failed", txErr)
+	}
+	if input.DryRun {
+		result.Deleted = 0
+	}
+	return result, nil
 }
 
 func (s *Service) workspace(ctx context.Context) (workspaceRecord, *apperror.Error) {
@@ -145,6 +282,11 @@ func auditWhere(workspaceID uint64, input ListInput) (string, []interface{}) {
 	if value := strings.TrimSpace(input.Action); value != "" {
 		add("al.action = ?", value)
 	}
+	if value := strings.TrimSpace(input.Actor); value != "" {
+		like := "%" + value + "%"
+		where += " AND (u.username LIKE ? OR ag.name LIKE ?)"
+		args = append(args, like, like)
+	}
 	if value := strings.TrimSpace(input.ActorType); value != "" {
 		add("al.actor_type = ?", value)
 	}
@@ -153,6 +295,11 @@ func auditWhere(workspaceID uint64, input ListInput) (string, []interface{}) {
 	}
 	if value := strings.TrimSpace(input.ResourceType); value != "" {
 		add("al.resource_type = ?", value)
+	}
+	if value := strings.TrimSpace(input.ResourceID); value != "" {
+		if parsed, err := strconv.ParseUint(value, 10, 64); err == nil && parsed > 0 {
+			add("al.resource_id = ?", parsed)
+		}
 	}
 	if value := strings.TrimSpace(input.TraceID); value != "" {
 		add("al.trace_id = ?", value)
@@ -169,6 +316,68 @@ func auditWhere(workspaceID uint64, input ListInput) (string, []interface{}) {
 		args = append(args, like, like, like, like, like, like)
 	}
 	return where, args
+}
+
+func (s *Service) listRows(ctx context.Context, workspaceID uint64, input ListInput, limit, offset int) ([]logRecord, int64, error) {
+	where, args := auditWhere(workspaceID, input)
+	var total int64
+	if err := s.db.WithContext(ctx).Raw("SELECT COUNT(*) FROM audit_logs al LEFT JOIN users u ON u.id = al.actor_user_id LEFT JOIN agents ag ON ag.id = al.actor_agent_id "+where, args...).Scan(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	queryArgs := append(append([]interface{}{}, args...), limit, offset)
+	var rows []logRecord
+	err := s.db.WithContext(ctx).Raw(
+		`SELECT al.id, al.actor_type, u.username AS actor_user, ag.name AS actor_agent,
+		        al.action, al.resource_type, al.resource_id, al.result, al.ip, al.user_agent,
+		        al.trace_id, al.request_method, al.request_path, al.before_data, al.after_data, al.metadata,
+		        DATE_FORMAT(al.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM audit_logs al
+		   LEFT JOIN users u ON u.id = al.actor_user_id
+		   LEFT JOIN agents ag ON ag.id = al.actor_agent_id
+		  `+where+`
+		  ORDER BY al.created_at DESC, al.id DESC
+		  LIMIT ? OFFSET ?`,
+		queryArgs...,
+	).Scan(&rows).Error
+	return rows, total, err
+}
+
+func exportCSV(items []LogSummary) ([]byte, error) {
+	var builder strings.Builder
+	writer := csv.NewWriter(&builder)
+	header := []string{"id", "actorType", "actorUser", "actorAgent", "action", "resourceType", "resourceId", "result", "ip", "userAgent", "traceId", "requestMethod", "requestPath", "before", "after", "metadata", "createdAt"}
+	if err := writer.Write(header); err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		record := []string{
+			strconv.FormatUint(item.ID, 10),
+			item.ActorType,
+			item.ActorUser,
+			item.ActorAgent,
+			item.Action,
+			item.ResourceType,
+			strconv.FormatUint(item.ResourceID, 10),
+			item.Result,
+			item.IP,
+			item.UserAgent,
+			item.TraceID,
+			item.RequestMethod,
+			item.RequestPath,
+			item.Before,
+			item.After,
+			item.Metadata,
+			item.CreatedAt,
+		}
+		if err := writer.Write(record); err != nil {
+			return nil, err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+	return []byte(builder.String()), nil
 }
 
 func normalizeTimeFilter(value string) string {

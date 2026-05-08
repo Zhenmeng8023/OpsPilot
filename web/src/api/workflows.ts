@@ -1,5 +1,5 @@
 import { request } from "./request";
-import type { PageResult, WorkflowDefinitionDetail, WorkflowDefinitionSummary, WorkflowRunDetail, WorkflowRunSummary } from "./types";
+import type { PageResult, WorkflowDefinitionDetail, WorkflowDefinitionSummary, WorkflowRunDetail, WorkflowRunSummary, WorkflowVersionSummary } from "./types";
 
 export interface WorkflowDefinitionPayload {
   name: string;
@@ -44,6 +44,21 @@ export function publishWorkflow(id: string) {
   return request<WorkflowDefinitionDetail>(`/api/v1/workflows/${id}/publish`, { method: "POST" });
 }
 
+export function disableWorkflow(id: string) {
+  return request<WorkflowDefinitionDetail>(`/api/v1/workflows/${id}/disable`, { method: "POST" });
+}
+
+export function copyWorkflow(id: string, payload: { name?: string } = {}) {
+  return request<WorkflowDefinitionDetail>(`/api/v1/workflows/${id}/copy`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function listWorkflowVersions(id: string) {
+  return request<WorkflowVersionSummary[]>(`/api/v1/workflows/${id}/versions`);
+}
+
 export function runWorkflow(id: string, payload: WorkflowRunPayload = {}) {
   return request<WorkflowRunDetail>(`/api/v1/workflows/${id}/run`, {
     method: "POST",
@@ -74,5 +89,19 @@ export function cancelWorkflowRun(id: string, reason?: string) {
 export function retryWorkflowRun(id: string) {
   return request<WorkflowRunDetail>(`/api/v1/workflow-runs/${id}/retry`, {
     method: "POST"
+  });
+}
+
+export function approveWorkflowNode(runId: string, nodeId: string, comment?: string) {
+  return request<WorkflowRunDetail>(`/api/v1/workflow-runs/${runId}/nodes/${nodeId}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ comment })
+  });
+}
+
+export function rejectWorkflowNode(runId: string, nodeId: string, comment?: string) {
+  return request<WorkflowRunDetail>(`/api/v1/workflow-runs/${runId}/nodes/${nodeId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ comment })
   });
 }

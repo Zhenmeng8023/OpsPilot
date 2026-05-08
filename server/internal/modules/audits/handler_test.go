@@ -40,6 +40,14 @@ func (s *captureService) List(_ context.Context, input ListInput) (ListResult, *
 	return ListResult{}, nil
 }
 
+func (s *captureService) Export(context.Context, ListInput, string, AuditContext) (ExportResult, *apperror.Error) {
+	return ExportResult{}, nil
+}
+
+func (s *captureService) RunRetention(context.Context, RetentionInput) (RetentionResult, *apperror.Error) {
+	return RetentionResult{}, nil
+}
+
 func passThroughAuth(c *gin.Context) {
 	c.Next()
 }

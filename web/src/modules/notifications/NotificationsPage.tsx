@@ -8,9 +8,13 @@ import {
   listNotifications,
   markNotificationRead,
   retryNotificationDelivery,
-  testNotificationChannel
+  testNotificationChannel,
+  updateNotificationChannel
 } from "../../api/notifications";
+import type { NotificationChannel } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
+import { DataTable } from "../../shared/components/DataTable";
+import { FilterToolbar } from "../../shared/components/FilterToolbar";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 
@@ -21,6 +25,7 @@ export function NotificationsPage() {
   const canWrite = hasPermission(user, "notification:write");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [form, setForm] = useState({ name: "", channelType: "site", target: "", signingSecret: "" });
+  const [editingChannel, setEditingChannel] = useState<NotificationChannel | null>(null);
   const [deliveryFilters, setDeliveryFilters] = useState({ status: "", channelId: "", notificationId: "" });
   const channelsQuery = useQuery({ queryKey: ["notificationChannels"], queryFn: listNotificationChannels });
   const notificationsQuery = useQuery({
@@ -34,7 +39,19 @@ export function NotificationsPage() {
   const createMutation = useMutation({
     mutationFn: createNotificationChannel,
     onSuccess: () => {
-      setForm({ name: "", channelType: "site", target: "", signingSecret: "" });
+      resetChannelForm();
+      queryClient.invalidateQueries({ queryKey: ["notificationChannels"] });
+    }
+  });
+  const updateMutation = useMutation({
+    mutationFn: (payload: { id: string; name: string; channelType: string; config?: Record<string, unknown> }) =>
+      updateNotificationChannel(payload.id, {
+        name: payload.name,
+        channelType: payload.channelType,
+        config: payload.config
+      }),
+    onSuccess: () => {
+      resetChannelForm();
       queryClient.invalidateQueries({ queryKey: ["notificationChannels"] });
     }
   });
@@ -57,6 +74,38 @@ export function NotificationsPage() {
   const notifications = useMemo(() => notificationsQuery.data ?? [], [notificationsQuery.data]);
   const deliveries = useMemo(() => deliveriesQuery.data ?? [], [deliveriesQuery.data]);
 
+  function resetChannelForm() {
+    setEditingChannel(null);
+    setForm({ name: "", channelType: "site", target: "", signingSecret: "" });
+  }
+
+  function startEditingChannel(channel: NotificationChannel) {
+    setEditingChannel(channel);
+    setForm({
+      name: channel.name,
+      channelType: channel.channelType,
+      target: "",
+      signingSecret: ""
+    });
+  }
+
+  function buildChannelConfig() {
+    if (form.channelType === "site") {
+      return undefined;
+    }
+    if (form.channelType === "email") {
+      return form.target.trim() ? { email: form.target.trim() } : undefined;
+    }
+    const config: Record<string, unknown> = {};
+    if (form.target.trim()) {
+      config.url = form.target.trim();
+    }
+    if (form.signingSecret.trim()) {
+      config.signingSecret = form.signingSecret.trim();
+    }
+    return Object.keys(config).length > 0 ? config : undefined;
+  }
+
   return (
     <main className="page">
       <section className="page-heading">
@@ -68,23 +117,24 @@ export function NotificationsPage() {
 
       {canWrite ? (
         <section className="panel form-panel">
-          <div className="panel-title"><h3>{t("notifications.createChannel")}</h3><span>{t("notifications.channelHint")}</span></div>
+          <div className="panel-title">
+            <h3>{editingChannel ? t("notifications.updateChannel") : t("notifications.createChannel")}</h3>
+            <span>{editingChannel ? t("notifications.channelUpdateHint") : t("notifications.channelHint")}</span>
+          </div>
           <form
             className="form-grid"
             onSubmit={(event) => {
               event.preventDefault();
-              createMutation.mutate({
+              const payload = {
                 name: form.name,
                 channelType: form.channelType,
-                config: form.channelType === "site"
-                  ? undefined
-                  : form.channelType === "email"
-                    ? { email: form.target }
-                    : {
-                        url: form.target,
-                        ...(form.signingSecret ? { signingSecret: form.signingSecret } : {})
-                      }
-              });
+                config: buildChannelConfig()
+              };
+              if (editingChannel) {
+                updateMutation.mutate({ id: editingChannel.id, ...payload });
+                return;
+              }
+              createMutation.mutate(payload);
             }}
           >
             <label>{t("common.name")}<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
@@ -103,25 +153,38 @@ export function NotificationsPage() {
               <>
                 <label>
                   {form.channelType === "email" ? t("notifications.emailTo") : t("notifications.webhookUrl")}
-                  <input value={form.target} onChange={(event) => setForm({ ...form, target: event.target.value })} required />
+                  <input
+                    value={form.target}
+                    onChange={(event) => setForm({ ...form, target: event.target.value })}
+                    required={!editingChannel}
+                    placeholder={editingChannel?.targetSummary || ""}
+                  />
                 </label>
                 {form.channelType !== "email" ? (
                   <label>
                     {t("notifications.signingSecret")}
-                    <input value={form.signingSecret} onChange={(event) => setForm({ ...form, signingSecret: event.target.value })} placeholder={t("notifications.signingSecretOptional")} />
+                    <input
+                      value={form.signingSecret}
+                      onChange={(event) => setForm({ ...form, signingSecret: event.target.value })}
+                      placeholder={editingChannel ? t("notifications.signingSecretRotateHint") : t("notifications.signingSecretOptional")}
+                    />
                   </label>
                 ) : null}
               </>
             ) : null}
-            <button type="submit" disabled={createMutation.isPending}>{t("notifications.createChannelAction")}</button>
+            <button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {editingChannel ? t("notifications.updateChannelAction") : t("notifications.createChannelAction")}
+            </button>
+            {editingChannel ? <button type="button" className="ghost-button" onClick={resetChannelForm}>{t("common.cancel")}</button> : null}
           </form>
           {createMutation.isError ? <p className="form-error">{createMutation.error.message}</p> : null}
+          {updateMutation.isError ? <p className="form-error">{updateMutation.error.message}</p> : null}
         </section>
       ) : null}
 
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("notifications.deliveries")}</h3><span>{deliveries.length} {t("common.items")}</span></div>
-        <div className="toolbar-row">
+        <FilterToolbar>
           <select value={deliveryFilters.status} onChange={(event) => setDeliveryFilters((current) => ({ ...current, status: event.target.value }))}>
             <option value="">{t("notifications.allDeliveryStatuses")}</option>
             <option value="pending">pending</option>
@@ -140,8 +203,8 @@ export function NotificationsPage() {
             onChange={(event) => setDeliveryFilters((current) => ({ ...current, notificationId: event.target.value }))}
           />
           <button type="button" onClick={() => deliveriesQuery.refetch()}>{t("common.refresh")}</button>
-        </div>
-        <div className="data-table">
+        </FilterToolbar>
+        <DataTable loading={deliveriesQuery.isLoading} empty={deliveries.length === 0} emptyMessage={t("notifications.emptyDeliveries")} error={deliveriesQuery.isError ? deliveriesQuery.error.message : null}>
           <table>
             <thead><tr><th>{t("notifications.notification")}</th><th>{t("notifications.channels")}</th><th>{t("common.status")}</th><th>{t("notifications.attempts")}</th><th>{t("common.reason")}</th><th>{t("common.created")}</th><th>{t("common.action")}</th></tr></thead>
             <tbody>
@@ -160,22 +223,20 @@ export function NotificationsPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        {!deliveriesQuery.isLoading && deliveries.length === 0 ? <p className="empty-state">{t("notifications.emptyDeliveries")}</p> : null}
-        {deliveriesQuery.isError ? <p className="form-error">{deliveriesQuery.error.message}</p> : null}
+        </DataTable>
         {retryMutation.isError ? <p className="form-error">{retryMutation.error.message}</p> : null}
       </section>
 
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("notifications.title")}</h3><span>{notifications.length} {t("common.items")}</span></div>
-        <div className="toolbar-row">
+        <FilterToolbar>
           <label className="inline-check">
             <input type="checkbox" checked={unreadOnly} onChange={(event) => setUnreadOnly(event.target.checked)} />
             <span>{t("notifications.unreadOnly")}</span>
           </label>
           <button type="button" onClick={() => notificationsQuery.refetch()}>{t("common.refresh")}</button>
-        </div>
-        <div className="data-table">
+        </FilterToolbar>
+        <DataTable loading={notificationsQuery.isLoading} empty={notifications.length === 0} emptyMessage={t("notifications.empty")} error={notificationsQuery.isError ? notificationsQuery.error.message : null}>
           <table>
             <thead><tr><th>{t("notifications.notification")}</th><th>{t("common.severity")}</th><th>{t("common.category")}</th><th>{t("common.status")}</th><th>{t("common.created")}</th><th>{t("common.action")}</th></tr></thead>
             <tbody>
@@ -193,15 +254,13 @@ export function NotificationsPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        {!notificationsQuery.isLoading && notifications.length === 0 ? <p className="empty-state">{t("notifications.empty")}</p> : null}
-        {notificationsQuery.isError ? <p className="form-error">{notificationsQuery.error.message}</p> : null}
+        </DataTable>
         {readMutation.isError ? <p className="form-error">{readMutation.error.message}</p> : null}
       </section>
 
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("notifications.channels")}</h3><span>{channels.length} {t("common.total")}</span></div>
-        <div className="data-table">
+        <DataTable loading={channelsQuery.isLoading} empty={channels.length === 0} emptyMessage={t("notifications.emptyChannels")} error={channelsQuery.isError ? channelsQuery.error.message : null}>
           <table>
             <thead><tr><th>{t("common.name")}</th><th>{t("common.type")}</th><th>{t("notifications.target")}</th><th>{t("common.status")}</th><th>{t("common.created")}</th><th>{t("common.action")}</th></tr></thead>
             <tbody>
@@ -213,6 +272,7 @@ export function NotificationsPage() {
                   <td><span className={`status-chip status-${channel.status}`}>{channel.status}</span></td>
                   <td>{channel.createdAt}</td>
                   <td className="action-cell">
+                    {canWrite && channel.status === "active" ? <button type="button" onClick={() => startEditingChannel(channel)}>{t("common.edit")}</button> : null}
                     {canWrite && channel.status === "active" ? (
                       <button type="button" disabled={testChannelMutation.isPending} onClick={() => testChannelMutation.mutate(channel.id)}>
                         {t("notifications.testChannel")}
@@ -223,9 +283,7 @@ export function NotificationsPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        {!channelsQuery.isLoading && channels.length === 0 ? <p className="empty-state">{t("notifications.emptyChannels")}</p> : null}
-        {channelsQuery.isError ? <p className="form-error">{channelsQuery.error.message}</p> : null}
+        </DataTable>
         {testChannelMutation.isError ? <p className="form-error">{testChannelMutation.error.message}</p> : null}
       </section>
     </main>

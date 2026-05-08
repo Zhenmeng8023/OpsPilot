@@ -45,8 +45,8 @@ func TestMaskChannelTarget(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := maskChannelTarget(tt.channelType, tt.raw); got != tt.want {
+			t.Run(tt.name, func(t *testing.T) {
+			if got := maskChannelTarget(tt.channelType, configMapFromRaw(tt.raw)); got != tt.want {
 				t.Fatalf("maskChannelTarget() = %q, want %q", got, tt.want)
 			}
 		})

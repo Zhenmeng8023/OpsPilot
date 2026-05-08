@@ -92,6 +92,22 @@ func TestNormalizeAndValidateDefinitionRejectsInvalidWaitConfig(t *testing.T) {
 	}
 }
 
+func TestNormalizeAndValidateDefinitionAcceptsWebhookCallAndApproval(t *testing.T) {
+	_, normalized, err := normalizeAndValidateDefinition(`{
+		"nodes":[
+			{"id":"gate","type":"approval","config":{"comment":"release"}},
+			{"id":"callback","type":"webhook-call","config":{"url":"https://example.com/hooks","method":"POST"}}
+		],
+		"edges":[{"from":"gate","to":"callback"}]
+	}`)
+	if err != nil {
+		t.Fatalf("expected definition to be valid: %v", err)
+	}
+	if normalized == "" {
+		t.Fatal("expected normalized definition")
+	}
+}
+
 func TestWorkflowDependenciesReadyStopOnFailure(t *testing.T) {
 	def, _, err := normalizeAndValidateDefinition(`{
 		"nodes":[{"id":"a","type":"task","config":{"taskId":"task-a"}},{"id":"b","type":"task","config":{"taskId":"task-b"}}],

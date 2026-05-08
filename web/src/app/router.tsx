@@ -1,3 +1,5 @@
+import { Suspense, lazy } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { createBrowserRouter, Link, Navigate, Outlet, useMatches } from "react-router-dom";
 
 import type { MessageKey } from "../i18n/language";
@@ -7,22 +9,23 @@ import { AuthLayout } from "../layouts/AuthLayout";
 import { LoginPage } from "../modules/auth/LoginPage";
 import { hasPermission } from "../modules/auth/permissions";
 import { useAuthStore } from "../modules/auth/store";
-import { AgentManagementPage } from "../modules/agents/AgentManagementPage";
-import { AuditLogsPage } from "../modules/audits/AuditLogsPage";
-import { DashboardPage } from "../modules/dashboard/DashboardPage";
-import { IncidentPage } from "../modules/incidents/IncidentPage";
-import { MetricsPage } from "../modules/metrics/MetricsPage";
-import { NotificationsPage } from "../modules/notifications/NotificationsPage";
-import { RoleManagementPage } from "../modules/roles/RoleManagementPage";
-import { UserManagementPage } from "../modules/users/UserManagementPage";
-import { ScriptEditorPage } from "../modules/scripts/ScriptEditorPage";
-import { ScriptListPage } from "../modules/scripts/ScriptListPage";
-import { ScheduleListPage } from "../modules/schedules/ScheduleListPage";
-import { TaskCreatePage } from "../modules/tasks/TaskCreatePage";
-import { TaskDetailPage } from "../modules/tasks/TaskDetailPage";
-import { TaskListPage } from "../modules/tasks/TaskListPage";
-import { WebhookPage } from "../modules/webhooks/WebhookPage";
-import { WorkflowPage } from "../modules/workflows/WorkflowPage";
+
+const AgentManagementPage = lazyNamed(() => import("../modules/agents/AgentManagementPage"), "AgentManagementPage");
+const AuditLogsPage = lazyNamed(() => import("../modules/audits/AuditLogsPage"), "AuditLogsPage");
+const DashboardPage = lazyNamed(() => import("../modules/dashboard/DashboardPage"), "DashboardPage");
+const IncidentPage = lazyNamed(() => import("../modules/incidents/IncidentPage"), "IncidentPage");
+const MetricsPage = lazyNamed(() => import("../modules/metrics/MetricsPage"), "MetricsPage");
+const NotificationsPage = lazyNamed(() => import("../modules/notifications/NotificationsPage"), "NotificationsPage");
+const RoleManagementPage = lazyNamed(() => import("../modules/roles/RoleManagementPage"), "RoleManagementPage");
+const UserManagementPage = lazyNamed(() => import("../modules/users/UserManagementPage"), "UserManagementPage");
+const ScriptEditorPage = lazyNamed(() => import("../modules/scripts/ScriptEditorPage"), "ScriptEditorPage");
+const ScriptListPage = lazyNamed(() => import("../modules/scripts/ScriptListPage"), "ScriptListPage");
+const ScheduleListPage = lazyNamed(() => import("../modules/schedules/ScheduleListPage"), "ScheduleListPage");
+const TaskCreatePage = lazyNamed(() => import("../modules/tasks/TaskCreatePage"), "TaskCreatePage");
+const TaskDetailPage = lazyNamed(() => import("../modules/tasks/TaskDetailPage"), "TaskDetailPage");
+const TaskListPage = lazyNamed(() => import("../modules/tasks/TaskListPage"), "TaskListPage");
+const WebhookPage = lazyNamed(() => import("../modules/webhooks/WebhookPage"), "WebhookPage");
+const WorkflowPage = lazyNamed(() => import("../modules/workflows/WorkflowPage"), "WorkflowPage");
 
 type RouteHandle = {
   meta?: {
@@ -71,6 +74,29 @@ function requiredPermission(handles: unknown[]) {
   return "";
 }
 
+function LazyRoute({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<PageFallback />}>
+      {children}
+    </Suspense>
+  );
+}
+
+function PageFallback() {
+  const t = useLanguageStore((state) => state.t);
+  return (
+    <main className="page">
+      <section className="panel empty-panel">
+        <p className="empty-state">{t("common.loading")}</p>
+      </section>
+    </main>
+  );
+}
+
+function lazyNamed<T extends Record<string, ComponentType<any>>>(loader: () => Promise<T>, exportName: keyof T) {
+  return lazy(async () => ({ default: (await loader())[exportName] as ComponentType<any> }));
+}
+
 export const router = createBrowserRouter([
   {
     path: "/login",
@@ -90,63 +116,63 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/dashboard" replace /> },
           {
             path: "dashboard",
-            element: <DashboardPage />,
+            element: <LazyRoute><DashboardPage /></LazyRoute>,
             handle: { meta: { permission: "workspace.read", titleKey: "dashboard.title", sectionKey: "layout.controlPlane" } }
           },
           {
             path: "users",
-            element: <UserManagementPage />,
+            element: <LazyRoute><UserManagementPage /></LazyRoute>,
             handle: { meta: { permission: "user.read", titleKey: "users.title", sectionKey: "layout.controlPlane" } }
           },
           {
             path: "roles",
-            element: <RoleManagementPage />,
+            element: <LazyRoute><RoleManagementPage /></LazyRoute>,
             handle: { meta: { permission: "role.read", titleKey: "roles.title", sectionKey: "layout.controlPlane" } }
           },
           {
             path: "agents",
-            element: <AgentManagementPage />,
+            element: <LazyRoute><AgentManagementPage /></LazyRoute>,
             handle: { meta: { permission: "agent:read", titleKey: "agents.title", sectionKey: "layout.controlPlane" } }
           },
-          { path: "scripts", element: <ScriptListPage />, handle: { meta: { permission: "script:read", titleKey: "scripts.title", sectionKey: "layout.controlPlane" } } },
-          { path: "scripts/new", element: <ScriptEditorPage />, handle: { meta: { permission: "script:write", titleKey: "scripts.createTitle", sectionKey: "layout.controlPlane" } } },
-          { path: "scripts/:id", element: <ScriptEditorPage />, handle: { meta: { permission: "script:write", titleKey: "scripts.editTitle", sectionKey: "layout.controlPlane" } } },
-          { path: "tasks", element: <TaskListPage />, handle: { meta: { permission: "task:read", titleKey: "tasks.title", sectionKey: "layout.controlPlane" } } },
-          { path: "tasks/new", element: <TaskCreatePage />, handle: { meta: { permission: "task:execute", titleKey: "tasks.createTitle", sectionKey: "layout.controlPlane" } } },
-          { path: "tasks/:id", element: <TaskDetailPage />, handle: { meta: { permission: "task:read", titleKey: "tasks.detailEyebrow", sectionKey: "layout.controlPlane" } } },
+          { path: "scripts", element: <LazyRoute><ScriptListPage /></LazyRoute>, handle: { meta: { permission: "script:read", titleKey: "scripts.title", sectionKey: "layout.controlPlane" } } },
+          { path: "scripts/new", element: <LazyRoute><ScriptEditorPage /></LazyRoute>, handle: { meta: { permission: "script:write", titleKey: "scripts.createTitle", sectionKey: "layout.controlPlane" } } },
+          { path: "scripts/:id", element: <LazyRoute><ScriptEditorPage /></LazyRoute>, handle: { meta: { permission: "script:write", titleKey: "scripts.editTitle", sectionKey: "layout.controlPlane" } } },
+          { path: "tasks", element: <LazyRoute><TaskListPage /></LazyRoute>, handle: { meta: { permission: "task:read", titleKey: "tasks.title", sectionKey: "layout.controlPlane" } } },
+          { path: "tasks/new", element: <LazyRoute><TaskCreatePage /></LazyRoute>, handle: { meta: { permission: "task:execute", titleKey: "tasks.createTitle", sectionKey: "layout.controlPlane" } } },
+          { path: "tasks/:id", element: <LazyRoute><TaskDetailPage /></LazyRoute>, handle: { meta: { permission: "task:read", titleKey: "tasks.detailEyebrow", sectionKey: "layout.controlPlane" } } },
           {
             path: "schedules",
-            element: <ScheduleListPage />,
+            element: <LazyRoute><ScheduleListPage /></LazyRoute>,
             handle: { meta: { permission: "schedule:read", titleKey: "schedules.title", sectionKey: "automation.eyebrow" } }
           },
           {
             path: "webhooks",
-            element: <WebhookPage />,
+            element: <LazyRoute><WebhookPage /></LazyRoute>,
             handle: { meta: { permission: "webhook:read", titleKey: "webhooks.title", sectionKey: "automation.eyebrow" } }
           },
           {
             path: "workflows",
-            element: <WorkflowPage />,
+            element: <LazyRoute><WorkflowPage /></LazyRoute>,
             handle: { meta: { permission: "workflow:read", titleKey: "workflows.title", sectionKey: "automation.eyebrow" } }
           },
           {
             path: "metrics",
-            element: <MetricsPage />,
+            element: <LazyRoute><MetricsPage /></LazyRoute>,
             handle: { meta: { permission: "metric:read", titleKey: "metrics.title", sectionKey: "monitoring.eyebrow" } }
           },
           {
             path: "incidents",
-            element: <IncidentPage />,
+            element: <LazyRoute><IncidentPage /></LazyRoute>,
             handle: { meta: { permission: "alert:read", titleKey: "incidents.title", sectionKey: "monitoring.eyebrow" } }
           },
           {
             path: "notifications",
-            element: <NotificationsPage />,
+            element: <LazyRoute><NotificationsPage /></LazyRoute>,
             handle: { meta: { permission: "notification:read", titleKey: "notifications.title", sectionKey: "layout.controlPlane" } }
           },
           {
             path: "audit-logs",
-            element: <AuditLogsPage />,
+            element: <LazyRoute><AuditLogsPage /></LazyRoute>,
             handle: { meta: { permission: "audit.read", titleKey: "audit.title", sectionKey: "audit.eyebrow" } }
           }
         ]

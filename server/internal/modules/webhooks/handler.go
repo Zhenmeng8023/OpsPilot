@@ -15,6 +15,7 @@ import (
 type ServiceContract interface {
 	ListSources(context.Context) ([]SourceSummary, *apperror.Error)
 	CreateSource(context.Context, CreateSourceInput) (SourceDetail, *apperror.Error)
+	RotateSourceSecrets(context.Context, RotateSourceSecretsInput) (SourceDetail, *apperror.Error)
 	PauseSource(context.Context, string, AuditContext) *apperror.Error
 	ResumeSource(context.Context, string, AuditContext) *apperror.Error
 	DisableSource(context.Context, string, AuditContext) *apperror.Error
@@ -26,6 +27,8 @@ type ServiceContract interface {
 	DisableRule(context.Context, string, AuditContext) *apperror.Error
 	ListEvents(context.Context, ListEventsInput) (EventListResult, *apperror.Error)
 	GetEvent(context.Context, EventDetailInput) (EventDetail, *apperror.Error)
+	SimulateMatcher(context.Context, MatcherSimulationInput) (MatcherSimulationResult, *apperror.Error)
+	ReplayEvent(context.Context, ReplayEventInput) (TriggerResult, *apperror.Error)
 	Trigger(context.Context, TriggerInput) (TriggerResult, *apperror.Error)
 }
 
@@ -54,6 +57,19 @@ type updateRuleRequest struct {
 	Matcher   *Matcher `json:"matcher"`
 }
 
+type matcherSimulationRequest struct {
+	RuleID    string            `json:"ruleId"`
+	EventType string            `json:"eventType"`
+	Matcher   *Matcher          `json:"matcher"`
+	Headers   map[string]string `json:"headers"`
+	Payload   string            `json:"payload"`
+}
+
+type replayEventRequest struct {
+	SimulateOnly bool   `json:"simulateOnly"`
+	IdempotencyKey string `json:"idempotencyKey"`
+}
+
 func NewHandler(service ServiceContract) *Handler {
 	return &Handler{service: service}
 }
@@ -66,6 +82,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.Use(userAuth)
 	protected.GET("/sources", requirePermission("webhook:read"), h.listSources)
 	protected.POST("/sources", requirePermission("webhook:manage"), h.createSource)
+	protected.POST("/sources/:id/rotate-secret", requirePermission("webhook:manage"), h.rotateSourceSecret)
 	protected.POST("/sources/:id/pause", requirePermission("webhook:manage"), h.pauseSource)
 	protected.POST("/sources/:id/resume", requirePermission("webhook:manage"), h.resumeSource)
 	protected.POST("/sources/:id/disable", requirePermission("webhook:manage"), h.disableSource)
@@ -75,7 +92,9 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.POST("/rules/:id/pause", requirePermission("webhook:manage"), h.pauseRule)
 	protected.POST("/rules/:id/resume", requirePermission("webhook:manage"), h.resumeRule)
 	protected.POST("/rules/:id/disable", requirePermission("webhook:manage"), h.disableRule)
+	protected.POST("/matcher/simulate", requirePermission("webhook:manage"), h.simulateMatcher)
 	protected.GET("/events/:id", requirePermission("webhook:read"), h.getEvent)
+	protected.POST("/events/:id/replay", requirePermission("webhook:manage"), h.replayEvent)
 }
 
 func (h *Handler) listSources(c *gin.Context) {
@@ -97,6 +116,23 @@ func (h *Handler) createSource(c *gin.Context) {
 		Name:       req.Name,
 		SourceType: req.SourceType,
 		Audit:      auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, source)
+}
+
+func (h *Handler) rotateSourceSecret(c *gin.Context) {
+	var req struct {
+		RotateToken bool `json:"rotateToken"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	source, appErr := h.service.RotateSourceSecrets(c.Request.Context(), RotateSourceSecretsInput{
+		SourceID:    c.Param("id"),
+		RotateToken: req.RotateToken,
+		Audit:       auditContext(c),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)
@@ -229,6 +265,42 @@ func (h *Handler) disableRule(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *Handler) simulateMatcher(c *gin.Context) {
+	var req matcherSimulationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	result, appErr := h.service.SimulateMatcher(c.Request.Context(), MatcherSimulationInput{
+		RuleID:    req.RuleID,
+		EventType: req.EventType,
+		Matcher:   req.Matcher,
+		Headers:   req.Headers,
+		Payload:   req.Payload,
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *Handler) replayEvent(c *gin.Context) {
+	var req replayEventRequest
+	_ = c.ShouldBindJSON(&req)
+	result, appErr := h.service.ReplayEvent(c.Request.Context(), ReplayEventInput{
+		EventID:       c.Param("id"),
+		SimulateOnly:  req.SimulateOnly,
+		IdempotencyKey: req.IdempotencyKey,
+		Audit:         auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
 }
 
 func (h *Handler) trigger(c *gin.Context) {

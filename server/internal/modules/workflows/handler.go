@@ -18,11 +18,16 @@ type ServiceContract interface {
 	Create(context.Context, CreateInput) (DefinitionDetail, *apperror.Error)
 	Update(context.Context, UpdateInput) (DefinitionDetail, *apperror.Error)
 	Publish(context.Context, string, AuditContext) (DefinitionDetail, *apperror.Error)
+	Disable(context.Context, string, AuditContext) (DefinitionDetail, *apperror.Error)
+	Copy(context.Context, CopyInput) (DefinitionDetail, *apperror.Error)
+	ListVersions(context.Context, string) ([]VersionSummary, *apperror.Error)
 	Run(context.Context, RunInput) (RunDetail, *apperror.Error)
 	ListRuns(context.Context, ListInput) (RunListResult, *apperror.Error)
 	GetRun(context.Context, string) (RunDetail, *apperror.Error)
 	CancelRun(context.Context, CancelInput) (RunDetail, *apperror.Error)
 	RetryRun(context.Context, RetryInput) (RunDetail, *apperror.Error)
+	ApproveNode(context.Context, ApprovalInput) (RunDetail, *apperror.Error)
+	RejectNode(context.Context, ApprovalInput) (RunDetail, *apperror.Error)
 }
 
 type Handler struct {
@@ -45,6 +50,14 @@ type cancelRequest struct {
 	Reason string `json:"reason"`
 }
 
+type copyRequest struct {
+	Name string `json:"name"`
+}
+
+type approvalRequest struct {
+	Comment string `json:"comment"`
+}
+
 func NewHandler(service ServiceContract) *Handler {
 	return &Handler{service: service}
 }
@@ -53,18 +66,23 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	definitions := api.Group("/workflows")
 	definitions.Use(userAuth)
 	definitions.GET("", requirePermission("workflow:read"), h.list)
-	definitions.POST("", requirePermission("workflow:write"), h.create)
+	definitions.POST("", requirePermission("workflow:manage"), h.create)
 	definitions.GET("/:id", requirePermission("workflow:read"), h.get)
-	definitions.PUT("/:id", requirePermission("workflow:write"), h.update)
-	definitions.POST("/:id/publish", requirePermission("workflow:write"), h.publish)
+	definitions.PUT("/:id", requirePermission("workflow:manage"), h.update)
+	definitions.POST("/:id/publish", requirePermission("workflow:manage"), h.publish)
+	definitions.POST("/:id/disable", requirePermission("workflow:manage"), h.disable)
+	definitions.POST("/:id/copy", requirePermission("workflow:manage"), h.copy)
+	definitions.GET("/:id/versions", requirePermission("workflow:read"), h.listVersions)
 	definitions.POST("/:id/run", requirePermission("workflow:execute"), h.run)
 
 	runs := api.Group("/workflow-runs")
 	runs.Use(userAuth)
 	runs.GET("", requirePermission("workflow:read"), h.listRuns)
 	runs.GET("/:id", requirePermission("workflow:read"), h.getRun)
-	runs.POST("/:id/cancel", requirePermission("workflow:cancel"), h.cancelRun)
+	runs.POST("/:id/cancel", requirePermission("workflow:manage"), h.cancelRun)
 	runs.POST("/:id/retry", requirePermission("workflow:execute"), h.retryRun)
+	runs.POST("/:id/nodes/:nodeId/approve", requirePermission("workflow:execute"), h.approveNode)
+	runs.POST("/:id/nodes/:nodeId/reject", requirePermission("workflow:execute"), h.rejectNode)
 }
 
 func (h *Handler) list(c *gin.Context) {
@@ -138,6 +156,39 @@ func (h *Handler) publish(c *gin.Context) {
 	response.Success(c, item)
 }
 
+func (h *Handler) disable(c *gin.Context) {
+	item, appErr := h.service.Disable(c.Request.Context(), c.Param("id"), auditContext(c))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) copy(c *gin.Context) {
+	var req copyRequest
+	_ = c.ShouldBindJSON(&req)
+	item, appErr := h.service.Copy(c.Request.Context(), CopyInput{
+		ID:    c.Param("id"),
+		Name:  req.Name,
+		Audit: auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) listVersions(c *gin.Context) {
+	items, appErr := h.service.ListVersions(c.Request.Context(), c.Param("id"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
 func (h *Handler) run(c *gin.Context) {
 	var req runRequest
 	_ = c.ShouldBindJSON(&req)
@@ -197,6 +248,38 @@ func (h *Handler) retryRun(c *gin.Context) {
 	item, appErr := h.service.RetryRun(c.Request.Context(), RetryInput{
 		ID:    c.Param("id"),
 		Audit: auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) approveNode(c *gin.Context) {
+	var req approvalRequest
+	_ = c.ShouldBindJSON(&req)
+	item, appErr := h.service.ApproveNode(c.Request.Context(), ApprovalInput{
+		RunID:   c.Param("id"),
+		NodeID:  c.Param("nodeId"),
+		Comment: req.Comment,
+		Audit:   auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) rejectNode(c *gin.Context) {
+	var req approvalRequest
+	_ = c.ShouldBindJSON(&req)
+	item, appErr := h.service.RejectNode(c.Request.Context(), ApprovalInput{
+		RunID:   c.Param("id"),
+		NodeID:  c.Param("nodeId"),
+		Comment: req.Comment,
+		Audit:   auditContext(c),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)

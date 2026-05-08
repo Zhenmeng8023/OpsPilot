@@ -8,11 +8,13 @@ func TestNormalizePermissionCodesCanonicalizesAliases(t *testing.T) {
 		"metric:read",
 		"task.run",
 		"task:execute",
+		"workflow:write",
+		"workflow:manage",
 		"script.read",
 		"",
 	})
 
-	expected := []string{"metric:read", "script:read", "task:execute"}
+	expected := []string{"metric:read", "script:read", "task:execute", "workflow:manage"}
 	if len(permissions) != len(expected) {
 		t.Fatalf("expected %d permissions, got %d: %#v", len(expected), len(permissions), permissions)
 	}
@@ -24,8 +26,8 @@ func TestNormalizePermissionCodesCanonicalizesAliases(t *testing.T) {
 }
 
 func TestPermissionMatchCodesIncludesLegacyAliases(t *testing.T) {
-	permissions := permissionMatchCodes("task.run")
-	expected := []string{"task:execute", "task.run"}
+	permissions := permissionMatchCodes("workflow:write")
+	expected := []string{"workflow:manage", "workflow:write", "workflow.write", "workflow:cancel", "workflow.cancel"}
 	if len(permissions) != len(expected) {
 		t.Fatalf("expected %d aliases, got %d: %#v", len(expected), len(permissions), permissions)
 	}

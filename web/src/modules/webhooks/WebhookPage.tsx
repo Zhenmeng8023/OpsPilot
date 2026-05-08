@@ -2,11 +2,11 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
-import { createWebhookRule, createWebhookSource, disableWebhookRule, disableWebhookSource, getWebhookEvent, listWebhookEvents, listWebhookRules, listWebhookSources, pauseWebhookRule, pauseWebhookSource, resumeWebhookRule, resumeWebhookSource, updateWebhookRule } from "../../api/webhooks";
+import { createWebhookRule, createWebhookSource, disableWebhookRule, disableWebhookSource, getWebhookEvent, listWebhookEvents, listWebhookRules, listWebhookSources, pauseWebhookRule, pauseWebhookSource, replayWebhookEvent, resumeWebhookRule, resumeWebhookSource, rotateWebhookSourceSecret, simulateWebhookMatcher, updateWebhookRule } from "../../api/webhooks";
 import { listTasks } from "../../api/tasks";
 import { listWorkflows } from "../../api/workflows";
 import { API_BASE_URL } from "../../api/request";
-import type { WebhookEvent, WebhookMatcherCondition, WebhookRule, WebhookSource } from "../../api/types";
+import type { WebhookEvent, WebhookMatcherCondition, WebhookMatcherSimulationResult, WebhookRule, WebhookSource } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { DataTable } from "../../shared/components/DataTable";
 import { FilterToolbar } from "../../shared/components/FilterToolbar";
@@ -29,6 +29,13 @@ const EMPTY_MATCHER_DRAFT: MatcherDraft = {
   value: ""
 };
 
+const DEFAULT_SIMULATION_PAYLOAD = JSON.stringify({
+  ref: "refs/heads/main",
+  repository: {
+    name: "OpsPilot"
+  }
+}, null, 2);
+
 export function WebhookPage() {
   const user = useAuthStore((state) => state.user);
   const t = useLanguageStore((state) => state.t);
@@ -50,6 +57,13 @@ export function WebhookPage() {
   const [editingRuleID, setEditingRuleID] = useState<string | undefined>();
   const [issuedToken, setIssuedToken] = useState("");
   const [issuedSigningSecret, setIssuedSigningSecret] = useState("");
+  const [issuedSourceName, setIssuedSourceName] = useState("");
+  const [simulator, setSimulator] = useState({
+    ruleId: "",
+    eventType: "push",
+    headers: JSON.stringify({ "X-GitHub-Event": "push" }, null, 2),
+    payload: DEFAULT_SIMULATION_PAYLOAD
+  });
   const sourcesQuery = useQuery({ queryKey: ["webhookSources"], queryFn: listWebhookSources });
   const rulesQuery = useQuery({ queryKey: ["webhookRules"], queryFn: listWebhookRules });
   const eventsQuery = useQuery({
@@ -66,9 +80,20 @@ export function WebhookPage() {
   const createSourceMutation = useMutation({
     mutationFn: createWebhookSource,
     onSuccess: (source) => {
+      setIssuedSourceName(source.name);
       setIssuedToken(source.token ?? "");
       setIssuedSigningSecret(source.signingSecret ?? "");
       setSourceForm({ name: "", sourceType: "custom" });
+      queryClient.invalidateQueries({ queryKey: ["webhookSources"] });
+    }
+  });
+  const rotateSourceMutation = useMutation({
+    mutationFn: ({ source, rotateToken }: { source: WebhookSource; rotateToken: boolean }) =>
+      rotateWebhookSourceSecret(source.id, { rotateToken }),
+    onSuccess: (source) => {
+      setIssuedSourceName(source.name);
+      setIssuedToken(source.token ?? "");
+      setIssuedSigningSecret(source.signingSecret ?? "");
       queryClient.invalidateQueries({ queryKey: ["webhookSources"] });
     }
   });
@@ -119,6 +144,18 @@ export function WebhookPage() {
   const disableRuleMutation = useMutation({
     mutationFn: (rule: WebhookRule) => disableWebhookRule(rule.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["webhookRules"] })
+  });
+  const simulateMatcherMutation = useMutation({
+    mutationFn: (payload: { ruleId?: string; eventType?: string; headers?: Record<string, string>; payload?: string }) =>
+      simulateWebhookMatcher(payload)
+  });
+  const replayEventMutation = useMutation({
+    mutationFn: ({ id, simulateOnly }: { id: string; simulateOnly: boolean }) =>
+      replayWebhookEvent(id, { simulateOnly }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["webhookEvents"] });
+      queryClient.invalidateQueries({ queryKey: ["webhookEvent", variables.id] });
+    }
   });
   const sources = useMemo(() => sourcesQuery.data ?? [], [sourcesQuery.data]);
   const rules = useMemo(() => rulesQuery.data ?? [], [rulesQuery.data]);
@@ -229,6 +266,9 @@ export function WebhookPage() {
     }
     return value;
   };
+
+  const simulatorResult = simulateMatcherMutation.data;
+  const currentRuleForSimulation = rules.find((item) => item.id === simulator.ruleId);
   return (
     <main className="page">
       <section className="page-heading">
@@ -256,11 +296,12 @@ export function WebhookPage() {
           </form>
           {triggerURL ? (
             <div className="token-secret">
-              <strong>{triggerURL}</strong>
+              <strong>{issuedSourceName ? `${issuedSourceName}: ${triggerURL}` : triggerURL}</strong>
               <span>{issuedSigningSecret || t("webhooks.secretMissing")}</span>
             </div>
           ) : null}
           {createSourceMutation.isError ? <p className="form-error">{createSourceMutation.error.message}</p> : null}
+          {rotateSourceMutation.isError ? <p className="form-error">{rotateSourceMutation.error.message}</p> : null}
         </section>
       ) : null}
 
@@ -277,6 +318,8 @@ export function WebhookPage() {
                   <td><span className={`status-chip status-${source.status}`}>{statusText(source.status)}</span></td>
                   <td><strong>{source.createdAt}</strong><small>{source.lastReceivedAt || source.createdBy || "-"}</small></td>
                   <td className="action-cell">
+                    {canManage && source.status === "active" ? <button type="button" onClick={() => rotateSourceMutation.mutate({ source, rotateToken: false })}>{t("webhooks.rotateSecret")}</button> : null}
+                    {canManage && source.status === "active" ? <button type="button" onClick={() => rotateSourceMutation.mutate({ source, rotateToken: true })}>{t("webhooks.rotateToken")}</button> : null}
                     {canManage && source.status === "active" ? <button type="button" onClick={() => pauseSourceMutation.mutate(source)}>{t("webhooks.pauseSource")}</button> : null}
                     {canManage && source.status === "paused" ? <button type="button" onClick={() => resumeSourceMutation.mutate(source)}>{t("webhooks.resumeSource")}</button> : null}
                     {canManage && source.status !== "disabled" ? <button type="button" onClick={() => disableSourceMutation.mutate(source)}>{t("webhooks.disableSource")}</button> : null}
@@ -410,6 +453,45 @@ export function WebhookPage() {
         </section>
       ) : null}
 
+      {canManage ? (
+        <section className="panel form-panel">
+          <div className="panel-title"><h3>{t("webhooks.matcherSimulator")}</h3><span>{t("webhooks.matcherSimulatorHint")}</span></div>
+          <form className="form-grid" onSubmit={(event) => {
+            event.preventDefault();
+            const headers = parseJSONMap(simulator.headers);
+            if (!headers) {
+              return;
+            }
+            simulateMatcherMutation.mutate({
+              ruleId: simulator.ruleId || undefined,
+              eventType: simulator.eventType,
+              headers,
+              payload: simulator.payload
+            });
+          }}>
+            <label>
+              {t("webhooks.rule")}
+              <select value={simulator.ruleId} onChange={(event) => setSimulator((current) => ({ ...current, ruleId: event.target.value, eventType: current.eventType || "push" }))}>
+                <option value="">{t("webhooks.selectRuleOptional")}</option>
+                {rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}
+              </select>
+            </label>
+            <label>{t("webhooks.eventType")}<input value={simulator.eventType} onChange={(event) => setSimulator((current) => ({ ...current, eventType: event.target.value }))} /></label>
+            <label>
+              {t("webhooks.headers")}
+              <textarea className="code-input" value={simulator.headers} onChange={(event) => setSimulator((current) => ({ ...current, headers: event.target.value }))} />
+            </label>
+            <label>
+              {t("webhooks.payload")}
+              <textarea className="code-input" value={simulator.payload} onChange={(event) => setSimulator((current) => ({ ...current, payload: event.target.value }))} />
+            </label>
+            <button type="submit" disabled={simulateMatcherMutation.isPending}>{t("webhooks.simulateMatcherAction")}</button>
+          </form>
+          {simulateMatcherMutation.isError ? <p className="form-error">{simulateMatcherMutation.error.message}</p> : null}
+          {simulatorResult ? <MatcherSimulationPanel result={simulatorResult} ruleName={currentRuleForSimulation?.name} t={t} /> : null}
+        </section>
+      ) : null}
+
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("webhooks.rules")}</h3><span>{rules.length} {t("common.total")}</span></div>
         <DataTable loading={rulesQuery.isLoading} empty={rules.length === 0} emptyMessage={t("webhooks.emptyRules")} error={rulesQuery.isError ? rulesQuery.error.message : null}>
@@ -503,6 +585,16 @@ export function WebhookPage() {
               <h3>{t("webhooks.eventDetail")}</h3>
               <span>{eventDetailQuery.data.id}</span>
             </div>
+            {canManage ? (
+              <div className="toolbar-row">
+                <button type="button" disabled={replayEventMutation.isPending} onClick={() => replayEventMutation.mutate({ id: eventDetailQuery.data.id, simulateOnly: true })}>
+                  {t("webhooks.replaySimulate")}
+                </button>
+                <button type="button" disabled={replayEventMutation.isPending} onClick={() => replayEventMutation.mutate({ id: eventDetailQuery.data.id, simulateOnly: false })}>
+                  {t("webhooks.replayEvent")}
+                </button>
+              </div>
+            ) : null}
             <div className="event-detail-grid">
               <div>
                 <strong>{t("webhooks.security")}</strong>
@@ -540,9 +632,48 @@ export function WebhookPage() {
           </section>
         ) : null}
         {eventDetailQuery.isError ? <p className="form-error">{eventDetailQuery.error.message}</p> : null}
+        {replayEventMutation.isError ? <p className="form-error">{replayEventMutation.error.message}</p> : null}
+        {replayEventMutation.data ? <p className="empty-state">{t("webhooks.replayResult").replace("{count}", String(replayEventMutation.data.matchedRules)).replace("{status}", replayEventMutation.data.status)}</p> : null}
         <PaginationBar total={totalEvents} page={eventFilters.page} pageSize={20} onPageChange={(page) => setEventFilters((current) => ({ ...current, page }))} />
       </section>
     </main>
+  );
+}
+
+function MatcherSimulationPanel({ result, ruleName, t }: { result: WebhookMatcherSimulationResult; ruleName?: string; t: (key: string) => string }) {
+  return (
+    <div className="event-payload-stack">
+      <div className="event-payload">
+        <strong>{ruleName || result.ruleName || "Matcher result"}</strong>
+        <small>{result.matched ? "matched" : result.reason || "failed"}</small>
+      </div>
+      <DataTable empty={result.conditions.length === 0} emptyMessage="No conditions evaluated.">
+        <table>
+          <thead>
+            <tr>
+              <th>Condition</th>
+              <th>{t("common.status")}</th>
+              <th>Actual</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.conditions.map((condition, index) => (
+              <tr key={`${condition.type}-${index}`}>
+                <td><strong>{condition.type}</strong><small>{condition.key || condition.path || condition.value}</small></td>
+                <td><span className={`status-chip status-${condition.matched ? "success" : "failed"}`}>{condition.matched ? "matched" : "failed"}</span></td>
+                <td>{condition.actual || "-"}</td>
+                <td>{condition.reason || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </DataTable>
+      <div className="event-payload">
+        <strong>Payload used</strong>
+        <JsonViewer value={result.payloadUsed} emptyLabel="-" />
+      </div>
+    </div>
   );
 }
 
@@ -614,4 +745,20 @@ function matcherValuePlaceholder(type: MatcherDraft["type"]) {
     return "refs/heads/main";
   }
   return "main";
+}
+
+function parseJSONMap(value: string) {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (!parsed || Array.isArray(parsed)) {
+      return null;
+    }
+    const headers: Record<string, string> = {};
+    for (const [key, item] of Object.entries(parsed)) {
+      headers[key] = typeof item === "string" ? item : JSON.stringify(item);
+    }
+    return headers;
+  } catch {
+    return null;
+  }
 }

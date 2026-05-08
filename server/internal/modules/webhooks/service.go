@@ -46,6 +46,12 @@ type CreateSourceInput struct {
 	Audit      AuditContext
 }
 
+type RotateSourceSecretsInput struct {
+	SourceID    string
+	RotateToken bool
+	Audit       AuditContext
+}
+
 type CreateRuleInput struct {
 	SourceID   string
 	TargetType string
@@ -77,6 +83,13 @@ type ListEventsInput struct {
 
 type EventDetailInput struct {
 	EventID string
+}
+
+type ReplayEventInput struct {
+	EventID       string
+	SimulateOnly  bool
+	IdempotencyKey string
+	Audit         AuditContext
 }
 
 type TriggerInput struct {
@@ -190,6 +203,34 @@ type TriggerResult struct {
 	MatchedRules   int      `json:"matchedRules"`
 	TriggeredRuns  []string `json:"triggeredRuns"`
 	RejectedReason string   `json:"rejectedReason,omitempty"`
+}
+
+type MatcherSimulationInput struct {
+	RuleID     string            `json:"ruleId,omitempty"`
+	EventType  string            `json:"eventType,omitempty"`
+	Matcher    *Matcher          `json:"matcher,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Payload    string            `json:"payload,omitempty"`
+}
+
+type MatcherSimulationConditionResult struct {
+	Type    string `json:"type"`
+	Key     string `json:"key,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Value   string `json:"value"`
+	Matched bool   `json:"matched"`
+	Reason  string `json:"reason,omitempty"`
+	Actual  string `json:"actual,omitempty"`
+}
+
+type MatcherSimulationResult struct {
+	RuleID      string                             `json:"ruleId,omitempty"`
+	RuleName    string                             `json:"ruleName,omitempty"`
+	EventType   string                             `json:"eventType,omitempty"`
+	Matched     bool                               `json:"matched"`
+	Reason      string                             `json:"reason,omitempty"`
+	Conditions  []MatcherSimulationConditionResult `json:"conditions"`
+	PayloadUsed string                             `json:"payloadUsed,omitempty"`
 }
 
 type sourceRecord struct {
@@ -347,10 +388,14 @@ func (s *Service) CreateSource(ctx context.Context, input CreateSourceInput) (So
 		if err != nil {
 			return err
 		}
+		encryptedSecret, err := s.encryptSigningSecret(signingSecret)
+		if err != nil {
+			return err
+		}
 		if err := tx.WithContext(ctx).Exec(
 			`INSERT INTO webhook_sources(uid, workspace_id, name, source_type, token_hash, signing_secret, timestamp_tolerance_seconds, status, created_by)
 			 VALUES (?, ?, ?, ?, ?, ?, 300, 'active', ?)`,
-			sourceUID, workspace.ID, name, sourceType, hash(token), signingSecret, actorID,
+			sourceUID, workspace.ID, name, sourceType, hash(token), encryptedSecret, actorID,
 		).Error; err != nil {
 			return err
 		}
@@ -381,6 +426,92 @@ func (s *Service) CreateSource(ctx context.Context, input CreateSourceInput) (So
 		return SourceDetail{}, apperror.Wrap(http.StatusInternalServerError, 500503, "create webhook source failed", txErr)
 	}
 	return created, nil
+}
+
+func (s *Service) RotateSourceSecrets(ctx context.Context, input RotateSourceSecretsInput) (SourceDetail, *apperror.Error) {
+	id := strings.TrimSpace(input.SourceID)
+	if id == "" {
+		return SourceDetail{}, apperror.New(http.StatusBadRequest, 400509, "webhook source id is required")
+	}
+	newToken := ""
+	if input.RotateToken {
+		token, err := newSecret()
+		if err != nil {
+			return SourceDetail{}, apperror.Wrap(http.StatusInternalServerError, 500521, "issue webhook token failed", err)
+		}
+		newToken = token
+	}
+	newSigningSecret, err := newSecret()
+	if err != nil {
+		return SourceDetail{}, apperror.Wrap(http.StatusInternalServerError, 500521, "issue webhook signing secret failed", err)
+	}
+	var detail SourceDetail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		actor, err := userByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		before, err := sourceByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		if before.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404504, "webhook source not found")
+		}
+		encryptedSecret, err := s.encryptSigningSecret(newSigningSecret)
+		if err != nil {
+			return err
+		}
+		tokenHash := interface{}(nil)
+		updateSQL := "UPDATE webhook_sources SET signing_secret = ?, updated_at = NOW(3)"
+		args := []interface{}{encryptedSecret}
+		if input.RotateToken {
+			updateSQL += ", token_hash = ?"
+			tokenHash = hash(newToken)
+			args = append(args, tokenHash)
+		}
+		updateSQL += " WHERE id = ?"
+		args = append(args, before.ID)
+		if err := tx.WithContext(ctx).Exec(updateSQL, args...).Error; err != nil {
+			return err
+		}
+		after, err := sourceByUID(ctx, tx, workspace.ID, id)
+		if err != nil {
+			return err
+		}
+		detail = SourceDetail{
+			SourceSummary:  sourceSummary(after),
+			Token:          newToken,
+			SigningSecret:  newSigningSecret,
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   nullID(actor.ID),
+			Action:        "webhook.source.rotate_secret",
+			ResourceType:  "webhook_source",
+			ResourceID:    nullID(before.ID),
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Metadata: map[string]interface{}{
+				"rotateToken": input.RotateToken,
+			},
+		})
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return SourceDetail{}, appErr
+		}
+		return SourceDetail{}, apperror.Wrap(http.StatusInternalServerError, 500522, "rotate webhook source secret failed", txErr)
+	}
+	return detail, nil
 }
 
 func (s *Service) PauseSource(ctx context.Context, sourceUID string, auditCtx AuditContext) *apperror.Error {
@@ -763,6 +894,127 @@ func (s *Service) GetEvent(ctx context.Context, input EventDetailInput) (EventDe
 	}, nil
 }
 
+func (s *Service) SimulateMatcher(ctx context.Context, input MatcherSimulationInput) (MatcherSimulationResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return MatcherSimulationResult{}, appErr
+	}
+	var (
+		ruleRecordRow ruleRecord
+		matcher       *Matcher
+	)
+	if ruleID := strings.TrimSpace(input.RuleID); ruleID != "" {
+		rows, err := rules(ctx, s.db, workspace.ID, 0, ruleID)
+		if err != nil {
+			return MatcherSimulationResult{}, apperror.Wrap(http.StatusInternalServerError, 500523, "load webhook rule failed", err)
+		}
+		if len(rows) == 0 {
+			return MatcherSimulationResult{}, apperror.New(http.StatusNotFound, 404505, "webhook rule not found")
+		}
+		ruleRecordRow = rows[0]
+		parsedMatcher, err := parseMatcher(ruleRecordRow.Matcher.String)
+		if err != nil {
+			return MatcherSimulationResult{}, apperror.New(http.StatusBadRequest, 400505, "matcher configuration is invalid")
+		}
+		matcher = parsedMatcher
+	}
+	if input.Matcher != nil {
+		normalized, appErr := normalizeMatcher(input.Matcher)
+		if appErr != nil {
+			return MatcherSimulationResult{}, appErr
+		}
+		matcher = normalized
+	}
+	if matcher == nil {
+		return MatcherSimulationResult{}, apperror.New(http.StatusBadRequest, 400505, "matcher is required")
+	}
+	payloadRaw := strings.TrimSpace(input.Payload)
+	if payloadRaw != "" && !json.Valid([]byte(payloadRaw)) {
+		return MatcherSimulationResult{}, apperror.New(http.StatusBadRequest, 400506, "payload must be valid JSON")
+	}
+	payload := parsePayloadObject([]byte(payloadRaw))
+	result := simulateMatcherResult(matcher, strings.TrimSpace(input.EventType), input.Headers, payload)
+	result.RuleID = ruleRecordRow.UID
+	result.RuleName = ruleRecordRow.Name
+	result.EventType = strings.TrimSpace(input.EventType)
+	result.PayloadUsed = payloadRaw
+	return result, nil
+}
+
+func (s *Service) ReplayEvent(ctx context.Context, input ReplayEventInput) (TriggerResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return TriggerResult{}, appErr
+	}
+	eventUID := strings.TrimSpace(input.EventID)
+	if eventUID == "" {
+		return TriggerResult{}, apperror.New(http.StatusBadRequest, 400510, "event id is required")
+	}
+	var result TriggerResult
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		row, err := eventByUID(ctx, tx, workspace.ID, eventUID)
+		if err != nil {
+			return err
+		}
+		if row.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404502, "webhook event not found")
+		}
+		if row.SourceUID.String == "" {
+			return apperror.New(http.StatusConflict, 409504, "webhook event is not bound to a source")
+		}
+		source, err := sourceByUID(ctx, tx, workspace.ID, row.SourceUID.String)
+		if err != nil {
+			return err
+		}
+		if source.ID == 0 || source.Status != "active" {
+			return apperror.New(http.StatusConflict, 409505, "webhook source must be active before replay")
+		}
+		headers := headerMap(parseHeaderPairs(row.Headers.String))
+		payload := parsePayloadObject([]byte(row.Payload.String))
+		idempotencyPrefix := strings.TrimSpace(input.IdempotencyKey)
+		if idempotencyPrefix == "" {
+			idempotencyPrefix = "webhook-replay:" + eventUID
+		}
+		status, matched, triggeredRuns, err := s.applyEventRules(ctx, tx, source, row.ID, eventUID, row.EventType.String, headers, payload, []byte(row.Payload.String), input.SimulateOnly, idempotencyPrefix)
+		if err != nil {
+			return err
+		}
+		actorID, _ := userByUID(ctx, tx, input.Audit.ActorUID)
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   nullID(actorID.ID),
+			Action:        "webhook.event.replay",
+			ResourceType:  "webhook_event",
+			ResourceID:    nullID(row.ID),
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Metadata: map[string]interface{}{
+				"simulateOnly": input.SimulateOnly,
+				"status":       status,
+				"matchedRules": matched,
+				"triggeredRuns": triggeredRuns,
+			},
+		})
+		result = TriggerResult{
+			EventID:       eventUID,
+			Status:        status,
+			MatchedRules:  matched,
+			TriggeredRuns: triggeredRuns,
+		}
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return TriggerResult{}, appErr
+		}
+		return TriggerResult{}, apperror.Wrap(http.StatusInternalServerError, 500524, "replay webhook event failed", txErr)
+	}
+	return result, nil
+}
+
 func (s *Service) Trigger(ctx context.Context, input TriggerInput) (TriggerResult, *apperror.Error) {
 	if strings.TrimSpace(input.Token) == "" {
 		return TriggerResult{}, apperror.New(http.StatusUnauthorized, 401501, "webhook token is required")
@@ -798,7 +1050,7 @@ func (s *Service) Trigger(ctx context.Context, input TriggerInput) (TriggerResul
 		if source.ID == 0 || source.Status != "active" {
 			return apperror.New(http.StatusUnauthorized, 401502, "invalid webhook token")
 		}
-		signingSecret := strings.TrimSpace(source.SigningSecret.String)
+		signingSecret := s.decryptSigningSecret(source.SigningSecret.String)
 		legacyMode := signingSecret == ""
 		if legacyMode {
 			signingSecret = strings.TrimSpace(input.Token)
@@ -977,85 +1229,10 @@ func (s *Service) Trigger(ctx context.Context, input TriggerInput) (TriggerResul
 		if err := tx.WithContext(ctx).Raw("SELECT id FROM webhook_events WHERE uid = ? LIMIT 1", eventUID).Scan(&eventID).Error; err != nil {
 			return err
 		}
-		rows, err := rules(ctx, tx, source.WorkspaceID, source.ID, "")
+		payload := parsePayloadObject(input.Body)
+		status, matched, triggeredRuns, err := s.applyEventRules(ctx, tx, source, eventID, eventUID, eventType, input.Headers, payload, input.Body, false, "")
 		if err != nil {
 			return err
-		}
-		payload := parsePayloadObject(input.Body)
-		triggeredRuns := []string{}
-		matched := 0
-		for _, rule := range rows {
-			if rule.Status != "active" {
-				continue
-			}
-			if rule.EventType.Valid && eventType != "" && rule.EventType.String != eventType {
-				_ = tx.WithContext(ctx).Exec(
-					"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, 'event_type_mismatch')",
-					eventID, rule.ID,
-				).Error
-				continue
-			}
-			ruleMatcher, err := parseMatcher(rule.Matcher.String)
-			if err != nil {
-				_ = tx.WithContext(ctx).Exec(
-					"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, 'matcher_invalid')",
-					eventID, rule.ID,
-				).Error
-				continue
-			}
-			if ok, reason := matchRule(ruleMatcher, eventType, input.Headers, payload); !ok {
-				_ = tx.WithContext(ctx).Exec(
-					"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, ?)",
-					eventID, rule.ID, limitString(reason, 1024),
-				).Error
-				continue
-			}
-			matched++
-			if normalizeWebhookTargetType(rule.TargetType) == "workflow" {
-				runID, runUID, err := workflows.CreateTriggeredRunTx(
-					ctx,
-					tx,
-					source.WorkspaceID,
-					rule.WorkflowID,
-					"webhook",
-					"",
-					"",
-					rule.CreatedByID,
-					map[string]interface{}{"webhookEventId": eventUID, "webhookRuleId": rule.UID},
-				)
-				if err != nil {
-					_ = tx.WithContext(ctx).Exec(
-						"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, ?)",
-						eventID, rule.ID, limitString(err.Error(), 1024),
-					).Error
-					continue
-				}
-				triggeredRuns = append(triggeredRuns, runUID)
-				_ = tx.WithContext(ctx).Exec(
-					"INSERT INTO webhook_event_matches(event_id, rule_id, workflow_run_id, matched, reason) VALUES (?, ?, ?, 1, 'triggered')",
-					eventID, rule.ID, runID,
-				).Error
-				continue
-			}
-			runID, runUID, err := execution.CreateRunFromTask(ctx, tx, source.WorkspaceID, rule.TaskID, "webhook", nullID(eventID), rule.CreatedByID)
-			if err != nil {
-				_ = tx.WithContext(ctx).Exec(
-					"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, ?)",
-					eventID, rule.ID, limitString(err.Error(), 1024),
-				).Error
-				continue
-			}
-			triggeredRuns = append(triggeredRuns, runUID)
-			_ = tx.WithContext(ctx).Exec(
-				"INSERT INTO webhook_event_matches(event_id, rule_id, task_run_id, matched, reason) VALUES (?, ?, ?, 1, 'triggered')",
-				eventID, rule.ID, runID,
-			).Error
-		}
-		status := "ignored"
-		if len(triggeredRuns) > 0 {
-			status = "triggered"
-		} else if matched > 0 {
-			status = "failed"
 		}
 		if err := tx.WithContext(ctx).Exec(
 			"UPDATE webhook_events SET status = ? WHERE id = ?",
@@ -1552,46 +1729,209 @@ func parsePayloadObject(body []byte) interface{} {
 	return payload
 }
 
+func workflowTriggerInputJSON(eventType, deliveryID string, headers map[string]string, payload interface{}, body []byte) string {
+	input := map[string]interface{}{
+		"eventType":  strings.TrimSpace(eventType),
+		"deliveryId": strings.TrimSpace(deliveryID),
+		"headers":    headers,
+	}
+	if payload != nil {
+		input["payload"] = payload
+	} else if trimmed := strings.TrimSpace(string(body)); trimmed != "" {
+		input["rawBody"] = trimmed
+	}
+	bytes, err := json.Marshal(input)
+	if err != nil {
+		return ""
+	}
+	return string(bytes)
+}
+
+func (s *Service) applyEventRules(ctx context.Context, tx *gorm.DB, source sourceRecord, eventID uint64, eventUID, eventType string, headers map[string]string, payload interface{}, rawBody []byte, simulateOnly bool, idempotencyPrefix string) (string, int, []string, error) {
+	rows, err := rules(ctx, tx, source.WorkspaceID, source.ID, "")
+	if err != nil {
+		return "", 0, nil, err
+	}
+	workflowInput := workflowTriggerInputJSON(eventType, "", headers, payload, rawBody)
+	triggeredRuns := make([]string, 0, 4)
+	matched := 0
+	for _, rule := range rows {
+		if rule.Status != "active" {
+			continue
+		}
+		if rule.EventType.Valid && eventType != "" && rule.EventType.String != eventType {
+			_ = tx.WithContext(ctx).Exec(
+				"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, 'event_type_mismatch')",
+				eventID, rule.ID,
+			).Error
+			continue
+		}
+		ruleMatcher, err := parseMatcher(rule.Matcher.String)
+		if err != nil {
+			_ = tx.WithContext(ctx).Exec(
+				"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, 'matcher_invalid')",
+				eventID, rule.ID,
+			).Error
+			continue
+		}
+		if ok, reason := matchRule(ruleMatcher, eventType, headers, payload); !ok {
+			_ = tx.WithContext(ctx).Exec(
+				"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, ?)",
+				eventID, rule.ID, limitString(reason, 1024),
+			).Error
+			continue
+		}
+		matched++
+		if simulateOnly {
+			_ = tx.WithContext(ctx).Exec(
+				"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 1, 'triggered')",
+				eventID, rule.ID,
+			).Error
+			continue
+		}
+		if normalizeWebhookTargetType(rule.TargetType) == "workflow" {
+			idempotencyKey := ""
+			if idempotencyPrefix != "" {
+				idempotencyKey = idempotencyPrefix + ":" + rule.UID
+			}
+			runID, runUID, err := workflows.CreateTriggeredRunTx(
+				ctx,
+				tx,
+				source.WorkspaceID,
+				rule.WorkflowID,
+				"webhook",
+				idempotencyKey,
+				workflowInput,
+				rule.CreatedByID,
+				map[string]interface{}{"webhookEventId": eventUID, "webhookRuleId": rule.UID, "replayed": idempotencyPrefix != ""},
+			)
+			if err != nil {
+				_ = tx.WithContext(ctx).Exec(
+					"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, ?)",
+					eventID, rule.ID, limitString(err.Error(), 1024),
+				).Error
+				continue
+			}
+			triggeredRuns = append(triggeredRuns, runUID)
+			_ = tx.WithContext(ctx).Exec(
+				"INSERT INTO webhook_event_matches(event_id, rule_id, workflow_run_id, matched, reason) VALUES (?, ?, ?, 1, 'triggered')",
+				eventID, rule.ID, runID,
+			).Error
+			continue
+		}
+		runID, runUID, err := execution.CreateRunFromTask(ctx, tx, source.WorkspaceID, rule.TaskID, "webhook", nullID(eventID), rule.CreatedByID)
+		if err != nil {
+			_ = tx.WithContext(ctx).Exec(
+				"INSERT INTO webhook_event_matches(event_id, rule_id, matched, reason) VALUES (?, ?, 0, ?)",
+				eventID, rule.ID, limitString(err.Error(), 1024),
+			).Error
+			continue
+		}
+		triggeredRuns = append(triggeredRuns, runUID)
+		_ = tx.WithContext(ctx).Exec(
+			"INSERT INTO webhook_event_matches(event_id, rule_id, task_run_id, matched, reason) VALUES (?, ?, ?, 1, 'triggered')",
+			eventID, rule.ID, runID,
+		).Error
+	}
+	status := "ignored"
+	switch {
+	case len(triggeredRuns) > 0:
+		status = "triggered"
+	case matched > 0 && simulateOnly:
+		status = "matched"
+	case matched > 0:
+		status = "failed"
+	}
+	return status, matched, triggeredRuns, nil
+}
+
+func simulateMatcherResult(matcher *Matcher, eventType string, headers map[string]string, payload interface{}) MatcherSimulationResult {
+	result := MatcherSimulationResult{Matched: true, Conditions: []MatcherSimulationConditionResult{}}
+	if matcher == nil {
+		return result
+	}
+	for _, condition := range matcher.Conditions {
+		item := MatcherSimulationConditionResult{
+			Type:  condition.Type,
+			Key:   condition.Key,
+			Path:  condition.Path,
+			Value: condition.Value,
+		}
+		ok, reason, actual := evaluateMatcherCondition(condition, eventType, headers, payload)
+		item.Matched = ok
+		item.Reason = reason
+		item.Actual = actual
+		result.Conditions = append(result.Conditions, item)
+		if !ok && result.Matched {
+			result.Matched = false
+			result.Reason = reason
+		}
+	}
+	return result
+}
+
+func headerMap(headers []HeaderPair) map[string]string {
+	out := make(map[string]string, len(headers))
+	for _, item := range headers {
+		out[item.Key] = item.Value
+	}
+	return out
+}
+
 func matchRule(matcher *Matcher, eventType string, headers map[string]string, payload interface{}) (bool, string) {
 	if matcher == nil || len(matcher.Conditions) == 0 {
 		return true, ""
 	}
 	for _, condition := range matcher.Conditions {
-		switch condition.Type {
-		case "event_type_equals":
-			if strings.TrimSpace(eventType) != condition.Value {
-				return false, "event_type_condition_mismatch"
-			}
-		case "header_equals":
-			headerValue := firstHeaderValue(headers, condition.Key)
-			if headerValue != condition.Value {
-				return false, "header_mismatch:" + condition.Key
-			}
-		case "payload_equals":
-			payloadValue, ok := payloadValueAtPath(payload, condition.Path)
-			if !ok || payloadValue != condition.Value {
-				return false, "payload_mismatch:" + condition.Path
-			}
-		case "payload_contains":
-			payloadValue, ok := payloadValueAtPath(payload, condition.Path)
-			if !ok || !strings.Contains(payloadValue, condition.Value) {
-				return false, "payload_contains_mismatch:" + condition.Path
-			}
-		case "ref_equals":
-			refValue, ok := payloadValueAtPath(payload, "ref")
-			if !ok || refValue != condition.Value {
-				return false, "ref_mismatch"
-			}
-		case "branch_equals":
-			refValue, ok := payloadValueAtPath(payload, "ref")
-			if !ok || branchFromRef(refValue) != condition.Value {
-				return false, "branch_mismatch"
-			}
-		default:
-			return false, "matcher_invalid"
+		ok, reason, _ := evaluateMatcherCondition(condition, eventType, headers, payload)
+		if !ok {
+			return false, reason
 		}
 	}
 	return true, ""
+}
+
+func evaluateMatcherCondition(condition MatcherCondition, eventType string, headers map[string]string, payload interface{}) (bool, string, string) {
+	switch condition.Type {
+	case "event_type_equals":
+		actual := strings.TrimSpace(eventType)
+		if actual != condition.Value {
+			return false, "event_type_condition_mismatch", actual
+		}
+		return true, "", actual
+	case "header_equals":
+		actual := firstHeaderValue(headers, condition.Key)
+		if actual != condition.Value {
+			return false, "header_mismatch:" + condition.Key, actual
+		}
+		return true, "", actual
+	case "payload_equals":
+		actual, ok := payloadValueAtPath(payload, condition.Path)
+		if !ok || actual != condition.Value {
+			return false, "payload_mismatch:" + condition.Path, actual
+		}
+		return true, "", actual
+	case "payload_contains":
+		actual, ok := payloadValueAtPath(payload, condition.Path)
+		if !ok || !strings.Contains(actual, condition.Value) {
+			return false, "payload_contains_mismatch:" + condition.Path, actual
+		}
+		return true, "", actual
+	case "ref_equals":
+		actual, ok := payloadValueAtPath(payload, "ref")
+		if !ok || actual != condition.Value {
+			return false, "ref_mismatch", actual
+		}
+		return true, "", actual
+	case "branch_equals":
+		actual, ok := payloadValueAtPath(payload, "ref")
+		if !ok || branchFromRef(actual) != condition.Value {
+			return false, "branch_mismatch", branchFromRef(actual)
+		}
+		return true, "", branchFromRef(actual)
+	default:
+		return false, "matcher_invalid", ""
+	}
 }
 
 func branchFromRef(ref string) string {
@@ -1616,19 +1956,9 @@ func firstHeaderValue(headers map[string]string, key string) string {
 }
 
 func payloadValueAtPath(payload interface{}, path string) (string, bool) {
-	current := payload
-	for _, segment := range strings.Split(strings.TrimSpace(path), ".") {
-		if segment == "" {
-			return "", false
-		}
-		node, ok := current.(map[string]interface{})
-		if !ok {
-			return "", false
-		}
-		current, ok = node[segment]
-		if !ok {
-			return "", false
-		}
+	current, ok := resolveJSONPath(payload, path)
+	if !ok {
+		return "", false
 	}
 	switch value := current.(type) {
 	case string:
@@ -1644,6 +1974,90 @@ func payloadValueAtPath(payload interface{}, path string) (string, bool) {
 		}
 		return string(bytes), true
 	}
+}
+
+func resolveJSONPath(payload interface{}, path string) (interface{}, bool) {
+	path = normalizeJSONPath(path)
+	if path == "" {
+		return nil, false
+	}
+	current := payload
+	for _, segment := range strings.Split(path, ".") {
+		if segment == "" {
+			return nil, false
+		}
+		name, indexes, ok := splitIndexedSegment(segment)
+		if !ok {
+			return nil, false
+		}
+		if name != "" {
+			node, ok := current.(map[string]interface{})
+			if !ok {
+				return nil, false
+			}
+			current, ok = node[name]
+			if !ok {
+				return nil, false
+			}
+		}
+		for _, index := range indexes {
+			items, ok := current.([]interface{})
+			if !ok || index < 0 || index >= len(items) {
+				return nil, false
+			}
+			current = items[index]
+		}
+	}
+	return current, true
+}
+
+func normalizeJSONPath(path string) string {
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "$")
+	path = strings.TrimPrefix(path, ".")
+	if path == "" {
+		return ""
+	}
+	var builder strings.Builder
+	inQuotes := false
+	quoteChar := rune(0)
+	for _, ch := range path {
+		switch {
+		case (ch == '\'' || ch == '"') && !inQuotes:
+			inQuotes = true
+			quoteChar = ch
+		case inQuotes && ch == quoteChar:
+			inQuotes = false
+		case inQuotes:
+			builder.WriteRune(ch)
+		default:
+			builder.WriteRune(ch)
+		}
+	}
+	return strings.ReplaceAll(builder.String(), "][", "].[")
+}
+
+func splitIndexedSegment(segment string) (string, []int, bool) {
+	name := segment
+	indexes := make([]int, 0, 1)
+	for {
+		open := strings.Index(name, "[")
+		if open < 0 {
+			break
+		}
+		close := strings.Index(name[open:], "]")
+		if close <= 1 {
+			return "", nil, false
+		}
+		indexValue, err := strconv.Atoi(strings.TrimSpace(name[open+1 : open+close]))
+		if err != nil {
+			return "", nil, false
+		}
+		indexes = append(indexes, indexValue)
+		name = name[:open] + name[open+close+1:]
+	}
+	name = strings.Trim(strings.TrimSpace(name), ".")
+	return name, indexes, true
 }
 
 type rejectedEventInput struct {

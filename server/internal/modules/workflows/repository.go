@@ -3,6 +3,7 @@ package workflows
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -115,6 +116,48 @@ func runListWhere(workspaceID uint64, keyword, status string) (string, []interfa
 	return where, args
 }
 
+func workflowVersionRows(ctx context.Context, db *gorm.DB, workflowID uint64) ([]versionRecord, error) {
+	var rows []versionRecord
+	err := db.WithContext(ctx).Raw(
+		`SELECT wv.id, wv.uid, wd.uid AS workflow_uid, wv.version_no, wv.status, wv.definition_hash,
+		        u.username AS created_by,
+		        DATE_FORMAT(wv.published_at, '%Y-%m-%d %H:%i:%s') AS published_at,
+		        DATE_FORMAT(wv.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM workflow_versions wv
+		   JOIN workflow_definitions wd ON wd.id = wv.workflow_id
+		   LEFT JOIN users u ON u.id = wv.created_by
+		  WHERE wv.workflow_id = ?
+		  ORDER BY wv.version_no DESC`,
+		workflowID,
+	).Scan(&rows).Error
+	return rows, err
+}
+
+func nextWorkflowCopyName(ctx context.Context, db *gorm.DB, workspaceID uint64, sourceName string) (string, error) {
+	base := strings.TrimSpace(sourceName)
+	if base == "" {
+		base = "Workflow"
+	}
+	candidate := base + " Copy"
+	for index := 0; index < 100; index++ {
+		name := candidate
+		if index > 0 {
+			name = candidate + " " + fmt.Sprint(index+1)
+		}
+		var count int64
+		if err := db.WithContext(ctx).Raw(
+			"SELECT COUNT(*) FROM workflow_definitions WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL",
+			workspaceID, name,
+		).Scan(&count).Error; err != nil {
+			return "", err
+		}
+		if count == 0 {
+			return name, nil
+		}
+	}
+	return "", apperror.New(http.StatusConflict, 409012, "workflow copy name is exhausted")
+}
+
 func runRows(ctx context.Context, db *gorm.DB, where string, args ...interface{}) ([]runRecord, error) {
 	var rows []runRecord
 	err := db.WithContext(ctx).Raw(
@@ -187,6 +230,7 @@ func runNodes(ctx context.Context, db *gorm.DB, runID uint64) ([]RunNodeSummary,
 	var rows []nodeRecord
 	err := db.WithContext(ctx).Raw(
 		`SELECT wrn.id, wrn.node_id, wrn.node_type, wrn.node_name, wrn.status, tr.uid AS task_run_uid,
+		        CAST(wrn.input AS CHAR) AS input, CAST(wrn.output AS CHAR) AS output,
 		        wrn.error_message, wrn.attempts,
 		        DATE_FORMAT(wrn.queued_at, '%Y-%m-%d %H:%i:%s') AS queued_at,
 		        DATE_FORMAT(wrn.started_at, '%Y-%m-%d %H:%i:%s') AS started_at,
@@ -209,6 +253,8 @@ func runNodes(ctx context.Context, db *gorm.DB, runID uint64) ([]RunNodeSummary,
 			NodeName:     row.NodeName.String,
 			Status:       row.Status,
 			TaskRunID:    row.TaskRunUID.String,
+			Input:        row.Input.String,
+			Output:       row.Output.String,
 			ErrorMessage: row.ErrorMessage.String,
 			Attempts:     row.Attempts,
 			QueuedAt:     row.QueuedAt.String,

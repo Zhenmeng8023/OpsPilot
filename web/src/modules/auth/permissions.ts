@@ -15,9 +15,8 @@ const permissionAliases: Record<string, string[]> = {
   "webhook:manage": ["webhook:manage", "webhook.manage"],
   "notification:write": ["notification:write", "notification.write"],
   "workflow:read": ["workflow:read", "workflow.read"],
-  "workflow:write": ["workflow:write", "workflow.write"],
+  "workflow:manage": ["workflow:manage", "workflow:write", "workflow.write", "workflow:cancel", "workflow.cancel"],
   "workflow:execute": ["workflow:execute", "workflow.execute"],
-  "workflow:cancel": ["workflow:cancel", "workflow.cancel"]
 };
 
 const permissionCanonical = Object.fromEntries(

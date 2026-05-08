@@ -82,6 +82,10 @@ func (s *captureNotificationService) CreateChannel(context.Context, CreateChanne
 	return ChannelSummary{}, nil
 }
 
+func (s *captureNotificationService) UpdateChannel(context.Context, UpdateChannelInput) (ChannelSummary, *apperror.Error) {
+	return ChannelSummary{}, nil
+}
+
 func (s *captureNotificationService) TestChannel(_ context.Context, id string, _ AuditContext) (ChannelTestResult, *apperror.Error) {
 	s.testChannelID = id
 	return ChannelTestResult{ChannelID: id, Status: "success"}, nil

@@ -52,6 +52,7 @@ func TestLoadProdDisablesPublicRegistrationByDefault(t *testing.T) {
 	t.Setenv("APP_ENV", "prod")
 	t.Setenv("JWT_ACCESS_SECRET", "12345678901234567890123456789012")
 	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
+	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
 	t.Setenv("AUTH_PUBLIC_REGISTRATION_ENABLED", "")
 
 	cfg, err := Load()
@@ -67,6 +68,7 @@ func TestLoadProdAllowsExplicitPublicRegistration(t *testing.T) {
 	t.Setenv("APP_ENV", "prod")
 	t.Setenv("JWT_ACCESS_SECRET", "12345678901234567890123456789012")
 	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
+	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
 	t.Setenv("AUTH_PUBLIC_REGISTRATION_ENABLED", "true")
 
 	cfg, err := Load()
@@ -82,6 +84,7 @@ func TestLoadRejectsDefaultJWTSecretInProd(t *testing.T) {
 	t.Setenv("APP_ENV", "prod")
 	t.Setenv("JWT_ACCESS_SECRET", defaultAccessSecret)
 	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
+	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("expected default JWT secret to be rejected in prod")
@@ -92,6 +95,7 @@ func TestLoadRejectsShortJWTSecretInProd(t *testing.T) {
 	t.Setenv("APP_ENV", "prod")
 	t.Setenv("JWT_ACCESS_SECRET", "short-secret")
 	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
+	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("expected short JWT secret to be rejected in prod")
