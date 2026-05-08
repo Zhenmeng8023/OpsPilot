@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -414,24 +413,17 @@ func runCommand(parent context.Context, task agentTask, workDir string, onLog fu
 
 	cmd := commandFor(ctx, task.ScriptType, task.Command)
 	cmd.Dir = taskDir
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return failedResult(startedAt, err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return failedResult(startedAt, err)
-	}
+	stdout := newLineStreamWriter("stdout", onLog)
+	stderr := newLineStreamWriter("stderr", onLog)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return failedResult(startedAt, err)
 	}
 
-	var readers sync.WaitGroup
-	readers.Add(2)
-	go streamOutput(&readers, stdout, "stdout", onLog)
-	go streamOutput(&readers, stderr, "stderr", onLog)
 	waitErr := cmd.Wait()
-	readers.Wait()
+	stdout.Flush()
+	stderr.Flush()
 
 	finishedAt := time.Now()
 	exitCode := 0
@@ -515,16 +507,48 @@ func safePathSegment(value string) string {
 	return segment
 }
 
-func streamOutput(wg *sync.WaitGroup, reader io.Reader, stream string, onLog func(stream, chunk string)) {
-	defer wg.Done()
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 4096), 1024*1024)
-	for scanner.Scan() {
-		onLog(stream, scanner.Text()+"\n")
+type lineStreamWriter struct {
+	stream string
+	onLog  func(stream, chunk string)
+	mu     sync.Mutex
+	buf    bytes.Buffer
+}
+
+func newLineStreamWriter(stream string, onLog func(stream, chunk string)) *lineStreamWriter {
+	return &lineStreamWriter{stream: stream, onLog: onLog}
+}
+
+func (w *lineStreamWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	written := len(p)
+	for len(p) > 0 {
+		index := bytes.IndexByte(p, '\n')
+		if index < 0 {
+			_, _ = w.buf.Write(p)
+			break
+		}
+		_, _ = w.buf.Write(p[:index+1])
+		w.flushLocked()
+		p = p[index+1:]
 	}
-	if err := scanner.Err(); err != nil {
-		onLog("system", "read "+stream+" failed: "+security.Redact(err.Error())+"\n")
+	return written, nil
+}
+
+func (w *lineStreamWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.flushLocked()
+}
+
+func (w *lineStreamWriter) flushLocked() {
+	if w.onLog == nil || w.buf.Len() == 0 {
+		w.buf.Reset()
+		return
 	}
+	w.onLog(w.stream, w.buf.String())
+	w.buf.Reset()
 }
 
 func failedResult(startedAt time.Time, err error) commandResult {
