@@ -531,11 +531,11 @@ export function WebhookPage() {
           </select>
           <select value={eventFilters.status} onChange={(event) => setEventFilters((current) => ({ ...current, status: event.target.value, page: 1 }))}>
             <option value="">{t("webhooks.allStatuses")}</option>
-            <option value="received">received</option>
-            <option value="ignored">ignored</option>
-            <option value="triggered">triggered</option>
-            <option value="failed">failed</option>
-            <option value="rejected">rejected</option>
+            <option value="received">{t("common.status.received")}</option>
+            <option value="ignored">{t("common.status.ignored")}</option>
+            <option value="triggered">{t("common.status.triggered")}</option>
+            <option value="failed">{t("common.status.failed")}</option>
+            <option value="rejected">{t("common.status.rejected")}</option>
           </select>
           <input
             placeholder={t("webhooks.deliveryId")}
@@ -644,24 +644,24 @@ function MatcherSimulationPanel({ result, ruleName, t }: { result: WebhookMatche
   return (
     <div className="event-payload-stack">
       <div className="event-payload">
-        <strong>{ruleName || result.ruleName || "Matcher result"}</strong>
-        <small>{result.matched ? "matched" : result.reason || "failed"}</small>
+        <strong>{ruleName || result.ruleName || t("webhooks.matcherResult")}</strong>
+        <small>{result.matched ? t("common.status.matched") : result.reason || t("common.status.failed")}</small>
       </div>
-      <DataTable empty={result.conditions.length === 0} emptyMessage="No conditions evaluated.">
+      <DataTable empty={result.conditions.length === 0} emptyMessage={t("webhooks.noConditionsEvaluated")}>
         <table>
           <thead>
             <tr>
-              <th>Condition</th>
+              <th>{t("common.condition")}</th>
               <th>{t("common.status")}</th>
-              <th>Actual</th>
-              <th>Reason</th>
+              <th>{t("common.actual")}</th>
+              <th>{t("common.reason")}</th>
             </tr>
           </thead>
           <tbody>
             {result.conditions.map((condition, index) => (
               <tr key={`${condition.type}-${index}`}>
                 <td><strong>{condition.type}</strong><small>{condition.key || condition.path || condition.value}</small></td>
-                <td><span className={`status-chip status-${condition.matched ? "success" : "failed"}`}>{condition.matched ? "matched" : "failed"}</span></td>
+                <td><span className={`status-chip status-${condition.matched ? "success" : "failed"}`}>{condition.matched ? t("common.status.matched") : t("common.status.failed")}</span></td>
                 <td>{condition.actual || "-"}</td>
                 <td>{condition.reason || "-"}</td>
               </tr>
@@ -670,7 +670,7 @@ function MatcherSimulationPanel({ result, ruleName, t }: { result: WebhookMatche
         </table>
       </DataTable>
       <div className="event-payload">
-        <strong>Payload used</strong>
+        <strong>{t("webhooks.payloadUsed")}</strong>
         <JsonViewer value={result.payloadUsed} emptyLabel="-" />
       </div>
     </div>

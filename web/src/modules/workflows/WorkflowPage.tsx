@@ -32,23 +32,27 @@ import { useToast } from "../../shared/components/ToastProvider";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 
-const sampleDefinition = JSON.stringify({
-  nodes: [
-    { id: "collect", type: "task", name: "Collect diagnostics", timeoutSeconds: 900, config: { taskId: "replace-with-task-id" } },
-    { id: "gate", type: "condition", name: "Prod gate", config: { path: "environment", operator: "equals", value: "prod", onFalse: "skip" } },
-    { id: "callback", type: "webhook-call", name: "POST callback", config: { url: "https://example.com/hooks/${payload.service}", method: "POST", bodyPath: "payload", headers: { "X-Env": "${payload.environment}" } } },
-    { id: "cooldown", type: "wait", name: "Cooldown", config: { seconds: 30 } },
-    { id: "notify", type: "notification", name: "Notify owner", config: { title: "Workflow completed", channelId: "optional-channel-id" } }
-  ],
-  edges: [
-    { from: "collect", to: "gate" },
-    { from: "gate", to: "callback" },
-    { from: "callback", to: "cooldown" },
-    { from: "cooldown", to: "notify" }
-  ],
-  maxParallel: 2,
-  failurePolicy: "skip_downstream"
-}, null, 2);
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+function buildSampleDefinition(t: Translate) {
+  return JSON.stringify({
+    nodes: [
+      { id: "collect", type: "task", name: t("workflows.sampleCollectDiagnostics"), timeoutSeconds: 900, config: { taskId: "replace-with-task-id" } },
+      { id: "gate", type: "condition", name: t("workflows.sampleProdGate"), config: { path: "environment", operator: "equals", value: "prod", onFalse: "skip" } },
+      { id: "callback", type: "webhook-call", name: t("workflows.samplePostCallback"), config: { url: "https://example.com/hooks/${payload.service}", method: "POST", bodyPath: "payload", headers: { "X-Env": "${payload.environment}" } } },
+      { id: "cooldown", type: "wait", name: t("workflows.sampleCooldown"), config: { seconds: 30 } },
+      { id: "notify", type: "notification", name: t("workflows.sampleNotifyOwner"), config: { title: t("workflows.sampleCompletedTitle"), channelId: "optional-channel-id" } }
+    ],
+    edges: [
+      { from: "collect", to: "gate" },
+      { from: "gate", to: "callback" },
+      { from: "callback", to: "cooldown" },
+      { from: "cooldown", to: "notify" }
+    ],
+    maxParallel: 2,
+    failurePolicy: "skip_downstream"
+  }, null, 2);
+}
 
 type PendingAction =
   | { type: "publish"; workflow: WorkflowDefinitionSummary }
@@ -66,6 +70,7 @@ export function WorkflowPage() {
   const user = useAuthStore((state) => state.user);
   const { notify } = useToast();
   const queryClient = useQueryClient();
+  const sampleDefinition = useMemo(() => buildSampleDefinition(t), [t]);
   const [tab, setTab] = useState<"definitions" | "runs">("definitions");
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState("");
@@ -74,7 +79,7 @@ export function WorkflowPage() {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", definition: sampleDefinition });
+  const [form, setForm] = useState(() => ({ name: "", description: "", definition: buildSampleDefinition(t) }));
   const [runInput, setRunInput] = useState("{}");
   const pageSize = 20;
   const canWrite = hasPermission(user, "workflow:manage");
@@ -163,7 +168,7 @@ export function WorkflowPage() {
     }
   });
   const cancelMutation = useMutation({
-    mutationFn: (run: WorkflowRunSummary) => cancelWorkflowRun(run.id, "Canceled from UI"),
+    mutationFn: (run: WorkflowRunSummary) => cancelWorkflowRun(run.id, t("workflows.uiCancelReason")),
     onSuccess: (run) => {
       notify(t("workflows.canceledToast"), "success");
       queryClient.invalidateQueries({ queryKey: ["workflowRuns"] });
@@ -181,7 +186,7 @@ export function WorkflowPage() {
     }
   });
   const approveMutation = useMutation({
-    mutationFn: ({ runId, nodeId }: { runId: string; nodeId: string }) => approveWorkflowNode(runId, nodeId, "Approved from UI"),
+    mutationFn: ({ runId, nodeId }: { runId: string; nodeId: string }) => approveWorkflowNode(runId, nodeId, t("workflows.uiApproveReason")),
     onSuccess: (run) => {
       notify(t("workflows.savedToast"), "success");
       setSelectedRunId(run.id);
@@ -190,7 +195,7 @@ export function WorkflowPage() {
     }
   });
   const rejectMutation = useMutation({
-    mutationFn: ({ runId, nodeId }: { runId: string; nodeId: string }) => rejectWorkflowNode(runId, nodeId, "Rejected from UI"),
+    mutationFn: ({ runId, nodeId }: { runId: string; nodeId: string }) => rejectWorkflowNode(runId, nodeId, t("workflows.uiRejectReason")),
     onSuccess: (run) => {
       notify(t("workflows.canceledToast"), "success");
       setSelectedRunId(run.id);

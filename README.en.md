@@ -37,7 +37,7 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 
 - Final Docker-capable compose config and API/Web image build validation.
 - One-command E2E smoke validation against a full running environment.
-- Broader database integration tests, remaining frontend hard-coded copy cleanup, and responsive screenshot regression.
+- Broader database integration tests and responsive/i18n regression for key frontend pages.
 
 ## Requirements
 

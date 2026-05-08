@@ -200,9 +200,9 @@ export function AgentManagementPage() {
   async function copyToken(token: string) {
     try {
       await navigator.clipboard.writeText(token);
-      setCopyMessage("Copied");
+      setCopyMessage(t("common.copied"));
     } catch {
-      setCopyMessage("Copy failed");
+      setCopyMessage(t("common.copyFailed"));
     }
   }
 
@@ -568,13 +568,13 @@ export function AgentManagementPage() {
 
         <section className="panel table-panel">
           <div className="panel-title">
-            <h3>Enrollment Tokens</h3>
-            <span>{enrollmentTokens.length} total</span>
+            <h3>{t("agents.enrollmentTokens")}</h3>
+            <span>{enrollmentTokens.length} {t("common.total")}</span>
           </div>
           <div className="enrollment-form">
             <div className="form-grid">
               <label>
-                Max uses
+                {t("agents.maxUses")}
                 <input
                   type="number"
                   min={1}
@@ -585,7 +585,7 @@ export function AgentManagementPage() {
                 />
               </label>
               <label>
-                Expires in seconds
+                {t("agents.expiresInSeconds")}
                 <input
                   type="number"
                   min={60}
@@ -597,7 +597,7 @@ export function AgentManagementPage() {
               </label>
             </div>
             <label>
-              Bind workspace slug (optional)
+              {t("agents.bindWorkspaceSlugOptional")}
               <input
                 value={createForm.bindWorkspaceSlug}
                 onChange={(event) => setCreateForm((current) => ({ ...current, bindWorkspaceSlug: event.target.value }))}
@@ -615,7 +615,7 @@ export function AgentManagementPage() {
               </button>
               {issuedToken?.token ? (
                 <button className="ghost-button" type="button" onClick={() => copyToken(issuedToken.token ?? "")}>
-                  Copy token
+                  {t("agents.copyToken")}
                 </button>
               ) : null}
             </div>
@@ -623,7 +623,7 @@ export function AgentManagementPage() {
               <div className="token-secret">
                 <strong>{issuedToken.token}</strong>
                 <span>
-                  Save this now. It is only returned once. {copyMessage}
+                  {t("agents.tokenReturnedOnce")} {copyMessage}
                 </span>
               </div>
             ) : null}
@@ -632,12 +632,12 @@ export function AgentManagementPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Prefix</th>
+                  <th>{t("common.prefix")}</th>
                   <th>{t("common.status")}</th>
-                  <th>Usage</th>
-                  <th>Expires</th>
-                  <th>Created by</th>
-                  <th>Action</th>
+                  <th>{t("common.usage")}</th>
+                  <th>{t("common.expires")}</th>
+                  <th>{t("common.createdBy")}</th>
+                  <th>{t("common.action")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -654,7 +654,7 @@ export function AgentManagementPage() {
                       <strong>
                         {token.usedCount}/{token.maxUses}
                       </strong>
-                      <small>{token.bindWorkspaceSlug || "any workspace"}</small>
+                      <small>{token.bindWorkspaceSlug || t("agents.anyWorkspace")}</small>
                     </td>
                     <td>{token.expiresAt}</td>
                     <td>{token.createdBy || "-"}</td>
@@ -665,7 +665,7 @@ export function AgentManagementPage() {
                         disabled={token.status !== "active" || revokeEnrollmentMutation.isPending}
                         onClick={() => revokeEnrollmentMutation.mutate(token.id)}
                       >
-                        Revoke
+                        {t("common.revoke")}
                       </button>
                     </td>
                   </tr>
@@ -674,7 +674,7 @@ export function AgentManagementPage() {
             </table>
           </div>
           {!enrollmentQuery.isLoading && enrollmentTokens.length === 0 ? (
-            <p className="empty-state">No enrollment tokens found.</p>
+            <p className="empty-state">{t("agents.emptyEnrollmentTokens")}</p>
           ) : null}
           {enrollmentQuery.isError ? <p className="form-error">{String(enrollmentQuery.error.message)}</p> : null}
           {createEnrollmentMutation.isError ? (

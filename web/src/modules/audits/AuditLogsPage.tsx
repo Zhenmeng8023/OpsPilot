@@ -32,7 +32,7 @@ export function AuditLogsPage() {
     mutationFn: async (format: "csv" | "json") => {
       const response = await exportAuditLogs({ ...filters, format });
       if (!response.ok) {
-        throw new Error(`Export failed with status ${response.status}`);
+        throw new Error(t("audit.exportFailedStatus", { status: response.status }));
       }
       const blob = await response.blob();
       const filename = response.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ?? `audit-logs.${format}`;
@@ -53,6 +53,21 @@ export function AuditLogsPage() {
   });
   const logs = useMemo(() => query.data?.items ?? [], [query.data]);
   const total = query.data?.total ?? 0;
+  const statusText = (value: string) => t(`common.status.${value}`);
+  const actorTypeText = (value?: string) => {
+    switch (value) {
+      case "user":
+        return t("audit.actorTypeUser");
+      case "agent":
+        return t("audit.actorTypeAgent");
+      case "webhook":
+        return t("audit.actorTypeWebhook");
+      case "system":
+        return t("audit.actorTypeSystem");
+      default:
+        return value || "-";
+    }
+  };
 
   function updateFilter(key: keyof typeof filters, value: string) {
     setPage(1);
@@ -79,16 +94,16 @@ export function AuditLogsPage() {
           <input placeholder={t("audit.actor")} value={filters.actor} onChange={(event) => updateFilter("actor", event.target.value)} />
           <select value={filters.actorType} onChange={(event) => updateFilter("actorType", event.target.value)}>
             <option value="">{t("audit.allActorTypes")}</option>
-            <option value="user">user</option>
-            <option value="agent">agent</option>
-            <option value="webhook">webhook</option>
-            <option value="system">system</option>
+            <option value="user">{t("audit.actorTypeUser")}</option>
+            <option value="agent">{t("audit.actorTypeAgent")}</option>
+            <option value="webhook">{t("audit.actorTypeWebhook")}</option>
+            <option value="system">{t("audit.actorTypeSystem")}</option>
           </select>
           <select value={filters.result} onChange={(event) => updateFilter("result", event.target.value)}>
             <option value="">{t("audit.allResults")}</option>
-            <option value="success">success</option>
-            <option value="failed">failed</option>
-            <option value="denied">denied</option>
+            <option value="success">{t("common.status.success")}</option>
+            <option value="failed">{t("common.status.failed")}</option>
+            <option value="denied">{t("common.status.denied")}</option>
           </select>
           <input placeholder={t("audit.resourceType")} value={filters.resourceType} onChange={(event) => updateFilter("resourceType", event.target.value)} />
           <input placeholder={t("audit.resourceId")} value={filters.resourceId} onChange={(event) => updateFilter("resourceId", event.target.value)} />
@@ -119,10 +134,10 @@ export function AuditLogsPage() {
               {logs.map((item) => (
                 <tr key={item.id}>
                   <td><strong>{item.action}</strong><small>{item.traceId || item.id}</small></td>
-                  <td><strong>{actorName(item)}</strong><small>{item.actorType}</small></td>
+                  <td><strong>{actorName(item)}</strong><small>{actorTypeText(item.actorType)}</small></td>
                   <td><strong>{item.resourceType || "-"}</strong><small>{item.resourceId || "-"}</small></td>
                   <td><strong>{requestLine(item)}</strong><small>{item.ip || "-"}</small></td>
-                  <td><span className={`status-chip status-${item.result}`}>{item.result}</span></td>
+                  <td><span className={`status-chip status-${item.result}`}>{statusText(item.result)}</span></td>
                   <td>{item.createdAt}</td>
                   <td className="action-cell"><button type="button" onClick={() => setSelected(item)}>{t("common.view")}</button></td>
                 </tr>
@@ -153,12 +168,12 @@ export function AuditLogsPage() {
           </div>
           <div className="event-detail-grid">
             <div><strong>{t("audit.action")}</strong><span>{selected.action}</span></div>
-            <div><strong>{t("audit.actor")}</strong><span>{actorName(selected)} ({selected.actorType})</span></div>
+            <div><strong>{t("audit.actor")}</strong><span>{actorName(selected)} ({actorTypeText(selected.actorType)})</span></div>
             <div><strong>{t("audit.resource")}</strong><span>{selected.resourceType || "-"} #{selected.resourceId || "-"}</span></div>
             <div><strong>{t("audit.request")}</strong><span>{requestLine(selected)}</span></div>
             <div><strong>{t("audit.traceId")}</strong><span>{selected.traceId || "-"}</span></div>
-            <div><strong>IP</strong><span>{selected.ip || "-"}</span></div>
-            <div><strong>User Agent</strong><span>{selected.userAgent || "-"}</span></div>
+            <div><strong>{t("common.ip")}</strong><span>{selected.ip || "-"}</span></div>
+            <div><strong>{t("common.userAgent")}</strong><span>{selected.userAgent || "-"}</span></div>
             <div><strong>{t("common.created")}</strong><span>{selected.createdAt}</span></div>
           </div>
           <AuditJsonBlock title={t("audit.before")} value={selected.before} />
