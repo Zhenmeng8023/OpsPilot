@@ -1,5 +1,5 @@
 import { request } from "./request";
-import type { AlertEventSummary, AlertHistoryPoint, AlertRule, AlertSummary } from "./types";
+import type { AlertEventSummary, AlertHistoryPoint, AlertRoutingPolicy, AlertRule, AlertSummary, AlertSuppressionRule } from "./types";
 
 export function listAlertRules() {
   return request<AlertRule[]>("/api/v1/alert-rules");
@@ -45,6 +45,74 @@ export function resumeAlertRule(id: string) {
 
 export function disableAlertRule(id: string) {
   return request<{ ok: boolean }>(`/api/v1/alert-rules/${id}/disable`, { method: "POST" });
+}
+
+export function listAlertSuppressionRules() {
+  return request<AlertSuppressionRule[]>("/api/v1/alert-suppression-rules");
+}
+
+export function createAlertSuppressionRule(payload: {
+  name: string;
+  ruleId?: string;
+  hostId?: string;
+  severity?: string;
+  startsAt?: string;
+  endsAt?: string;
+  reason?: string;
+  status?: string;
+}) {
+  return request<AlertSuppressionRule>("/api/v1/alert-suppression-rules", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateAlertSuppressionRule(id: string, payload: {
+  name: string;
+  ruleId?: string;
+  hostId?: string;
+  severity?: string;
+  startsAt?: string;
+  endsAt?: string;
+  reason?: string;
+  status?: string;
+}) {
+  return request<AlertSuppressionRule>(`/api/v1/alert-suppression-rules/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function listAlertRoutingPolicies() {
+  return request<AlertRoutingPolicy[]>("/api/v1/alert-routing-policies");
+}
+
+export function createAlertRoutingPolicy(payload: {
+  name: string;
+  ruleId?: string;
+  hostId?: string;
+  severity?: string;
+  channelId: string;
+  status?: string;
+}) {
+  return request<AlertRoutingPolicy>("/api/v1/alert-routing-policies", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateAlertRoutingPolicy(id: string, payload: {
+  name: string;
+  ruleId?: string;
+  hostId?: string;
+  severity?: string;
+  channelId: string;
+  status?: string;
+}) {
+  return request<AlertRoutingPolicy>(`/api/v1/alert-routing-policies/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function listAlerts(params: { status?: string; severity?: string; ruleId?: string; hostId?: string } = {}) {

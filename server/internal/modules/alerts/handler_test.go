@@ -139,6 +139,46 @@ func TestPauseResumeDisableRulePassesStatus(t *testing.T) {
 	}
 }
 
+func TestCreateSuppressionRulePassesPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureAlertService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/alert-suppression-rules", strings.NewReader(`{"name":"quiet cpu","ruleId":"rule-1","hostId":"host-1","severity":"critical","reason":"maintenance","status":"active"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.suppressionInput.Name != "quiet cpu" || service.suppressionInput.RuleID != "rule-1" || service.suppressionInput.HostID != "host-1" || service.suppressionInput.Severity != "critical" {
+		t.Fatalf("unexpected suppression payload: %#v", service.suppressionInput)
+	}
+}
+
+func TestCreateRoutingPolicyPassesPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureAlertService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/alert-routing-policies", strings.NewReader(`{"name":"critical email","severity":"critical","channelId":"chan-1","status":"active"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.routingInput.Name != "critical email" || service.routingInput.Severity != "critical" || service.routingInput.ChannelID != "chan-1" {
+		t.Fatalf("unexpected routing payload: %#v", service.routingInput)
+	}
+}
+
 func TestSilencePassesPayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -191,6 +231,8 @@ type captureAlertService struct {
 	updateRuleInput  UpdateRuleInput
 	ruleStatusID     string
 	ruleStatus       string
+	suppressionInput SuppressionRuleInput
+	routingInput     RoutingPolicyInput
 }
 
 func (s *captureAlertService) ListRules(context.Context) ([]AlertRuleSummary, *apperror.Error) {
@@ -211,6 +253,34 @@ func (s *captureAlertService) UpdateRuleStatus(_ context.Context, id string, sta
 	s.ruleStatusID = id
 	s.ruleStatus = status
 	return nil
+}
+
+func (s *captureAlertService) ListSuppressionRules(context.Context) ([]SuppressionRuleSummary, *apperror.Error) {
+	return nil, nil
+}
+
+func (s *captureAlertService) CreateSuppressionRule(_ context.Context, input SuppressionRuleInput) (SuppressionRuleSummary, *apperror.Error) {
+	s.suppressionInput = input
+	return SuppressionRuleSummary{}, nil
+}
+
+func (s *captureAlertService) UpdateSuppressionRule(_ context.Context, _ string, input SuppressionRuleInput) (SuppressionRuleSummary, *apperror.Error) {
+	s.suppressionInput = input
+	return SuppressionRuleSummary{}, nil
+}
+
+func (s *captureAlertService) ListRoutingPolicies(context.Context) ([]RoutingPolicySummary, *apperror.Error) {
+	return nil, nil
+}
+
+func (s *captureAlertService) CreateRoutingPolicy(_ context.Context, input RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error) {
+	s.routingInput = input
+	return RoutingPolicySummary{}, nil
+}
+
+func (s *captureAlertService) UpdateRoutingPolicy(_ context.Context, _ string, input RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error) {
+	s.routingInput = input
+	return RoutingPolicySummary{}, nil
 }
 
 func (s *captureAlertService) ListAlerts(_ context.Context, input ListAlertsInput) ([]AlertSummary, *apperror.Error) {

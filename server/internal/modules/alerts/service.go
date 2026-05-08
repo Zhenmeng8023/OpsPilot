@@ -56,6 +56,28 @@ type UpdateRuleInput struct {
 	Audit           AuditContext
 }
 
+type SuppressionRuleInput struct {
+	Name     string `json:"name"`
+	RuleID   string `json:"ruleId"`
+	HostID   string `json:"hostId"`
+	Severity string `json:"severity"`
+	StartsAt string `json:"startsAt"`
+	EndsAt   string `json:"endsAt"`
+	Reason   string `json:"reason"`
+	Status   string `json:"status"`
+	Audit    AuditContext
+}
+
+type RoutingPolicyInput struct {
+	Name      string `json:"name"`
+	RuleID    string `json:"ruleId"`
+	HostID    string `json:"hostId"`
+	Severity  string `json:"severity"`
+	ChannelID string `json:"channelId"`
+	Status    string `json:"status"`
+	Audit     AuditContext
+}
+
 type AlertRuleSummary struct {
 	ID              string  `json:"id"`
 	Name            string  `json:"name"`
@@ -69,6 +91,34 @@ type AlertRuleSummary struct {
 	Status          string  `json:"status"`
 	CreatedBy       string  `json:"createdBy,omitempty"`
 	CreatedAt       string  `json:"createdAt"`
+}
+
+type SuppressionRuleSummary struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	RuleID    string `json:"ruleId,omitempty"`
+	HostID    string `json:"hostId,omitempty"`
+	Severity  string `json:"severity,omitempty"`
+	StartsAt  string `json:"startsAt,omitempty"`
+	EndsAt    string `json:"endsAt,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Status    string `json:"status"`
+	CreatedBy string `json:"createdBy,omitempty"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type RoutingPolicySummary struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	RuleID    string `json:"ruleId,omitempty"`
+	HostID    string `json:"hostId,omitempty"`
+	Severity  string `json:"severity,omitempty"`
+	ChannelID string `json:"channelId"`
+	Status    string `json:"status"`
+	CreatedBy string `json:"createdBy,omitempty"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 }
 
 type AlertSummary struct {
@@ -187,11 +237,13 @@ type alertRecord struct {
 }
 
 type alertMetadata struct {
-	AcknowledgedAt string `json:"acknowledgedAt,omitempty"`
-	AcknowledgedBy string `json:"acknowledgedBy,omitempty"`
-	SilencedUntil  string `json:"silencedUntil,omitempty"`
-	SilenceReason  string `json:"silenceReason,omitempty"`
-	CooldownUntil  string `json:"cooldownUntil,omitempty"`
+	AcknowledgedAt    string `json:"acknowledgedAt,omitempty"`
+	AcknowledgedBy    string `json:"acknowledgedBy,omitempty"`
+	SilencedUntil     string `json:"silencedUntil,omitempty"`
+	SilenceReason     string `json:"silenceReason,omitempty"`
+	CooldownUntil     string `json:"cooldownUntil,omitempty"`
+	SuppressedBy      string `json:"suppressedBy,omitempty"`
+	SuppressionReason string `json:"suppressionReason,omitempty"`
 }
 
 type ruleExpression struct {
@@ -200,6 +252,7 @@ type ruleExpression struct {
 
 type latestMetric struct {
 	HostID      uint64
+	HostUID     string
 	HostName    string
 	MetricCode  string
 	MetricValue float64
@@ -238,6 +291,36 @@ type incidentProjectionAlert struct {
 	ResolvedAt   sql.NullString
 	CreatedAt    string
 	UpdatedAt    string
+}
+
+type suppressionRuleRecord struct {
+	ID        uint64
+	UID       string
+	Name      string
+	RuleUID   sql.NullString
+	HostUID   sql.NullString
+	Severity  sql.NullString
+	StartsAt  sql.NullString
+	EndsAt    sql.NullString
+	Reason    sql.NullString
+	Status    string
+	CreatedBy sql.NullString
+	CreatedAt string
+	UpdatedAt string
+}
+
+type routingPolicyRecord struct {
+	ID         uint64
+	UID        string
+	Name       string
+	RuleUID    sql.NullString
+	HostUID    sql.NullString
+	Severity   sql.NullString
+	ChannelUID string
+	Status     string
+	CreatedBy  sql.NullString
+	CreatedAt  string
+	UpdatedAt  string
 }
 
 func NewService(db *gorm.DB, cfg config.Config) *Service {
@@ -474,6 +557,62 @@ func (s *Service) UpdateRuleStatus(ctx context.Context, ruleUID, status string, 
 		return apperror.Wrap(http.StatusInternalServerError, 500710, "update alert rule status failed", txErr)
 	}
 	return nil
+}
+
+func (s *Service) ListSuppressionRules(ctx context.Context) ([]SuppressionRuleSummary, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	rows, err := s.suppressionRules(ctx, workspace.ID, "")
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500711, "list alert suppression rules failed", err)
+	}
+	out := make([]SuppressionRuleSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, suppressionRuleSummary(row))
+	}
+	return out, nil
+}
+
+func (s *Service) CreateSuppressionRule(ctx context.Context, input SuppressionRuleInput) (SuppressionRuleSummary, *apperror.Error) {
+	return s.upsertSuppressionRule(ctx, "", input)
+}
+
+func (s *Service) UpdateSuppressionRule(ctx context.Context, id string, input SuppressionRuleInput) (SuppressionRuleSummary, *apperror.Error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return SuppressionRuleSummary{}, apperror.New(http.StatusBadRequest, 400709, "suppression rule id is required")
+	}
+	return s.upsertSuppressionRule(ctx, id, input)
+}
+
+func (s *Service) ListRoutingPolicies(ctx context.Context) ([]RoutingPolicySummary, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	rows, err := s.routingPolicies(ctx, workspace.ID, "")
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500712, "list alert routing policies failed", err)
+	}
+	out := make([]RoutingPolicySummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, routingPolicySummary(row))
+	}
+	return out, nil
+}
+
+func (s *Service) CreateRoutingPolicy(ctx context.Context, input RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error) {
+	return s.upsertRoutingPolicy(ctx, "", input)
+}
+
+func (s *Service) UpdateRoutingPolicy(ctx context.Context, id string, input RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return RoutingPolicySummary{}, apperror.New(http.StatusBadRequest, 400710, "routing policy id is required")
+	}
+	return s.upsertRoutingPolicy(ctx, id, input)
 }
 
 func (s *Service) ListAlerts(ctx context.Context, input ListAlertsInput) ([]AlertSummary, *apperror.Error) {
@@ -896,7 +1035,7 @@ func (s *Service) Evaluate(ctx context.Context) (EvaluationResult, error) {
 func evaluateMetricRule(ctx context.Context, tx *gorm.DB, rule ruleRecord) (int, int, error) {
 	var rows []latestMetric
 	if err := tx.WithContext(ctx).Raw(
-		`SELECT hm.host_id, h.name AS host_name, hm.metric_code, hm.metric_value, hm.unit,
+		`SELECT hm.host_id, h.uid AS host_uid, h.name AS host_name, hm.metric_code, hm.metric_value, hm.unit,
 		        DATE_FORMAT(hm.collected_at, '%Y-%m-%d %H:%i:%s') AS collected_at
 		   FROM host_metrics hm
 		   JOIN hosts h ON h.id = hm.host_id
@@ -1036,7 +1175,12 @@ func upsertFiringAlert(ctx context.Context, tx *gorm.DB, rule ruleRecord, hostID
 		}
 		return false, nil
 	}
-	suppressed, cooldownUntil := cooldownSuppressed(ctx, tx, rule.WorkspaceID, fingerprint)
+	cooldownSuppressed, cooldownUntil := cooldownSuppressed(ctx, tx, rule.WorkspaceID, fingerprint)
+	ruleSuppressed, suppressionRule, err := alertSuppressedByRule(ctx, tx, rule, metric)
+	if err != nil {
+		return false, err
+	}
+	suppressed := cooldownSuppressed || ruleSuppressed
 	alertUID, err := uid.New()
 	if err != nil {
 		return false, err
@@ -1054,6 +1198,10 @@ func upsertFiringAlert(ctx context.Context, tx *gorm.DB, rule ruleRecord, hostID
 		return false, err
 	}
 	meta := alertMetadata{CooldownUntil: cooldownUntil}
+	if ruleSuppressed {
+		meta.SuppressedBy = suppressionRule.Name
+		meta.SuppressionReason = suppressionRule.Reason.String
+	}
 	if err := writeAlertEvent(ctx, tx, alertID, "firing", "metric threshold violated", sql.NullInt64{}, metric); err != nil {
 		return false, err
 	}
@@ -1061,11 +1209,21 @@ func upsertFiringAlert(ctx context.Context, tx *gorm.DB, rule ruleRecord, hostID
 		if err := tx.WithContext(ctx).Exec("UPDATE alerts SET metadata = ? WHERE id = ?", jsonNull(meta), alertID).Error; err != nil {
 			return false, err
 		}
-		if err := writeAlertEvent(ctx, tx, alertID, "cooldown_suppressed", "notification suppressed by cooldown", sql.NullInt64{}, meta); err != nil {
+		eventType := "cooldown_suppressed"
+		message := "notification suppressed by cooldown"
+		if ruleSuppressed {
+			eventType = "suppressed"
+			message = "notification suppressed by suppression rule"
+		}
+		if err := writeAlertEvent(ctx, tx, alertID, eventType, message, sql.NullInt64{}, meta); err != nil {
 			return false, err
 		}
 	} else {
-		if err := notifications.EnqueueForAlert(ctx, tx, rule.WorkspaceID, alertID, title, message, rule.Severity); err != nil {
+		channelUIDs, err := alertRoutingChannels(ctx, tx, rule, metric)
+		if err != nil {
+			return false, err
+		}
+		if err := notifications.EnqueueForAlertToChannels(ctx, tx, rule.WorkspaceID, alertID, channelUIDs, title, message, rule.Severity); err != nil {
 			return false, err
 		}
 	}
@@ -1095,6 +1253,79 @@ func resolveOpenAlert(ctx context.Context, tx *gorm.DB, rule ruleRecord, fingerp
 	return true, resolveAlertRecord(ctx, tx, alert, reason, actorID, ruleCooldownSeconds(rule.Expression))
 }
 
+func alertSuppressedByRule(ctx context.Context, tx *gorm.DB, rule ruleRecord, metric latestMetric) (bool, suppressionRuleRecord, error) {
+	var rows []suppressionRuleRecord
+	err := tx.WithContext(ctx).Raw(
+		`SELECT sr.id, sr.uid, sr.name, sr.alert_rule_uid AS rule_uid, sr.host_uid, sr.severity,
+		        DATE_FORMAT(sr.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
+		        DATE_FORMAT(sr.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
+		        sr.reason, sr.status, '' AS created_by,
+		        DATE_FORMAT(sr.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+		        DATE_FORMAT(sr.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		   FROM alert_suppression_rules sr
+		  WHERE sr.workspace_id = ?
+		    AND sr.status = 'active'
+		    AND sr.deleted_at IS NULL
+		    AND (sr.alert_rule_uid IS NULL OR sr.alert_rule_uid = ?)
+		    AND (sr.host_uid IS NULL OR sr.host_uid = ?)
+		    AND (sr.severity IS NULL OR sr.severity = ?)
+		    AND (sr.starts_at IS NULL OR sr.starts_at <= NOW(3))
+		    AND (sr.ends_at IS NULL OR sr.ends_at >= NOW(3))
+		  ORDER BY
+		    (CASE WHEN sr.alert_rule_uid IS NULL THEN 0 ELSE 1 END
+		     + CASE WHEN sr.host_uid IS NULL THEN 0 ELSE 1 END
+		     + CASE WHEN sr.severity IS NULL THEN 0 ELSE 1 END) DESC,
+		    sr.updated_at DESC
+		  LIMIT 1`,
+		rule.WorkspaceID, rule.UID, metric.HostUID, rule.Severity,
+	).Scan(&rows).Error
+	if err != nil {
+		return false, suppressionRuleRecord{}, err
+	}
+	if len(rows) == 0 {
+		return false, suppressionRuleRecord{}, nil
+	}
+	return true, rows[0], nil
+}
+
+func alertRoutingChannels(ctx context.Context, tx *gorm.DB, rule ruleRecord, metric latestMetric) ([]string, error) {
+	var rows []struct {
+		ChannelUID string
+	}
+	err := tx.WithContext(ctx).Raw(
+		`SELECT rp.channel_uid
+		   FROM alert_routing_policies rp
+		   JOIN notification_channels nc ON nc.uid = rp.channel_uid AND nc.workspace_id = rp.workspace_id
+		  WHERE rp.workspace_id = ?
+		    AND rp.status = 'active'
+		    AND rp.deleted_at IS NULL
+		    AND nc.status = 'active'
+		    AND nc.deleted_at IS NULL
+		    AND (rp.alert_rule_uid IS NULL OR rp.alert_rule_uid = ?)
+		    AND (rp.host_uid IS NULL OR rp.host_uid = ?)
+		    AND (rp.severity IS NULL OR rp.severity = ?)
+		  ORDER BY
+		    (CASE WHEN rp.alert_rule_uid IS NULL THEN 0 ELSE 1 END
+		     + CASE WHEN rp.host_uid IS NULL THEN 0 ELSE 1 END
+		     + CASE WHEN rp.severity IS NULL THEN 0 ELSE 1 END) DESC,
+		    rp.updated_at DESC`,
+		rule.WorkspaceID, rule.UID, metric.HostUID, rule.Severity,
+	).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if row.ChannelUID == "" || seen[row.ChannelUID] {
+			continue
+		}
+		seen[row.ChannelUID] = true
+		out = append(out, row.ChannelUID)
+	}
+	return out, nil
+}
+
 func (s *Service) rules(ctx context.Context, workspaceID uint64, ruleUID string) ([]ruleRecord, error) {
 	args := []interface{}{workspaceID}
 	where := "WHERE ar.workspace_id = ? AND ar.deleted_at IS NULL"
@@ -1112,6 +1343,193 @@ func (s *Service) rules(ctx context.Context, workspaceID uint64, ruleUID string)
 		   LEFT JOIN users u ON u.id = ar.created_by
 		  `+where+`
 		  ORDER BY ar.created_at DESC`,
+		args...,
+	).Scan(&rows).Error
+	return rows, err
+}
+
+func (s *Service) upsertSuppressionRule(ctx context.Context, ruleUID string, input SuppressionRuleInput) (SuppressionRuleSummary, *apperror.Error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return SuppressionRuleSummary{}, apperror.New(http.StatusBadRequest, 400711, "suppression rule name is required")
+	}
+	status := normalizePolicyStatus(input.Status)
+	severity := strings.TrimSpace(input.Severity)
+	if severity != "" {
+		severity = normalizeSeverity(severity)
+	}
+	startsAt := parseOptionalTime(input.StartsAt)
+	endsAt := parseOptionalTime(input.EndsAt)
+	var saved SuppressionRuleSummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		actor, err := userByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		if ruleUID == "" {
+			newUID, err := uid.New()
+			if err != nil {
+				return err
+			}
+			if err := tx.WithContext(ctx).Exec(
+				`INSERT INTO alert_suppression_rules(uid, workspace_id, name, alert_rule_uid, host_uid, severity, starts_at, ends_at, reason, status, created_by)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				newUID, workspace.ID, name, nullString(input.RuleID), nullString(input.HostID), nullString(severity), startsAt, endsAt, nullString(input.Reason), status, nullID(actor.ID),
+			).Error; err != nil {
+				return err
+			}
+			ruleUID = newUID
+		} else {
+			exec := tx.WithContext(ctx).Exec(
+				`UPDATE alert_suppression_rules
+				    SET name = ?, alert_rule_uid = ?, host_uid = ?, severity = ?, starts_at = ?, ends_at = ?, reason = ?, status = ?, updated_at = NOW(3)
+				  WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL`,
+				name, nullString(input.RuleID), nullString(input.HostID), nullString(severity), startsAt, endsAt, nullString(input.Reason), status, workspace.ID, ruleUID,
+			)
+			if exec.Error != nil {
+				return exec.Error
+			}
+			if exec.RowsAffected == 0 {
+				return apperror.New(http.StatusNotFound, 404703, "suppression rule not found")
+			}
+		}
+		rows, err := (&Service{db: tx, cfg: s.cfg}).suppressionRules(ctx, workspace.ID, ruleUID)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return apperror.New(http.StatusNotFound, 404703, "suppression rule not found")
+		}
+		saved = suppressionRuleSummary(rows[0])
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return SuppressionRuleSummary{}, appErr
+		}
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return SuppressionRuleSummary{}, apperror.New(http.StatusConflict, 409702, "suppression rule already exists")
+		}
+		return SuppressionRuleSummary{}, apperror.Wrap(http.StatusInternalServerError, 500713, "save suppression rule failed", txErr)
+	}
+	return saved, nil
+}
+
+func (s *Service) upsertRoutingPolicy(ctx context.Context, policyUID string, input RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error) {
+	name := strings.TrimSpace(input.Name)
+	channelUID := strings.TrimSpace(input.ChannelID)
+	if name == "" || channelUID == "" {
+		return RoutingPolicySummary{}, apperror.New(http.StatusBadRequest, 400712, "routing policy name and channelId are required")
+	}
+	status := normalizePolicyStatus(input.Status)
+	severity := strings.TrimSpace(input.Severity)
+	if severity != "" {
+		severity = normalizeSeverity(severity)
+	}
+	var saved RoutingPolicySummary
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		actor, err := userByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		if policyUID == "" {
+			newUID, err := uid.New()
+			if err != nil {
+				return err
+			}
+			if err := tx.WithContext(ctx).Exec(
+				`INSERT INTO alert_routing_policies(uid, workspace_id, name, alert_rule_uid, host_uid, severity, channel_uid, status, created_by)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				newUID, workspace.ID, name, nullString(input.RuleID), nullString(input.HostID), nullString(severity), channelUID, status, nullID(actor.ID),
+			).Error; err != nil {
+				return err
+			}
+			policyUID = newUID
+		} else {
+			exec := tx.WithContext(ctx).Exec(
+				`UPDATE alert_routing_policies
+				    SET name = ?, alert_rule_uid = ?, host_uid = ?, severity = ?, channel_uid = ?, status = ?, updated_at = NOW(3)
+				  WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL`,
+				name, nullString(input.RuleID), nullString(input.HostID), nullString(severity), channelUID, status, workspace.ID, policyUID,
+			)
+			if exec.Error != nil {
+				return exec.Error
+			}
+			if exec.RowsAffected == 0 {
+				return apperror.New(http.StatusNotFound, 404704, "routing policy not found")
+			}
+		}
+		rows, err := (&Service{db: tx, cfg: s.cfg}).routingPolicies(ctx, workspace.ID, policyUID)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return apperror.New(http.StatusNotFound, 404704, "routing policy not found")
+		}
+		saved = routingPolicySummary(rows[0])
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return RoutingPolicySummary{}, appErr
+		}
+		if strings.Contains(strings.ToLower(txErr.Error()), "duplicate") {
+			return RoutingPolicySummary{}, apperror.New(http.StatusConflict, 409703, "routing policy already exists")
+		}
+		return RoutingPolicySummary{}, apperror.Wrap(http.StatusInternalServerError, 500714, "save routing policy failed", txErr)
+	}
+	return saved, nil
+}
+
+func (s *Service) suppressionRules(ctx context.Context, workspaceID uint64, ruleUID string) ([]suppressionRuleRecord, error) {
+	args := []interface{}{workspaceID}
+	where := "WHERE sr.workspace_id = ? AND sr.deleted_at IS NULL"
+	if ruleUID != "" {
+		where += " AND sr.uid = ?"
+		args = append(args, ruleUID)
+	}
+	var rows []suppressionRuleRecord
+	err := s.db.WithContext(ctx).Raw(
+		`SELECT sr.id, sr.uid, sr.name, sr.alert_rule_uid AS rule_uid, sr.host_uid, sr.severity,
+		        DATE_FORMAT(sr.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
+		        DATE_FORMAT(sr.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
+		        sr.reason, sr.status, u.username AS created_by,
+		        DATE_FORMAT(sr.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+		        DATE_FORMAT(sr.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		   FROM alert_suppression_rules sr
+		   LEFT JOIN users u ON u.id = sr.created_by
+		  `+where+`
+		  ORDER BY sr.updated_at DESC, sr.id DESC`,
+		args...,
+	).Scan(&rows).Error
+	return rows, err
+}
+
+func (s *Service) routingPolicies(ctx context.Context, workspaceID uint64, policyUID string) ([]routingPolicyRecord, error) {
+	args := []interface{}{workspaceID}
+	where := "WHERE rp.workspace_id = ? AND rp.deleted_at IS NULL"
+	if policyUID != "" {
+		where += " AND rp.uid = ?"
+		args = append(args, policyUID)
+	}
+	var rows []routingPolicyRecord
+	err := s.db.WithContext(ctx).Raw(
+		`SELECT rp.id, rp.uid, rp.name, rp.alert_rule_uid AS rule_uid, rp.host_uid, rp.severity,
+		        rp.channel_uid, rp.status, u.username AS created_by,
+		        DATE_FORMAT(rp.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+		        DATE_FORMAT(rp.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		   FROM alert_routing_policies rp
+		   LEFT JOIN users u ON u.id = rp.created_by
+		  `+where+`
+		  ORDER BY rp.updated_at DESC, rp.id DESC`,
 		args...,
 	).Scan(&rows).Error
 	return rows, err
@@ -1437,6 +1855,20 @@ func parseDBTime(value string) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02 15:04:05", strings.TrimSpace(value), time.Local)
 }
 
+func parseOptionalTime(value string) sql.NullTime {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return sql.NullTime{}
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+		parsed, err := time.ParseInLocation(layout, value, time.Local)
+		if err == nil {
+			return sql.NullTime{Time: parsed, Valid: true}
+		}
+	}
+	return sql.NullTime{}
+}
+
 func maxMetricSeriesPoints(durationSeconds uint) int {
 	estimated := int(durationSeconds/15) + 12
 	if estimated < 24 {
@@ -1505,6 +1937,47 @@ func normalizeSeverity(value string) string {
 		return strings.TrimSpace(value)
 	default:
 		return "warning"
+	}
+}
+
+func normalizePolicyStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case "active", "disabled", "archived":
+		return strings.TrimSpace(value)
+	default:
+		return "active"
+	}
+}
+
+func suppressionRuleSummary(row suppressionRuleRecord) SuppressionRuleSummary {
+	return SuppressionRuleSummary{
+		ID:        row.UID,
+		Name:      row.Name,
+		RuleID:    row.RuleUID.String,
+		HostID:    row.HostUID.String,
+		Severity:  row.Severity.String,
+		StartsAt:  row.StartsAt.String,
+		EndsAt:    row.EndsAt.String,
+		Reason:    row.Reason.String,
+		Status:    row.Status,
+		CreatedBy: row.CreatedBy.String,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}
+}
+
+func routingPolicySummary(row routingPolicyRecord) RoutingPolicySummary {
+	return RoutingPolicySummary{
+		ID:        row.UID,
+		Name:      row.Name,
+		RuleID:    row.RuleUID.String,
+		HostID:    row.HostUID.String,
+		Severity:  row.Severity.String,
+		ChannelID: row.ChannelUID,
+		Status:    row.Status,
+		CreatedBy: row.CreatedBy.String,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
 	}
 }
 

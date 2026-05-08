@@ -420,6 +420,34 @@ export interface AlertRule {
   createdAt: string;
 }
 
+export interface AlertSuppressionRule {
+  id: string;
+  name: string;
+  ruleId?: string;
+  hostId?: string;
+  severity?: string;
+  startsAt?: string;
+  endsAt?: string;
+  reason?: string;
+  status: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AlertRoutingPolicy {
+  id: string;
+  name: string;
+  ruleId?: string;
+  hostId?: string;
+  severity?: string;
+  channelId: string;
+  status: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AlertSummary {
   id: string;
   ruleId?: string;

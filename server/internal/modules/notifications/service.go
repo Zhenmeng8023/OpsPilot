@@ -956,6 +956,10 @@ func (s *Service) BulkRetryDeliveries(ctx context.Context, input BulkRetryDelive
 }
 
 func EnqueueForAlert(ctx context.Context, tx *gorm.DB, workspaceID, alertID uint64, title, content, severity string) error {
+	return EnqueueForAlertToChannels(ctx, tx, workspaceID, alertID, nil, title, content, severity)
+}
+
+func EnqueueForAlertToChannels(ctx context.Context, tx *gorm.DB, workspaceID, alertID uint64, channelUIDs []string, title, content, severity string) error {
 	notificationUID, err := uid.New()
 	if err != nil {
 		return err
@@ -979,10 +983,23 @@ func EnqueueForAlert(ctx context.Context, tx *gorm.DB, workspaceID, alertID uint
 		ID          uint64
 		ChannelType string
 	}
-	if err := tx.WithContext(ctx).Raw(
-		"SELECT id, channel_type FROM notification_channels WHERE workspace_id = ? AND status = 'active' AND deleted_at IS NULL",
-		workspaceID,
-	).Scan(&channels).Error; err != nil {
+	query := "SELECT id, channel_type FROM notification_channels WHERE workspace_id = ? AND status = 'active' AND deleted_at IS NULL"
+	args := []interface{}{workspaceID}
+	if len(channelUIDs) > 0 {
+		placeholders := make([]string, 0, len(channelUIDs))
+		for _, channelUID := range channelUIDs {
+			channelUID = strings.TrimSpace(channelUID)
+			if channelUID == "" {
+				continue
+			}
+			placeholders = append(placeholders, "?")
+			args = append(args, channelUID)
+		}
+		if len(placeholders) > 0 {
+			query += " AND uid IN (" + strings.Join(placeholders, ",") + ")"
+		}
+	}
+	if err := tx.WithContext(ctx).Raw(query, args...).Scan(&channels).Error; err != nil {
 		return err
 	}
 	if len(channels) == 0 {

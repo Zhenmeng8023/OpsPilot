@@ -128,7 +128,10 @@ flowchart LR
   Metrics --> Rollups["5m / 1h Metric Rollups"]
   Rollups --> TrendAPI["Trend API granularity auto/raw/5m/1h"]
   TrendAPI --> Dashboards["Saved Dashboards"]
+  Rules --> Suppression["Suppression Rules"]
+  Rules --> Routing["Routing Policies"]
   Rules --> Alerts["alerts"]
+  Suppression --> Alerts
   Alerts --> IncidentProject["Incident Projection"]
   IncidentProject --> Incidents["incidents"]
   Alerts --> IncidentLinks["incident_alerts"]
@@ -136,6 +139,7 @@ flowchart LR
 
   Incidents --> Console["Incident Center UI"]
   Alerts --> Notifications["Notification Dispatcher"]
+  Routing --> Notifications
   Notifications --> Channels["Email / Webhook / IM / Site"]
 
   Incidents -.optional trigger.-> Workflows["workflow_runs"]
@@ -146,6 +150,7 @@ What changed:
 
 - The original UML mostly stopped at `alert + notification`.
 - The current implementation already has `incidents / incident_alerts / incident_events`, so the operational model must include them.
+- The current implementation adds `alert_suppression_rules` and `alert_routing_policies`; alert firing can suppress or route notifications by rule, host, and severity.
 - Metrics lifecycle now includes `host_metric_rollups`, saved dashboards, and retention runs. Trend queries can select `auto/raw/5m/1h` data granularity.
 
 ## 7. Updated Diagram 4: V1.0 Data Model Delta
@@ -164,6 +169,8 @@ erDiagram
   INCIDENTS ||--o{ INCIDENT_ALERTS : contains
   INCIDENTS ||--o{ INCIDENT_EVENTS : records
   ALERT_RULES ||--o{ INCIDENTS : originates
+  ALERT_RULES ||--o{ ALERT_SUPPRESSION_RULES : scopes
+  ALERT_RULES ||--o{ ALERT_ROUTING_POLICIES : scopes
   HOST_METRICS ||--o{ HOST_METRIC_ROLLUPS : aggregates
   WORKSPACES ||--o{ METRIC_DASHBOARDS : owns
 
@@ -242,6 +249,29 @@ erDiagram
     varchar event_type
   }
 
+  ALERT_SUPPRESSION_RULES {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    varchar alert_rule_uid
+    varchar host_uid
+    varchar severity
+    datetime starts_at
+    datetime ends_at
+    varchar status
+  }
+
+  ALERT_ROUTING_POLICIES {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    varchar alert_rule_uid
+    varchar host_uid
+    varchar severity
+    varchar channel_uid
+    varchar status
+  }
+
   HOST_METRIC_ROLLUPS {
     bigint id
     bigint workspace_id
@@ -272,6 +302,7 @@ What changed:
 - `workflow_versions` comes from `000009_v10_workflow_versions.up.sql`.
 - `incidents / incident_alerts / incident_events` comes from `000005_v10_incidents.up.sql`.
 - `host_metric_rollups / metric_dashboards` come from `000011_v10_metrics_lifecycle.up.sql`.
+- `alert_suppression_rules / alert_routing_policies` come from `000012_v10_alert_routing_suppression.up.sql`.
 
 ## 8. Updated Diagram 5: V1.0 Secret, Webhook, and Audit Governance Flow
 

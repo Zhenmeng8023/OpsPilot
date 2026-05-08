@@ -128,7 +128,10 @@ flowchart LR
   Metrics --> Rollups["5m / 1h Metric Rollups"]
   Rollups --> TrendAPI["Trend API granularity auto/raw/5m/1h"]
   TrendAPI --> Dashboards["Saved Dashboards"]
+  Rules --> Suppression["Suppression Rules"]
+  Rules --> Routing["Routing Policies"]
   Rules --> Alerts["alerts"]
+  Suppression --> Alerts
   Alerts --> IncidentProject["Incident Projection"]
   IncidentProject --> Incidents["incidents"]
   Alerts --> IncidentLinks["incident_alerts"]
@@ -136,6 +139,7 @@ flowchart LR
 
   Incidents --> Console["Incident Center UI"]
   Alerts --> Notifications["Notification Dispatcher"]
+  Routing --> Notifications
   Notifications --> Channels["Email / Webhook / IM / Site"]
 
   Incidents -.optional trigger.-> Workflows["workflow_runs"]
@@ -146,6 +150,7 @@ flowchart LR
 
 - 原始 UML 中告警更多停留在 `alert + notification`。
 - 当前实现已经有 `incidents / incident_alerts / incident_events`，因此需要把告警运营模型单独表达。
+- 当前实现新增 `alert_suppression_rules` 和 `alert_routing_policies`，告警触发时可按 rule/host/severity 抑制或路由到指定通知渠道。
 - Metrics 生命周期新增 `host_metric_rollups`、saved dashboard 和 retention run，趋势接口可按 `auto/raw/5m/1h` 粒度选择数据源。
 
 ## 7. 更新图四：V1.0 新增数据模型增量
@@ -164,6 +169,8 @@ erDiagram
   INCIDENTS ||--o{ INCIDENT_ALERTS : contains
   INCIDENTS ||--o{ INCIDENT_EVENTS : records
   ALERT_RULES ||--o{ INCIDENTS : originates
+  ALERT_RULES ||--o{ ALERT_SUPPRESSION_RULES : scopes
+  ALERT_RULES ||--o{ ALERT_ROUTING_POLICIES : scopes
   HOST_METRICS ||--o{ HOST_METRIC_ROLLUPS : aggregates
   WORKSPACES ||--o{ METRIC_DASHBOARDS : owns
 
@@ -242,6 +249,29 @@ erDiagram
     varchar event_type
   }
 
+  ALERT_SUPPRESSION_RULES {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    varchar alert_rule_uid
+    varchar host_uid
+    varchar severity
+    datetime starts_at
+    datetime ends_at
+    varchar status
+  }
+
+  ALERT_ROUTING_POLICIES {
+    bigint id
+    varchar uid
+    bigint workspace_id
+    varchar alert_rule_uid
+    varchar host_uid
+    varchar severity
+    varchar channel_uid
+    varchar status
+  }
+
   HOST_METRIC_ROLLUPS {
     bigint id
     bigint workspace_id
@@ -272,6 +302,7 @@ erDiagram
 - `workflow_versions` 来自 `000009_v10_workflow_versions.up.sql`。
 - `incidents / incident_alerts / incident_events` 来自 `000005_v10_incidents.up.sql`。
 - `host_metric_rollups / metric_dashboards` 来自 `000011_v10_metrics_lifecycle.up.sql`。
+- `alert_suppression_rules / alert_routing_policies` 来自 `000012_v10_alert_routing_suppression.up.sql`。
 
 ## 8. 更新图五：V1.0 Secret、Webhook 与 Audit 治理链路
 

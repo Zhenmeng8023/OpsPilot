@@ -16,6 +16,12 @@ type ServiceContract interface {
 	CreateRule(context.Context, CreateRuleInput) (AlertRuleSummary, *apperror.Error)
 	UpdateRule(context.Context, string, UpdateRuleInput) (AlertRuleSummary, *apperror.Error)
 	UpdateRuleStatus(context.Context, string, string, AuditContext) *apperror.Error
+	ListSuppressionRules(context.Context) ([]SuppressionRuleSummary, *apperror.Error)
+	CreateSuppressionRule(context.Context, SuppressionRuleInput) (SuppressionRuleSummary, *apperror.Error)
+	UpdateSuppressionRule(context.Context, string, SuppressionRuleInput) (SuppressionRuleSummary, *apperror.Error)
+	ListRoutingPolicies(context.Context) ([]RoutingPolicySummary, *apperror.Error)
+	CreateRoutingPolicy(context.Context, RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error)
+	UpdateRoutingPolicy(context.Context, string, RoutingPolicyInput) (RoutingPolicySummary, *apperror.Error)
 	ListAlerts(context.Context, ListAlertsInput) ([]AlertSummary, *apperror.Error)
 	ListAlertEvents(context.Context, string, string) ([]AlertEventSummary, *apperror.Error)
 	ListAlertHistory(context.Context, AlertHistoryInput) ([]AlertHistoryPoint, *apperror.Error)
@@ -44,6 +50,26 @@ type silenceAlertRequest struct {
 	Reason          string `json:"reason"`
 }
 
+type suppressionRuleRequest struct {
+	Name     string `json:"name" binding:"required"`
+	RuleID   string `json:"ruleId"`
+	HostID   string `json:"hostId"`
+	Severity string `json:"severity"`
+	StartsAt string `json:"startsAt"`
+	EndsAt   string `json:"endsAt"`
+	Reason   string `json:"reason"`
+	Status   string `json:"status"`
+}
+
+type routingPolicyRequest struct {
+	Name      string `json:"name" binding:"required"`
+	RuleID    string `json:"ruleId"`
+	HostID    string `json:"hostId"`
+	Severity  string `json:"severity"`
+	ChannelID string `json:"channelId" binding:"required"`
+	Status    string `json:"status"`
+}
+
 func NewHandler(service ServiceContract) *Handler {
 	return &Handler{service: service}
 }
@@ -57,6 +83,12 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.POST("/alert-rules/:id/pause", requirePermission("alert:write"), h.pauseRule)
 	protected.POST("/alert-rules/:id/resume", requirePermission("alert:write"), h.resumeRule)
 	protected.POST("/alert-rules/:id/disable", requirePermission("alert:write"), h.disableRule)
+	protected.GET("/alert-suppression-rules", requirePermission("alert:read"), h.listSuppressionRules)
+	protected.POST("/alert-suppression-rules", requirePermission("alert:write"), h.createSuppressionRule)
+	protected.PUT("/alert-suppression-rules/:id", requirePermission("alert:write"), h.updateSuppressionRule)
+	protected.GET("/alert-routing-policies", requirePermission("alert:read"), h.listRoutingPolicies)
+	protected.POST("/alert-routing-policies", requirePermission("alert:write"), h.createRoutingPolicy)
+	protected.PUT("/alert-routing-policies/:id", requirePermission("alert:write"), h.updateRoutingPolicy)
 	protected.GET("/alerts", requirePermission("alert:read"), h.listAlerts)
 	protected.GET("/alerts/history", requirePermission("alert:read"), h.listAlertHistory)
 	protected.GET("/alerts/:id/events", requirePermission("alert:read"), h.listAlertEvents)
@@ -183,12 +215,112 @@ func (h *Handler) disableRule(c *gin.Context) {
 	response.Success(c, gin.H{"ok": true})
 }
 
+func (h *Handler) listSuppressionRules(c *gin.Context) {
+	items, appErr := h.service.ListSuppressionRules(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) createSuppressionRule(c *gin.Context) {
+	var req suppressionRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.CreateSuppressionRule(c.Request.Context(), suppressionInput(req, auditContext(c)))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) updateSuppressionRule(c *gin.Context) {
+	var req suppressionRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.UpdateSuppressionRule(c.Request.Context(), c.Param("id"), suppressionInput(req, auditContext(c)))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) listRoutingPolicies(c *gin.Context) {
+	items, appErr := h.service.ListRoutingPolicies(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) createRoutingPolicy(c *gin.Context) {
+	var req routingPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.CreateRoutingPolicy(c.Request.Context(), routingInput(req, auditContext(c)))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) updateRoutingPolicy(c *gin.Context) {
+	var req routingPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.UpdateRoutingPolicy(c.Request.Context(), c.Param("id"), routingInput(req, auditContext(c)))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
 func (h *Handler) acknowledge(c *gin.Context) {
 	if appErr := h.service.Acknowledge(c.Request.Context(), c.Param("id"), auditContext(c)); appErr != nil {
 		writeAppError(c, appErr)
 		return
 	}
 	response.Success(c, gin.H{"ok": true})
+}
+
+func suppressionInput(req suppressionRuleRequest, audit AuditContext) SuppressionRuleInput {
+	return SuppressionRuleInput{
+		Name:     req.Name,
+		RuleID:   req.RuleID,
+		HostID:   req.HostID,
+		Severity: req.Severity,
+		StartsAt: req.StartsAt,
+		EndsAt:   req.EndsAt,
+		Reason:   req.Reason,
+		Status:   req.Status,
+		Audit:    audit,
+	}
+}
+
+func routingInput(req routingPolicyRequest, audit AuditContext) RoutingPolicyInput {
+	return RoutingPolicyInput{
+		Name:      req.Name,
+		RuleID:    req.RuleID,
+		HostID:    req.HostID,
+		Severity:  req.Severity,
+		ChannelID: req.ChannelID,
+		Status:    req.Status,
+		Audit:     audit,
+	}
 }
 
 func (h *Handler) silence(c *gin.Context) {

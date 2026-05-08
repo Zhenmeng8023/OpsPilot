@@ -882,6 +882,64 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: OK }
+  /api/v1/alert-suppression-rules:
+    get:
+      summary: List alert suppression rules
+      description: Requires `alert:read`.
+      responses:
+        "200": { description: Alert suppression rule list }
+    post:
+      summary: Create alert suppression rule
+      description: Requires `alert:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertSuppressionRulePayload"
+      responses:
+        "200": { description: Alert suppression rule summary }
+  /api/v1/alert-suppression-rules/{id}:
+    put:
+      summary: Update alert suppression rule
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertSuppressionRulePayload"
+      responses:
+        "200": { description: Alert suppression rule summary }
+  /api/v1/alert-routing-policies:
+    get:
+      summary: List alert routing policies
+      description: Requires `alert:read`.
+      responses:
+        "200": { description: Alert routing policy list }
+    post:
+      summary: Create alert routing policy
+      description: Requires `alert:write`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRoutingPolicyPayload"
+      responses:
+        "200": { description: Alert routing policy summary }
+  /api/v1/alert-routing-policies/{id}:
+    put:
+      summary: Update alert routing policy
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRoutingPolicyPayload"
+      responses:
+        "200": { description: Alert routing policy summary }
   /api/v1/alerts:
     get:
       summary: List alerts
@@ -1631,6 +1689,28 @@ components:
           description: Required continuous breach window in seconds before firing.
         cooldownSeconds: { type: integer, minimum: 0, default: 0 }
         severity: { type: string, enum: [info, warning, critical], default: warning }
+    AlertSuppressionRulePayload:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        ruleId: { type: string }
+        hostId: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        reason: { type: string }
+        status: { type: string, enum: [active, disabled, archived], default: active }
+    AlertRoutingPolicyPayload:
+      type: object
+      required: [name, channelId]
+      properties:
+        name: { type: string }
+        ruleId: { type: string }
+        hostId: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+        channelId: { type: string }
+        status: { type: string, enum: [active, disabled, archived], default: active }
     IncidentSummary:
       type: object
       properties:

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { acknowledgeAlert, createAlertRule, disableAlertRule, listAlertEvents, listAlertHistory, listAlertRules, listAlerts, pauseAlertRule, resolveAlert, resumeAlertRule, silenceAlert, unsilenceAlert, updateAlertRule } from "../../api/alerts";
+import { acknowledgeAlert, createAlertRoutingPolicy, createAlertRule, createAlertSuppressionRule, disableAlertRule, listAlertEvents, listAlertHistory, listAlertRoutingPolicies, listAlertRules, listAlertSuppressionRules, listAlerts, pauseAlertRule, resolveAlert, resumeAlertRule, silenceAlert, unsilenceAlert, updateAlertRoutingPolicy, updateAlertRule, updateAlertSuppressionRule } from "../../api/alerts";
 import { createMetricDashboard, listHostMetrics, listMetricDashboards, listMetricTrends, runMetricRetention, runMetricRollup, updateMetricDashboard } from "../../api/metrics";
-import type { AlertHistoryPoint, MetricDashboard, MetricRetentionResult, MetricRollupResult, MetricTrendSeries } from "../../api/types";
+import { listNotificationChannels } from "../../api/notifications";
+import type { AlertHistoryPoint, AlertRoutingPolicy, AlertSuppressionRule, MetricDashboard, MetricRetentionResult, MetricRollupResult, MetricTrendSeries } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
@@ -32,6 +33,10 @@ export function MetricsPage() {
   const [retentionForm, setRetentionForm] = useState({ detailDays: 7, rollupDays: 90, dryRun: true });
   const [rollupResult, setRollupResult] = useState<MetricRollupResult | null>(null);
   const [retentionResult, setRetentionResult] = useState<MetricRetentionResult | null>(null);
+  const [suppressionForm, setSuppressionForm] = useState({ name: "", ruleId: "", hostId: "", severity: "", startsAt: "", endsAt: "", reason: "", status: "active" });
+  const [routingForm, setRoutingForm] = useState({ name: "", ruleId: "", hostId: "", severity: "", channelId: "", status: "active" });
+  const [editingSuppressionId, setEditingSuppressionId] = useState("");
+  const [editingRoutingId, setEditingRoutingId] = useState("");
   const [ruleForm, setRuleForm] = useState({
     name: "",
     metricCode: "agent.os.cpu.percent",
@@ -93,6 +98,21 @@ export function MetricsPage() {
     queryFn: () => listAlertEvents(expandedAlertId, { eventType: alertEventType }),
     enabled: canReadAlerts && expandedAlertId !== ""
   });
+  const suppressionRulesQuery = useQuery({
+    queryKey: ["alertSuppressionRules"],
+    queryFn: listAlertSuppressionRules,
+    enabled: canReadAlerts
+  });
+  const routingPoliciesQuery = useQuery({
+    queryKey: ["alertRoutingPolicies"],
+    queryFn: listAlertRoutingPolicies,
+    enabled: canReadAlerts
+  });
+  const channelsQuery = useQuery({
+    queryKey: ["notificationChannels"],
+    queryFn: listNotificationChannels,
+    enabled: canWriteAlerts
+  });
 
   const createRuleMutation = useMutation({
     mutationFn: createAlertRule,
@@ -149,6 +169,34 @@ export function MetricsPage() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alertRules"] })
   });
+  const createSuppressionMutation = useMutation({
+    mutationFn: createAlertSuppressionRule,
+    onSuccess: () => {
+      resetSuppressionForm();
+      queryClient.invalidateQueries({ queryKey: ["alertSuppressionRules"] });
+    }
+  });
+  const updateSuppressionMutation = useMutation({
+    mutationFn: (payload: typeof suppressionForm) => updateAlertSuppressionRule(editingSuppressionId, payload),
+    onSuccess: () => {
+      resetSuppressionForm();
+      queryClient.invalidateQueries({ queryKey: ["alertSuppressionRules"] });
+    }
+  });
+  const createRoutingMutation = useMutation({
+    mutationFn: createAlertRoutingPolicy,
+    onSuccess: () => {
+      resetRoutingForm();
+      queryClient.invalidateQueries({ queryKey: ["alertRoutingPolicies"] });
+    }
+  });
+  const updateRoutingMutation = useMutation({
+    mutationFn: (payload: typeof routingForm) => updateAlertRoutingPolicy(editingRoutingId, payload),
+    onSuccess: () => {
+      resetRoutingForm();
+      queryClient.invalidateQueries({ queryKey: ["alertRoutingPolicies"] });
+    }
+  });
   const createDashboardMutation = useMutation({
     mutationFn: createMetricDashboard,
     onSuccess: () => {
@@ -186,6 +234,9 @@ export function MetricsPage() {
   const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data]);
   const alertHistory = useMemo(() => alertHistoryQuery.data ?? [], [alertHistoryQuery.data]);
   const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
+  const suppressionRules = useMemo(() => suppressionRulesQuery.data ?? [], [suppressionRulesQuery.data]);
+  const routingPolicies = useMemo(() => routingPoliciesQuery.data ?? [], [routingPoliciesQuery.data]);
+  const channels = useMemo(() => channelsQuery.data ?? [], [channelsQuery.data]);
 
   const latest = useMemo(() => {
     const map = new Map<string, (typeof metrics)[number]>();
@@ -267,6 +318,42 @@ export function MetricsPage() {
     setTrendHours(dashboard.rangeHours || 24);
     setTrendGranularity(dashboard.granularity || "auto");
     setSelectedTrendSeries(dashboard.hostId && dashboard.metricCode ? `${dashboard.hostId}:${dashboard.metricCode}` : "");
+  };
+
+  const resetSuppressionForm = () => {
+    setSuppressionForm({ name: "", ruleId: "", hostId: "", severity: "", startsAt: "", endsAt: "", reason: "", status: "active" });
+    setEditingSuppressionId("");
+  };
+
+  const resetRoutingForm = () => {
+    setRoutingForm({ name: "", ruleId: "", hostId: "", severity: "", channelId: "", status: "active" });
+    setEditingRoutingId("");
+  };
+
+  const startEditingSuppression = (item: AlertSuppressionRule) => {
+    setEditingSuppressionId(item.id);
+    setSuppressionForm({
+      name: item.name,
+      ruleId: item.ruleId || "",
+      hostId: item.hostId || "",
+      severity: item.severity || "",
+      startsAt: item.startsAt || "",
+      endsAt: item.endsAt || "",
+      reason: item.reason || "",
+      status: item.status || "active"
+    });
+  };
+
+  const startEditingRouting = (item: AlertRoutingPolicy) => {
+    setEditingRoutingId(item.id);
+    setRoutingForm({
+      name: item.name,
+      ruleId: item.ruleId || "",
+      hostId: item.hostId || "",
+      severity: item.severity || "",
+      channelId: item.channelId,
+      status: item.status || "active"
+    });
   };
 
   const alertStatusLabel = (status: string) => {
@@ -502,6 +589,59 @@ export function MetricsPage() {
           </form>
           {createRuleMutation.isError ? <p className="form-error">{createRuleMutation.error.message}</p> : null}
           {updateRuleMutation.isError ? <p className="form-error">{updateRuleMutation.error.message}</p> : null}
+        </section>
+      ) : null}
+
+      {canReadAlerts ? (
+        <section className="panel">
+          <div className="panel-title">
+            <h3>{t("metrics.alertOperations")}</h3>
+            <span>{t("metrics.alertOperationsHint")}</span>
+          </div>
+          {canWriteAlerts ? (
+            <div className="split-grid">
+              <form className="form-grid" onSubmit={(event) => {
+                event.preventDefault();
+                const payload = { ...suppressionForm };
+                if (editingSuppressionId) updateSuppressionMutation.mutate(payload);
+                else createSuppressionMutation.mutate(payload);
+              }}>
+                <label>{t("metrics.suppressionRules")}<input value={suppressionForm.name} onChange={(event) => setSuppressionForm({ ...suppressionForm, name: event.target.value })} required /></label>
+                <label>{t("metrics.rule")}<select value={suppressionForm.ruleId} onChange={(event) => setSuppressionForm({ ...suppressionForm, ruleId: event.target.value })}><option value="">{t("metrics.allRules")}</option>{rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}</select></label>
+                <label>{t("metrics.host")}<input value={suppressionForm.hostId} onChange={(event) => setSuppressionForm({ ...suppressionForm, hostId: event.target.value })} /></label>
+                <label>{t("common.severity")}<select value={suppressionForm.severity} onChange={(event) => setSuppressionForm({ ...suppressionForm, severity: event.target.value })}><option value="">{t("metrics.allSeverities")}</option><option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option></select></label>
+                <label>{t("metrics.reason")}<input value={suppressionForm.reason} onChange={(event) => setSuppressionForm({ ...suppressionForm, reason: event.target.value })} /></label>
+                <label>{t("common.status")}<select value={suppressionForm.status} onChange={(event) => setSuppressionForm({ ...suppressionForm, status: event.target.value })}><option value="active">{t("common.status.active")}</option><option value="disabled">{t("common.status.disabled")}</option><option value="archived">{t("common.status.archived")}</option></select></label>
+                <button type="submit" disabled={createSuppressionMutation.isPending || updateSuppressionMutation.isPending}>{editingSuppressionId ? t("common.save") : t("common.create")}</button>
+                {editingSuppressionId ? <button type="button" onClick={resetSuppressionForm}>{t("common.cancel")}</button> : null}
+              </form>
+              <form className="form-grid" onSubmit={(event) => {
+                event.preventDefault();
+                const payload = { ...routingForm };
+                if (editingRoutingId) updateRoutingMutation.mutate(payload);
+                else createRoutingMutation.mutate(payload);
+              }}>
+                <label>{t("metrics.routingPolicies")}<input value={routingForm.name} onChange={(event) => setRoutingForm({ ...routingForm, name: event.target.value })} required /></label>
+                <label>{t("metrics.rule")}<select value={routingForm.ruleId} onChange={(event) => setRoutingForm({ ...routingForm, ruleId: event.target.value })}><option value="">{t("metrics.allRules")}</option>{rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}</select></label>
+                <label>{t("metrics.host")}<input value={routingForm.hostId} onChange={(event) => setRoutingForm({ ...routingForm, hostId: event.target.value })} /></label>
+                <label>{t("common.severity")}<select value={routingForm.severity} onChange={(event) => setRoutingForm({ ...routingForm, severity: event.target.value })}><option value="">{t("metrics.allSeverities")}</option><option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option></select></label>
+                <label>{t("notifications.channel")}<select value={routingForm.channelId} onChange={(event) => setRoutingForm({ ...routingForm, channelId: event.target.value })} required><option value="">{t("notifications.channel")}</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>
+                <label>{t("common.status")}<select value={routingForm.status} onChange={(event) => setRoutingForm({ ...routingForm, status: event.target.value })}><option value="active">{t("common.status.active")}</option><option value="disabled">{t("common.status.disabled")}</option><option value="archived">{t("common.status.archived")}</option></select></label>
+                <button type="submit" disabled={createRoutingMutation.isPending || updateRoutingMutation.isPending}>{editingRoutingId ? t("common.save") : t("common.create")}</button>
+                {editingRoutingId ? <button type="button" onClick={resetRoutingForm}>{t("common.cancel")}</button> : null}
+              </form>
+            </div>
+          ) : null}
+          <div className="split-grid">
+            <div className="data-table"><table><thead><tr><th>{t("common.name")}</th><th>{t("common.severity")}</th><th>{t("metrics.rule")}</th><th>{t("common.status")}</th><th>{t("common.action")}</th></tr></thead><tbody>{suppressionRules.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.reason || item.id}</small></td><td>{item.severity || "-"}</td><td>{item.ruleId || "-"}</td><td>{alertStatusLabel(item.status)}</td><td className="action-cell">{canWriteAlerts ? <button type="button" onClick={() => startEditingSuppression(item)}>{t("common.edit")}</button> : null}</td></tr>)}</tbody></table></div>
+            <div className="data-table"><table><thead><tr><th>{t("common.name")}</th><th>{t("common.severity")}</th><th>{t("notifications.channel")}</th><th>{t("common.status")}</th><th>{t("common.action")}</th></tr></thead><tbody>{routingPolicies.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.ruleId || item.hostId || item.id}</small></td><td>{item.severity || "-"}</td><td>{item.channelId}</td><td>{alertStatusLabel(item.status)}</td><td className="action-cell">{canWriteAlerts ? <button type="button" onClick={() => startEditingRouting(item)}>{t("common.edit")}</button> : null}</td></tr>)}</tbody></table></div>
+          </div>
+          {suppressionRulesQuery.isError ? <p className="form-error">{suppressionRulesQuery.error.message}</p> : null}
+          {routingPoliciesQuery.isError ? <p className="form-error">{routingPoliciesQuery.error.message}</p> : null}
+          {createSuppressionMutation.isError ? <p className="form-error">{createSuppressionMutation.error.message}</p> : null}
+          {updateSuppressionMutation.isError ? <p className="form-error">{updateSuppressionMutation.error.message}</p> : null}
+          {createRoutingMutation.isError ? <p className="form-error">{createRoutingMutation.error.message}</p> : null}
+          {updateRoutingMutation.isError ? <p className="form-error">{updateRoutingMutation.error.message}</p> : null}
         </section>
       ) : null}
 
