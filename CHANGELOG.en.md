@@ -6,6 +6,7 @@
 
 ### V1.0 Productization Validation Engineering
 
+- Squashed the active V1.0 migration path into `server/migrations/000005_v10_productization_bundle.{up,down}.sql`, archived the original `000005`-`000015` incremental files under `server/migrations/archive/v1.0-incremental/`, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root `VERSION` marker to `1.0.0-dev`.
 - Removed remaining hard-coded copy from Workflow, Audit, Agent, and Webhook pages: localized the Workflow default sample nodes and UI approval/cancel reasons, localized Audit export failure copy and actor type/result rendering, and added the required zh/en dictionary entries.
 - Added Alert grouping operations view via `GET /api/v1/alert-groups`, grouped aggregation by rule/host group/severity/fingerprint, Metrics alert-group UI, OpenAPI updates, and alert grouping tests.
 - Agent Fleet now supports Host Group batch Agent disable, group-scoped diagnostics, and group-scoped maintenance windows.

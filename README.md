@@ -87,7 +87,11 @@ cd D:\+\1108026_rust_go\OpsPilot
 mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000001_init_mysql_schema.up.sql
 mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000002_seed_initial_auth_data.up.sql
 mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000003_task_execution_security.up.sql
+mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000004_v07_webhook_security.up.sql
+mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000005_v10_productization_bundle.up.sql
 ```
+
+新环境默认执行根目录的 `000001` 到 `000005_v10_productization_bundle`。原始 V1.0 细粒度增量迁移已归档到 `server/migrations/archive/v1.0-incremental/`，用于历史追溯和旧链路核对。
 
 ## 启动后端
 

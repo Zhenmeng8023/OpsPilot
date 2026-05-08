@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-### V1.0 产品化验收工程
+- Squashed the active V1.0 migration path into server/migrations/000005_v10_productization_bundle.{up,down}.sql, archived the original 000005-000015 incremental files under server/migrations/archive/v1.0-incremental/, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root VERSION marker to 1.0.0-dev.
 - 清理 Workflow、Audit、Agent、Webhook 页面剩余硬编码文案：Workflow 默认示例节点和 UI 审批/取消原因改为 zh/en i18n，Audit 导出失败提示、actor type/result 展示改为 i18n，并补齐对应中英文词条。
 
 - 新增 Alert grouping 运营视图：提供 `GET /api/v1/alert-groups`，按 rule/host group/severity/fingerprint 聚合告警，并同步 Metrics 分组运营表、OpenAPI 与 alert grouping 测试。

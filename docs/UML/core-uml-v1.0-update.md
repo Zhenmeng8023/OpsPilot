@@ -30,7 +30,7 @@
 3. 触发链路从“主要触发 Task”扩展为“Manual / Schedule / Webhook / Incident 可驱动 Workflow”，Webhook 还新增 matcher simulation 与 event replay。
 4. 前端信息架构已经加入 `Workflows` 和 `Incidents`，不再是旧版仅任务/调度/告警的导航结构。
 5. Secret、Webhook、Notification、Audit 治理增强已经落地，包括密文配置、secret rotation、审计导出和 retention run。
-6. 数据库新增或增强 `000005_v10_incidents`、`000006_v10_workflows`、`000008_v10_secret_audit_webhook_hardening`、`000009_v10_workflow_versions`，原始数据模型图缺少关键实体和约束。
+6. 原始 V1.0 增量迁移引入的数据库变更，现已统一通过 `000005_v10_productization_bundle` 生效；细粒度来源链已归档到 `server/migrations/archive/v1.0-incremental/` 以保留历史追溯。
 
 ## 4. 更新图一：V1.0 系统上下文
 
@@ -335,13 +335,13 @@ erDiagram
 更新点：
 
 - 本图仅表达相对旧模型的“新增增量”。
-- `workflow_definitions / workflow_runs / workflow_run_nodes / workflow_run_events` 来自 `000006_v10_workflows.up.sql`。
-- `workflow_versions` 来自 `000009_v10_workflow_versions.up.sql`。
-- `incidents / incident_alerts / incident_events` 来自 `000005_v10_incidents.up.sql`。
-- `host_metric_rollups / metric_dashboards` 来自 `000011_v10_metrics_lifecycle.up.sql`。
-- `alert_suppression_rules / alert_routing_policies` 来自 `000012_v10_alert_routing_suppression.up.sql`，`host_group_uid` 匹配字段来自 `000014_v10_alert_host_group_matching.up.sql`。
+- `workflow_definitions / workflow_runs / workflow_run_nodes / workflow_run_events` 现通过 `000005_v10_productization_bundle.up.sql` 生效，其来源为归档的 `000006_v10_workflows.up.sql`。
+- `workflow_versions` 现通过 `000005_v10_productization_bundle.up.sql` 生效，其来源为归档的 `000009_v10_workflow_versions.up.sql`。
+- `incidents / incident_alerts / incident_events` 现通过 `000005_v10_productization_bundle.up.sql` 生效，其来源为归档的 `000005_v10_incidents.up.sql`。
+- `host_metric_rollups / metric_dashboards` 现通过 `000005_v10_productization_bundle.up.sql` 生效，其来源为归档的 `000011_v10_metrics_lifecycle.up.sql`。
+- `alert_suppression_rules / alert_routing_policies` 现通过 `000005_v10_productization_bundle.up.sql` 生效，`host_group_uid` 匹配字段来源于归档的 `000014_v10_alert_host_group_matching.up.sql`。
 - `tags / resource_tags / host_groups / host_group_members` 是初始模型中的 Fleet 组织表，本轮补齐 API/UI。
-- `agent_diagnostics / maintenance_windows` 来自 `000013_v10_agent_fleet_operations.up.sql`，`maintenance_windows.host_group_id` 来自 `000015_v10_maintenance_host_group_scope.up.sql`。
+- `agent_diagnostics / maintenance_windows` 现通过 `000005_v10_productization_bundle.up.sql` 生效，`maintenance_windows.host_group_id` 来源于归档的 `000015_v10_maintenance_host_group_scope.up.sql`。
 
 ## 8. 更新图五：V1.0 Secret、Webhook 与 Audit 治理链路
 

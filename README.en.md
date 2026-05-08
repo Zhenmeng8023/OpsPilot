@@ -69,7 +69,11 @@ cd D:\+\1108026_rust_go\OpsPilot
 mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000001_init_mysql_schema.up.sql
 mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000002_seed_initial_auth_data.up.sql
 mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000003_task_execution_security.up.sql
+mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000004_v07_webhook_security.up.sql
+mysql -h 127.0.0.1 -P 3306 -uopspilot -popspilot opspilot < .\server\migrations\000005_v10_productization_bundle.up.sql
 ```
+
+For new environments, the active root migration set is now `000001` through `000005_v10_productization_bundle`. The original V1.0 incremental files are preserved under `server/migrations/archive/v1.0-incremental/` for historical reference and legacy step-by-step upgrade review.
 
 ## Backend
 

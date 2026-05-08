@@ -30,7 +30,7 @@ The old diagrams no longer cover these changes:
 3. The trigger chain has expanded from "mainly trigger a Task" to "Manual / Schedule / Webhook / Incident can drive a Workflow"; Webhook also has matcher simulation and event replay.
 4. The frontend information architecture now includes `Workflows` and `Incidents`.
 5. Secret, Webhook, Notification, and Audit governance have been hardened with encrypted config, secret rotation, audit export, and retention runs.
-6. The database now includes or extends `000005_v10_incidents`, `000006_v10_workflows`, `000008_v10_secret_audit_webhook_hardening`, and `000009_v10_workflow_versions`, which are missing from the older model diagrams.
+6. The database changes introduced across the original V1.0 incremental migrations are now active through `000005_v10_productization_bundle`; the detailed source chain remains archived under `server/migrations/archive/v1.0-incremental/` for historical traceability.
 
 ## 4. Updated Diagram 1: V1.0 System Context
 
@@ -335,13 +335,13 @@ erDiagram
 What changed:
 
 - This diagram only captures the delta relative to the older model.
-- `workflow_definitions / workflow_runs / workflow_run_nodes / workflow_run_events` come from `000006_v10_workflows.up.sql`.
-- `workflow_versions` comes from `000009_v10_workflow_versions.up.sql`.
-- `incidents / incident_alerts / incident_events` comes from `000005_v10_incidents.up.sql`.
-- `host_metric_rollups / metric_dashboards` come from `000011_v10_metrics_lifecycle.up.sql`.
-- `alert_suppression_rules / alert_routing_policies` come from `000012_v10_alert_routing_suppression.up.sql`; `host_group_uid` matching fields come from `000014_v10_alert_host_group_matching.up.sql`.
+- `workflow_definitions / workflow_runs / workflow_run_nodes / workflow_run_events` are now applied through `000005_v10_productization_bundle.up.sql`, sourced from archived `000006_v10_workflows.up.sql`.
+- `workflow_versions` is now applied through `000005_v10_productization_bundle.up.sql`, sourced from archived `000009_v10_workflow_versions.up.sql`.
+- `incidents / incident_alerts / incident_events` are now applied through `000005_v10_productization_bundle.up.sql`, sourced from archived `000005_v10_incidents.up.sql`.
+- `host_metric_rollups / metric_dashboards` are now applied through `000005_v10_productization_bundle.up.sql`, sourced from archived `000011_v10_metrics_lifecycle.up.sql`.
+- `alert_suppression_rules / alert_routing_policies` are now applied through `000005_v10_productization_bundle.up.sql`; the `host_group_uid` matching fields are sourced from archived `000014_v10_alert_host_group_matching.up.sql`.
 - `tags / resource_tags / host_groups / host_group_members` are Fleet organization tables from the initial schema; this round adds API/UI coverage.
-- `agent_diagnostics / maintenance_windows` come from `000013_v10_agent_fleet_operations.up.sql`; `maintenance_windows.host_group_id` comes from `000015_v10_maintenance_host_group_scope.up.sql`.
+- `agent_diagnostics / maintenance_windows` are now applied through `000005_v10_productization_bundle.up.sql`; `maintenance_windows.host_group_id` is sourced from archived `000015_v10_maintenance_host_group_scope.up.sql`.
 
 ## 8. Updated Diagram 5: V1.0 Secret, Webhook, and Audit Governance Flow
 
