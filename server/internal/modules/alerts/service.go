@@ -57,25 +57,27 @@ type UpdateRuleInput struct {
 }
 
 type SuppressionRuleInput struct {
-	Name     string `json:"name"`
-	RuleID   string `json:"ruleId"`
-	HostID   string `json:"hostId"`
-	Severity string `json:"severity"`
-	StartsAt string `json:"startsAt"`
-	EndsAt   string `json:"endsAt"`
-	Reason   string `json:"reason"`
-	Status   string `json:"status"`
-	Audit    AuditContext
+	Name        string `json:"name"`
+	RuleID      string `json:"ruleId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Severity    string `json:"severity"`
+	StartsAt    string `json:"startsAt"`
+	EndsAt      string `json:"endsAt"`
+	Reason      string `json:"reason"`
+	Status      string `json:"status"`
+	Audit       AuditContext
 }
 
 type RoutingPolicyInput struct {
-	Name      string `json:"name"`
-	RuleID    string `json:"ruleId"`
-	HostID    string `json:"hostId"`
-	Severity  string `json:"severity"`
-	ChannelID string `json:"channelId"`
-	Status    string `json:"status"`
-	Audit     AuditContext
+	Name        string `json:"name"`
+	RuleID      string `json:"ruleId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Severity    string `json:"severity"`
+	ChannelID   string `json:"channelId"`
+	Status      string `json:"status"`
+	Audit       AuditContext
 }
 
 type AlertRuleSummary struct {
@@ -94,31 +96,33 @@ type AlertRuleSummary struct {
 }
 
 type SuppressionRuleSummary struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	RuleID    string `json:"ruleId,omitempty"`
-	HostID    string `json:"hostId,omitempty"`
-	Severity  string `json:"severity,omitempty"`
-	StartsAt  string `json:"startsAt,omitempty"`
-	EndsAt    string `json:"endsAt,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-	Status    string `json:"status"`
-	CreatedBy string `json:"createdBy,omitempty"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	RuleID      string `json:"ruleId,omitempty"`
+	HostID      string `json:"hostId,omitempty"`
+	HostGroupID string `json:"hostGroupId,omitempty"`
+	Severity    string `json:"severity,omitempty"`
+	StartsAt    string `json:"startsAt,omitempty"`
+	EndsAt      string `json:"endsAt,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	Status      string `json:"status"`
+	CreatedBy   string `json:"createdBy,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
 }
 
 type RoutingPolicySummary struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	RuleID    string `json:"ruleId,omitempty"`
-	HostID    string `json:"hostId,omitempty"`
-	Severity  string `json:"severity,omitempty"`
-	ChannelID string `json:"channelId"`
-	Status    string `json:"status"`
-	CreatedBy string `json:"createdBy,omitempty"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	RuleID      string `json:"ruleId,omitempty"`
+	HostID      string `json:"hostId,omitempty"`
+	HostGroupID string `json:"hostGroupId,omitempty"`
+	Severity    string `json:"severity,omitempty"`
+	ChannelID   string `json:"channelId"`
+	Status      string `json:"status"`
+	CreatedBy   string `json:"createdBy,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
 }
 
 type AlertSummary struct {
@@ -294,19 +298,20 @@ type incidentProjectionAlert struct {
 }
 
 type suppressionRuleRecord struct {
-	ID        uint64
-	UID       string
-	Name      string
-	RuleUID   sql.NullString
-	HostUID   sql.NullString
-	Severity  sql.NullString
-	StartsAt  sql.NullString
-	EndsAt    sql.NullString
-	Reason    sql.NullString
-	Status    string
-	CreatedBy sql.NullString
-	CreatedAt string
-	UpdatedAt string
+	ID           uint64
+	UID          string
+	Name         string
+	RuleUID      sql.NullString
+	HostUID      sql.NullString
+	HostGroupUID sql.NullString
+	Severity     sql.NullString
+	StartsAt     sql.NullString
+	EndsAt       sql.NullString
+	Reason       sql.NullString
+	Status       string
+	CreatedBy    sql.NullString
+	CreatedAt    string
+	UpdatedAt    string
 }
 
 type maintenanceWindowRecord struct {
@@ -319,17 +324,18 @@ type maintenanceWindowRecord struct {
 }
 
 type routingPolicyRecord struct {
-	ID         uint64
-	UID        string
-	Name       string
-	RuleUID    sql.NullString
-	HostUID    sql.NullString
-	Severity   sql.NullString
-	ChannelUID string
-	Status     string
-	CreatedBy  sql.NullString
-	CreatedAt  string
-	UpdatedAt  string
+	ID           uint64
+	UID          string
+	Name         string
+	RuleUID      sql.NullString
+	HostUID      sql.NullString
+	HostGroupUID sql.NullString
+	Severity     sql.NullString
+	ChannelUID   string
+	Status       string
+	CreatedBy    sql.NullString
+	CreatedAt    string
+	UpdatedAt    string
 }
 
 func NewService(db *gorm.DB, cfg config.Config) *Service {
@@ -1277,7 +1283,7 @@ func resolveOpenAlert(ctx context.Context, tx *gorm.DB, rule ruleRecord, fingerp
 func alertSuppressedByRule(ctx context.Context, tx *gorm.DB, rule ruleRecord, metric latestMetric) (bool, suppressionRuleRecord, error) {
 	var rows []suppressionRuleRecord
 	err := tx.WithContext(ctx).Raw(
-		`SELECT sr.id, sr.uid, sr.name, sr.alert_rule_uid AS rule_uid, sr.host_uid, sr.severity,
+		`SELECT sr.id, sr.uid, sr.name, sr.alert_rule_uid AS rule_uid, sr.host_uid, sr.host_group_uid, sr.severity,
 		        DATE_FORMAT(sr.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
 		        DATE_FORMAT(sr.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
 		        sr.reason, sr.status, '' AS created_by,
@@ -1289,16 +1295,29 @@ func alertSuppressedByRule(ctx context.Context, tx *gorm.DB, rule ruleRecord, me
 		    AND sr.deleted_at IS NULL
 		    AND (sr.alert_rule_uid IS NULL OR sr.alert_rule_uid = ?)
 		    AND (sr.host_uid IS NULL OR sr.host_uid = ?)
+		    AND (
+		      sr.host_group_uid IS NULL
+		      OR EXISTS (
+		        SELECT 1
+		          FROM host_group_members hgm
+		          JOIN host_groups hg ON hg.id = hgm.host_group_id
+		         WHERE hg.workspace_id = sr.workspace_id
+		           AND hg.uid = sr.host_group_uid
+		           AND hg.deleted_at IS NULL
+		           AND hgm.host_id = ?
+		      )
+		    )
 		    AND (sr.severity IS NULL OR sr.severity = ?)
 		    AND (sr.starts_at IS NULL OR sr.starts_at <= NOW(3))
 		    AND (sr.ends_at IS NULL OR sr.ends_at >= NOW(3))
 		  ORDER BY
 		    (CASE WHEN sr.alert_rule_uid IS NULL THEN 0 ELSE 1 END
 		     + CASE WHEN sr.host_uid IS NULL THEN 0 ELSE 1 END
+		     + CASE WHEN sr.host_group_uid IS NULL THEN 0 ELSE 1 END
 		     + CASE WHEN sr.severity IS NULL THEN 0 ELSE 1 END) DESC,
 		    sr.updated_at DESC
 		  LIMIT 1`,
-		rule.WorkspaceID, rule.UID, metric.HostUID, rule.Severity,
+		rule.WorkspaceID, rule.UID, metric.HostUID, metric.HostID, rule.Severity,
 	).Scan(&rows).Error
 	if err != nil {
 		return false, suppressionRuleRecord{}, err
@@ -1362,13 +1381,26 @@ func alertRoutingChannels(ctx context.Context, tx *gorm.DB, rule ruleRecord, met
 		    AND nc.deleted_at IS NULL
 		    AND (rp.alert_rule_uid IS NULL OR rp.alert_rule_uid = ?)
 		    AND (rp.host_uid IS NULL OR rp.host_uid = ?)
+		    AND (
+		      rp.host_group_uid IS NULL
+		      OR EXISTS (
+		        SELECT 1
+		          FROM host_group_members hgm
+		          JOIN host_groups hg ON hg.id = hgm.host_group_id
+		         WHERE hg.workspace_id = rp.workspace_id
+		           AND hg.uid = rp.host_group_uid
+		           AND hg.deleted_at IS NULL
+		           AND hgm.host_id = ?
+		      )
+		    )
 		    AND (rp.severity IS NULL OR rp.severity = ?)
 		  ORDER BY
 		    (CASE WHEN rp.alert_rule_uid IS NULL THEN 0 ELSE 1 END
 		     + CASE WHEN rp.host_uid IS NULL THEN 0 ELSE 1 END
+		     + CASE WHEN rp.host_group_uid IS NULL THEN 0 ELSE 1 END
 		     + CASE WHEN rp.severity IS NULL THEN 0 ELSE 1 END) DESC,
 		    rp.updated_at DESC`,
-		rule.WorkspaceID, rule.UID, metric.HostUID, rule.Severity,
+		rule.WorkspaceID, rule.UID, metric.HostUID, metric.HostID, rule.Severity,
 	).Scan(&rows).Error
 	if err != nil {
 		return nil, err
@@ -1435,9 +1467,9 @@ func (s *Service) upsertSuppressionRule(ctx context.Context, ruleUID string, inp
 				return err
 			}
 			if err := tx.WithContext(ctx).Exec(
-				`INSERT INTO alert_suppression_rules(uid, workspace_id, name, alert_rule_uid, host_uid, severity, starts_at, ends_at, reason, status, created_by)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				newUID, workspace.ID, name, nullString(input.RuleID), nullString(input.HostID), nullString(severity), startsAt, endsAt, nullString(input.Reason), status, nullID(actor.ID),
+				`INSERT INTO alert_suppression_rules(uid, workspace_id, name, alert_rule_uid, host_uid, host_group_uid, severity, starts_at, ends_at, reason, status, created_by)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				newUID, workspace.ID, name, nullString(input.RuleID), nullString(input.HostID), nullString(input.HostGroupID), nullString(severity), startsAt, endsAt, nullString(input.Reason), status, nullID(actor.ID),
 			).Error; err != nil {
 				return err
 			}
@@ -1445,9 +1477,9 @@ func (s *Service) upsertSuppressionRule(ctx context.Context, ruleUID string, inp
 		} else {
 			exec := tx.WithContext(ctx).Exec(
 				`UPDATE alert_suppression_rules
-				    SET name = ?, alert_rule_uid = ?, host_uid = ?, severity = ?, starts_at = ?, ends_at = ?, reason = ?, status = ?, updated_at = NOW(3)
+				    SET name = ?, alert_rule_uid = ?, host_uid = ?, host_group_uid = ?, severity = ?, starts_at = ?, ends_at = ?, reason = ?, status = ?, updated_at = NOW(3)
 				  WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL`,
-				name, nullString(input.RuleID), nullString(input.HostID), nullString(severity), startsAt, endsAt, nullString(input.Reason), status, workspace.ID, ruleUID,
+				name, nullString(input.RuleID), nullString(input.HostID), nullString(input.HostGroupID), nullString(severity), startsAt, endsAt, nullString(input.Reason), status, workspace.ID, ruleUID,
 			)
 			if exec.Error != nil {
 				return exec.Error
@@ -1505,9 +1537,9 @@ func (s *Service) upsertRoutingPolicy(ctx context.Context, policyUID string, inp
 				return err
 			}
 			if err := tx.WithContext(ctx).Exec(
-				`INSERT INTO alert_routing_policies(uid, workspace_id, name, alert_rule_uid, host_uid, severity, channel_uid, status, created_by)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				newUID, workspace.ID, name, nullString(input.RuleID), nullString(input.HostID), nullString(severity), channelUID, status, nullID(actor.ID),
+				`INSERT INTO alert_routing_policies(uid, workspace_id, name, alert_rule_uid, host_uid, host_group_uid, severity, channel_uid, status, created_by)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				newUID, workspace.ID, name, nullString(input.RuleID), nullString(input.HostID), nullString(input.HostGroupID), nullString(severity), channelUID, status, nullID(actor.ID),
 			).Error; err != nil {
 				return err
 			}
@@ -1515,9 +1547,9 @@ func (s *Service) upsertRoutingPolicy(ctx context.Context, policyUID string, inp
 		} else {
 			exec := tx.WithContext(ctx).Exec(
 				`UPDATE alert_routing_policies
-				    SET name = ?, alert_rule_uid = ?, host_uid = ?, severity = ?, channel_uid = ?, status = ?, updated_at = NOW(3)
+				    SET name = ?, alert_rule_uid = ?, host_uid = ?, host_group_uid = ?, severity = ?, channel_uid = ?, status = ?, updated_at = NOW(3)
 				  WHERE workspace_id = ? AND uid = ? AND deleted_at IS NULL`,
-				name, nullString(input.RuleID), nullString(input.HostID), nullString(severity), channelUID, status, workspace.ID, policyUID,
+				name, nullString(input.RuleID), nullString(input.HostID), nullString(input.HostGroupID), nullString(severity), channelUID, status, workspace.ID, policyUID,
 			)
 			if exec.Error != nil {
 				return exec.Error
@@ -1557,7 +1589,7 @@ func (s *Service) suppressionRules(ctx context.Context, workspaceID uint64, rule
 	}
 	var rows []suppressionRuleRecord
 	err := s.db.WithContext(ctx).Raw(
-		`SELECT sr.id, sr.uid, sr.name, sr.alert_rule_uid AS rule_uid, sr.host_uid, sr.severity,
+		`SELECT sr.id, sr.uid, sr.name, sr.alert_rule_uid AS rule_uid, sr.host_uid, sr.host_group_uid, sr.severity,
 		        DATE_FORMAT(sr.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
 		        DATE_FORMAT(sr.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
 		        sr.reason, sr.status, u.username AS created_by,
@@ -1581,7 +1613,7 @@ func (s *Service) routingPolicies(ctx context.Context, workspaceID uint64, polic
 	}
 	var rows []routingPolicyRecord
 	err := s.db.WithContext(ctx).Raw(
-		`SELECT rp.id, rp.uid, rp.name, rp.alert_rule_uid AS rule_uid, rp.host_uid, rp.severity,
+		`SELECT rp.id, rp.uid, rp.name, rp.alert_rule_uid AS rule_uid, rp.host_uid, rp.host_group_uid, rp.severity,
 		        rp.channel_uid, rp.status, u.username AS created_by,
 		        DATE_FORMAT(rp.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
 		        DATE_FORMAT(rp.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
@@ -2010,33 +2042,35 @@ func normalizePolicyStatus(value string) string {
 
 func suppressionRuleSummary(row suppressionRuleRecord) SuppressionRuleSummary {
 	return SuppressionRuleSummary{
-		ID:        row.UID,
-		Name:      row.Name,
-		RuleID:    row.RuleUID.String,
-		HostID:    row.HostUID.String,
-		Severity:  row.Severity.String,
-		StartsAt:  row.StartsAt.String,
-		EndsAt:    row.EndsAt.String,
-		Reason:    row.Reason.String,
-		Status:    row.Status,
-		CreatedBy: row.CreatedBy.String,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		ID:          row.UID,
+		Name:        row.Name,
+		RuleID:      row.RuleUID.String,
+		HostID:      row.HostUID.String,
+		HostGroupID: row.HostGroupUID.String,
+		Severity:    row.Severity.String,
+		StartsAt:    row.StartsAt.String,
+		EndsAt:      row.EndsAt.String,
+		Reason:      row.Reason.String,
+		Status:      row.Status,
+		CreatedBy:   row.CreatedBy.String,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
 	}
 }
 
 func routingPolicySummary(row routingPolicyRecord) RoutingPolicySummary {
 	return RoutingPolicySummary{
-		ID:        row.UID,
-		Name:      row.Name,
-		RuleID:    row.RuleUID.String,
-		HostID:    row.HostUID.String,
-		Severity:  row.Severity.String,
-		ChannelID: row.ChannelUID,
-		Status:    row.Status,
-		CreatedBy: row.CreatedBy.String,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		ID:          row.UID,
+		Name:        row.Name,
+		RuleID:      row.RuleUID.String,
+		HostID:      row.HostUID.String,
+		HostGroupID: row.HostGroupUID.String,
+		Severity:    row.Severity.String,
+		ChannelID:   row.ChannelUID,
+		Status:      row.Status,
+		CreatedBy:   row.CreatedBy.String,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
 	}
 }
 

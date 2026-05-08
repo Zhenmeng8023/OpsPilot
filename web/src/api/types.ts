@@ -479,6 +479,7 @@ export interface AlertSuppressionRule {
   name: string;
   ruleId?: string;
   hostId?: string;
+  hostGroupId?: string;
   severity?: string;
   startsAt?: string;
   endsAt?: string;
@@ -494,6 +495,7 @@ export interface AlertRoutingPolicy {
   name: string;
   ruleId?: string;
   hostId?: string;
+  hostGroupId?: string;
   severity?: string;
   channelId: string;
   status: string;

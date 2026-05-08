@@ -55,6 +55,7 @@ export function createAlertSuppressionRule(payload: {
   name: string;
   ruleId?: string;
   hostId?: string;
+  hostGroupId?: string;
   severity?: string;
   startsAt?: string;
   endsAt?: string;
@@ -71,6 +72,7 @@ export function updateAlertSuppressionRule(id: string, payload: {
   name: string;
   ruleId?: string;
   hostId?: string;
+  hostGroupId?: string;
   severity?: string;
   startsAt?: string;
   endsAt?: string;
@@ -91,6 +93,7 @@ export function createAlertRoutingPolicy(payload: {
   name: string;
   ruleId?: string;
   hostId?: string;
+  hostGroupId?: string;
   severity?: string;
   channelId: string;
   status?: string;
@@ -105,6 +108,7 @@ export function updateAlertRoutingPolicy(id: string, payload: {
   name: string;
   ruleId?: string;
   hostId?: string;
+  hostGroupId?: string;
   severity?: string;
   channelId: string;
   status?: string;

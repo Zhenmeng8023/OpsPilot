@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { acknowledgeAlert, createAlertRoutingPolicy, createAlertRule, createAlertSuppressionRule, disableAlertRule, listAlertEvents, listAlertHistory, listAlertRoutingPolicies, listAlertRules, listAlertSuppressionRules, listAlerts, pauseAlertRule, resolveAlert, resumeAlertRule, silenceAlert, unsilenceAlert, updateAlertRoutingPolicy, updateAlertRule, updateAlertSuppressionRule } from "../../api/alerts";
+import { listHostGroups } from "../../api/agents";
 import { createMetricDashboard, listHostMetrics, listMetricDashboards, listMetricTrends, runMetricRetention, runMetricRollup, updateMetricDashboard } from "../../api/metrics";
 import { listNotificationChannels } from "../../api/notifications";
 import type { AlertHistoryPoint, AlertRoutingPolicy, AlertSuppressionRule, MetricDashboard, MetricRetentionResult, MetricRollupResult, MetricTrendSeries } from "../../api/types";
@@ -33,8 +34,8 @@ export function MetricsPage() {
   const [retentionForm, setRetentionForm] = useState({ detailDays: 7, rollupDays: 90, dryRun: true });
   const [rollupResult, setRollupResult] = useState<MetricRollupResult | null>(null);
   const [retentionResult, setRetentionResult] = useState<MetricRetentionResult | null>(null);
-  const [suppressionForm, setSuppressionForm] = useState({ name: "", ruleId: "", hostId: "", severity: "", startsAt: "", endsAt: "", reason: "", status: "active" });
-  const [routingForm, setRoutingForm] = useState({ name: "", ruleId: "", hostId: "", severity: "", channelId: "", status: "active" });
+  const [suppressionForm, setSuppressionForm] = useState({ name: "", ruleId: "", hostId: "", hostGroupId: "", severity: "", startsAt: "", endsAt: "", reason: "", status: "active" });
+  const [routingForm, setRoutingForm] = useState({ name: "", ruleId: "", hostId: "", hostGroupId: "", severity: "", channelId: "", status: "active" });
   const [editingSuppressionId, setEditingSuppressionId] = useState("");
   const [editingRoutingId, setEditingRoutingId] = useState("");
   const [ruleForm, setRuleForm] = useState({
@@ -57,6 +58,7 @@ export function MetricsPage() {
   const [expandedAlertId, setExpandedAlertId] = useState("");
   const canReadAlerts = hasPermission(user, "alert:read");
   const canWriteAlerts = hasPermission(user, "alert:write");
+  const canReadHosts = hasPermission(user, "host:read");
   const canWriteMetrics = hasPermission(user, "metric:write");
 
   const metricsQuery = useQuery({
@@ -112,6 +114,11 @@ export function MetricsPage() {
     queryKey: ["notificationChannels"],
     queryFn: listNotificationChannels,
     enabled: canWriteAlerts
+  });
+  const hostGroupsQuery = useQuery({
+    queryKey: ["hostGroups"],
+    queryFn: listHostGroups,
+    enabled: canReadAlerts && canReadHosts
   });
 
   const createRuleMutation = useMutation({
@@ -237,6 +244,7 @@ export function MetricsPage() {
   const suppressionRules = useMemo(() => suppressionRulesQuery.data ?? [], [suppressionRulesQuery.data]);
   const routingPolicies = useMemo(() => routingPoliciesQuery.data ?? [], [routingPoliciesQuery.data]);
   const channels = useMemo(() => channelsQuery.data ?? [], [channelsQuery.data]);
+  const hostGroups = useMemo(() => hostGroupsQuery.data ?? [], [hostGroupsQuery.data]);
 
   const latest = useMemo(() => {
     const map = new Map<string, (typeof metrics)[number]>();
@@ -321,12 +329,12 @@ export function MetricsPage() {
   };
 
   const resetSuppressionForm = () => {
-    setSuppressionForm({ name: "", ruleId: "", hostId: "", severity: "", startsAt: "", endsAt: "", reason: "", status: "active" });
+    setSuppressionForm({ name: "", ruleId: "", hostId: "", hostGroupId: "", severity: "", startsAt: "", endsAt: "", reason: "", status: "active" });
     setEditingSuppressionId("");
   };
 
   const resetRoutingForm = () => {
-    setRoutingForm({ name: "", ruleId: "", hostId: "", severity: "", channelId: "", status: "active" });
+    setRoutingForm({ name: "", ruleId: "", hostId: "", hostGroupId: "", severity: "", channelId: "", status: "active" });
     setEditingRoutingId("");
   };
 
@@ -336,6 +344,7 @@ export function MetricsPage() {
       name: item.name,
       ruleId: item.ruleId || "",
       hostId: item.hostId || "",
+      hostGroupId: item.hostGroupId || "",
       severity: item.severity || "",
       startsAt: item.startsAt || "",
       endsAt: item.endsAt || "",
@@ -350,6 +359,7 @@ export function MetricsPage() {
       name: item.name,
       ruleId: item.ruleId || "",
       hostId: item.hostId || "",
+      hostGroupId: item.hostGroupId || "",
       severity: item.severity || "",
       channelId: item.channelId,
       status: item.status || "active"
@@ -609,6 +619,7 @@ export function MetricsPage() {
                 <label>{t("metrics.suppressionRules")}<input value={suppressionForm.name} onChange={(event) => setSuppressionForm({ ...suppressionForm, name: event.target.value })} required /></label>
                 <label>{t("metrics.rule")}<select value={suppressionForm.ruleId} onChange={(event) => setSuppressionForm({ ...suppressionForm, ruleId: event.target.value })}><option value="">{t("metrics.allRules")}</option>{rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}</select></label>
                 <label>{t("metrics.host")}<input value={suppressionForm.hostId} onChange={(event) => setSuppressionForm({ ...suppressionForm, hostId: event.target.value })} /></label>
+                <label>{t("agents.hostGroups")}<select value={suppressionForm.hostGroupId} onChange={(event) => setSuppressionForm({ ...suppressionForm, hostGroupId: event.target.value })}><option value="">{t("agents.hostGroups")}</option>{hostGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
                 <label>{t("common.severity")}<select value={suppressionForm.severity} onChange={(event) => setSuppressionForm({ ...suppressionForm, severity: event.target.value })}><option value="">{t("metrics.allSeverities")}</option><option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option></select></label>
                 <label>{t("metrics.reason")}<input value={suppressionForm.reason} onChange={(event) => setSuppressionForm({ ...suppressionForm, reason: event.target.value })} /></label>
                 <label>{t("common.status")}<select value={suppressionForm.status} onChange={(event) => setSuppressionForm({ ...suppressionForm, status: event.target.value })}><option value="active">{t("common.status.active")}</option><option value="disabled">{t("common.status.disabled")}</option><option value="archived">{t("common.status.archived")}</option></select></label>
@@ -624,6 +635,7 @@ export function MetricsPage() {
                 <label>{t("metrics.routingPolicies")}<input value={routingForm.name} onChange={(event) => setRoutingForm({ ...routingForm, name: event.target.value })} required /></label>
                 <label>{t("metrics.rule")}<select value={routingForm.ruleId} onChange={(event) => setRoutingForm({ ...routingForm, ruleId: event.target.value })}><option value="">{t("metrics.allRules")}</option>{rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}</select></label>
                 <label>{t("metrics.host")}<input value={routingForm.hostId} onChange={(event) => setRoutingForm({ ...routingForm, hostId: event.target.value })} /></label>
+                <label>{t("agents.hostGroups")}<select value={routingForm.hostGroupId} onChange={(event) => setRoutingForm({ ...routingForm, hostGroupId: event.target.value })}><option value="">{t("agents.hostGroups")}</option>{hostGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
                 <label>{t("common.severity")}<select value={routingForm.severity} onChange={(event) => setRoutingForm({ ...routingForm, severity: event.target.value })}><option value="">{t("metrics.allSeverities")}</option><option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option></select></label>
                 <label>{t("notifications.channel")}<select value={routingForm.channelId} onChange={(event) => setRoutingForm({ ...routingForm, channelId: event.target.value })} required><option value="">{t("notifications.channel")}</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>
                 <label>{t("common.status")}<select value={routingForm.status} onChange={(event) => setRoutingForm({ ...routingForm, status: event.target.value })}><option value="active">{t("common.status.active")}</option><option value="disabled">{t("common.status.disabled")}</option><option value="archived">{t("common.status.archived")}</option></select></label>
@@ -633,8 +645,8 @@ export function MetricsPage() {
             </div>
           ) : null}
           <div className="split-grid">
-            <div className="data-table"><table><thead><tr><th>{t("common.name")}</th><th>{t("common.severity")}</th><th>{t("metrics.rule")}</th><th>{t("common.status")}</th><th>{t("common.action")}</th></tr></thead><tbody>{suppressionRules.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.reason || item.id}</small></td><td>{item.severity || "-"}</td><td>{item.ruleId || "-"}</td><td>{alertStatusLabel(item.status)}</td><td className="action-cell">{canWriteAlerts ? <button type="button" onClick={() => startEditingSuppression(item)}>{t("common.edit")}</button> : null}</td></tr>)}</tbody></table></div>
-            <div className="data-table"><table><thead><tr><th>{t("common.name")}</th><th>{t("common.severity")}</th><th>{t("notifications.channel")}</th><th>{t("common.status")}</th><th>{t("common.action")}</th></tr></thead><tbody>{routingPolicies.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.ruleId || item.hostId || item.id}</small></td><td>{item.severity || "-"}</td><td>{item.channelId}</td><td>{alertStatusLabel(item.status)}</td><td className="action-cell">{canWriteAlerts ? <button type="button" onClick={() => startEditingRouting(item)}>{t("common.edit")}</button> : null}</td></tr>)}</tbody></table></div>
+            <div className="data-table"><table><thead><tr><th>{t("common.name")}</th><th>{t("common.severity")}</th><th>{t("metrics.rule")}</th><th>{t("common.status")}</th><th>{t("common.action")}</th></tr></thead><tbody>{suppressionRules.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.reason || item.hostGroupId || item.hostId || item.id}</small></td><td>{item.severity || "-"}</td><td>{item.ruleId || "-"}</td><td>{alertStatusLabel(item.status)}</td><td className="action-cell">{canWriteAlerts ? <button type="button" onClick={() => startEditingSuppression(item)}>{t("common.edit")}</button> : null}</td></tr>)}</tbody></table></div>
+            <div className="data-table"><table><thead><tr><th>{t("common.name")}</th><th>{t("common.severity")}</th><th>{t("notifications.channel")}</th><th>{t("common.status")}</th><th>{t("common.action")}</th></tr></thead><tbody>{routingPolicies.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.ruleId || item.hostGroupId || item.hostId || item.id}</small></td><td>{item.severity || "-"}</td><td>{item.channelId}</td><td>{alertStatusLabel(item.status)}</td><td className="action-cell">{canWriteAlerts ? <button type="button" onClick={() => startEditingRouting(item)}>{t("common.edit")}</button> : null}</td></tr>)}</tbody></table></div>
           </div>
           {suppressionRulesQuery.isError ? <p className="form-error">{suppressionRulesQuery.error.message}</p> : null}
           {routingPoliciesQuery.isError ? <p className="form-error">{routingPoliciesQuery.error.message}</p> : null}

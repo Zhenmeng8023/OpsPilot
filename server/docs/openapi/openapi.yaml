@@ -1867,6 +1867,7 @@ components:
         name: { type: string }
         ruleId: { type: string }
         hostId: { type: string }
+        hostGroupId: { type: string }
         severity: { type: string, enum: [info, warning, critical] }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
@@ -1879,6 +1880,7 @@ components:
         name: { type: string }
         ruleId: { type: string }
         hostId: { type: string }
+        hostGroupId: { type: string }
         severity: { type: string, enum: [info, warning, critical] }
         channelId: { type: string }
         status: { type: string, enum: [active, disabled, archived], default: active }

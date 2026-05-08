@@ -156,7 +156,7 @@ flowchart LR
 
 - 原始 UML 中告警更多停留在 `alert + notification`。
 - 当前实现已经有 `incidents / incident_alerts / incident_events`，因此需要把告警运营模型单独表达。
-- 当前实现新增 `alert_suppression_rules` 和 `alert_routing_policies`，告警触发时可按 rule/host/severity 抑制或路由到指定通知渠道。
+- 当前实现新增 `alert_suppression_rules` 和 `alert_routing_policies`，告警触发时可按 rule/host/host group/severity 抑制或路由到指定通知渠道。
 - Metrics 生命周期新增 `host_metric_rollups`、saved dashboard、retention run 和后台 rollup/retention worker，趋势接口可按 `auto/raw/5m/1h` 粒度选择数据源。
 
 ## 7. 更新图四：V1.0 新增数据模型增量
@@ -264,6 +264,7 @@ erDiagram
     bigint workspace_id
     varchar alert_rule_uid
     varchar host_uid
+    varchar host_group_uid
     varchar severity
     datetime starts_at
     datetime ends_at
@@ -276,6 +277,7 @@ erDiagram
     bigint workspace_id
     varchar alert_rule_uid
     varchar host_uid
+    varchar host_group_uid
     varchar severity
     varchar channel_uid
     varchar status
@@ -335,7 +337,7 @@ erDiagram
 - `workflow_versions` 来自 `000009_v10_workflow_versions.up.sql`。
 - `incidents / incident_alerts / incident_events` 来自 `000005_v10_incidents.up.sql`。
 - `host_metric_rollups / metric_dashboards` 来自 `000011_v10_metrics_lifecycle.up.sql`。
-- `alert_suppression_rules / alert_routing_policies` 来自 `000012_v10_alert_routing_suppression.up.sql`。
+- `alert_suppression_rules / alert_routing_policies` 来自 `000012_v10_alert_routing_suppression.up.sql`，`host_group_uid` 匹配字段来自 `000014_v10_alert_host_group_matching.up.sql`。
 - `tags / resource_tags / host_groups / host_group_members` 是初始模型中的 Fleet 组织表，本轮补齐 API/UI。
 - `agent_diagnostics / maintenance_windows` 来自 `000013_v10_agent_fleet_operations.up.sql`。
 

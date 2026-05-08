@@ -146,7 +146,7 @@ func TestCreateSuppressionRulePassesPayload(t *testing.T) {
 	router := gin.New()
 	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/alert-suppression-rules", strings.NewReader(`{"name":"quiet cpu","ruleId":"rule-1","hostId":"host-1","severity":"critical","reason":"maintenance","status":"active"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/alert-suppression-rules", strings.NewReader(`{"name":"quiet cpu","ruleId":"rule-1","hostId":"host-1","hostGroupId":"group-1","severity":"critical","reason":"maintenance","status":"active"}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -154,7 +154,7 @@ func TestCreateSuppressionRulePassesPayload(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if service.suppressionInput.Name != "quiet cpu" || service.suppressionInput.RuleID != "rule-1" || service.suppressionInput.HostID != "host-1" || service.suppressionInput.Severity != "critical" {
+	if service.suppressionInput.Name != "quiet cpu" || service.suppressionInput.RuleID != "rule-1" || service.suppressionInput.HostID != "host-1" || service.suppressionInput.HostGroupID != "group-1" || service.suppressionInput.Severity != "critical" {
 		t.Fatalf("unexpected suppression payload: %#v", service.suppressionInput)
 	}
 }
@@ -166,7 +166,7 @@ func TestCreateRoutingPolicyPassesPayload(t *testing.T) {
 	router := gin.New()
 	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/alert-routing-policies", strings.NewReader(`{"name":"critical email","severity":"critical","channelId":"chan-1","status":"active"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/alert-routing-policies", strings.NewReader(`{"name":"critical email","hostGroupId":"group-2","severity":"critical","channelId":"chan-1","status":"active"}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -174,7 +174,7 @@ func TestCreateRoutingPolicyPassesPayload(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if service.routingInput.Name != "critical email" || service.routingInput.Severity != "critical" || service.routingInput.ChannelID != "chan-1" {
+	if service.routingInput.Name != "critical email" || service.routingInput.HostGroupID != "group-2" || service.routingInput.Severity != "critical" || service.routingInput.ChannelID != "chan-1" {
 		t.Fatalf("unexpected routing payload: %#v", service.routingInput)
 	}
 }

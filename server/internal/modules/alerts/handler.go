@@ -51,23 +51,25 @@ type silenceAlertRequest struct {
 }
 
 type suppressionRuleRequest struct {
-	Name     string `json:"name" binding:"required"`
-	RuleID   string `json:"ruleId"`
-	HostID   string `json:"hostId"`
-	Severity string `json:"severity"`
-	StartsAt string `json:"startsAt"`
-	EndsAt   string `json:"endsAt"`
-	Reason   string `json:"reason"`
-	Status   string `json:"status"`
+	Name        string `json:"name" binding:"required"`
+	RuleID      string `json:"ruleId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Severity    string `json:"severity"`
+	StartsAt    string `json:"startsAt"`
+	EndsAt      string `json:"endsAt"`
+	Reason      string `json:"reason"`
+	Status      string `json:"status"`
 }
 
 type routingPolicyRequest struct {
-	Name      string `json:"name" binding:"required"`
-	RuleID    string `json:"ruleId"`
-	HostID    string `json:"hostId"`
-	Severity  string `json:"severity"`
-	ChannelID string `json:"channelId" binding:"required"`
-	Status    string `json:"status"`
+	Name        string `json:"name" binding:"required"`
+	RuleID      string `json:"ruleId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Severity    string `json:"severity"`
+	ChannelID   string `json:"channelId" binding:"required"`
+	Status      string `json:"status"`
 }
 
 func NewHandler(service ServiceContract) *Handler {
@@ -299,27 +301,29 @@ func (h *Handler) acknowledge(c *gin.Context) {
 
 func suppressionInput(req suppressionRuleRequest, audit AuditContext) SuppressionRuleInput {
 	return SuppressionRuleInput{
-		Name:     req.Name,
-		RuleID:   req.RuleID,
-		HostID:   req.HostID,
-		Severity: req.Severity,
-		StartsAt: req.StartsAt,
-		EndsAt:   req.EndsAt,
-		Reason:   req.Reason,
-		Status:   req.Status,
-		Audit:    audit,
+		Name:        req.Name,
+		RuleID:      req.RuleID,
+		HostID:      req.HostID,
+		HostGroupID: req.HostGroupID,
+		Severity:    req.Severity,
+		StartsAt:    req.StartsAt,
+		EndsAt:      req.EndsAt,
+		Reason:      req.Reason,
+		Status:      req.Status,
+		Audit:       audit,
 	}
 }
 
 func routingInput(req routingPolicyRequest, audit AuditContext) RoutingPolicyInput {
 	return RoutingPolicyInput{
-		Name:      req.Name,
-		RuleID:    req.RuleID,
-		HostID:    req.HostID,
-		Severity:  req.Severity,
-		ChannelID: req.ChannelID,
-		Status:    req.Status,
-		Audit:     audit,
+		Name:        req.Name,
+		RuleID:      req.RuleID,
+		HostID:      req.HostID,
+		HostGroupID: req.HostGroupID,
+		Severity:    req.Severity,
+		ChannelID:   req.ChannelID,
+		Status:      req.Status,
+		Audit:       audit,
 	}
 }
 
