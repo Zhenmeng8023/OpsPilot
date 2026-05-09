@@ -1,6 +1,6 @@
-# OpsPilot V0.7 发布说明
+﻿# OpsPilot V0.7 发布说明
 
-> Language: 简体中文（当前） | [English](./v0.7-release-notes.en.md)
+> Language: 简体中文（当前） | [English](./release-notes.en.md)
 
 生成日期：2026-05-08。
 

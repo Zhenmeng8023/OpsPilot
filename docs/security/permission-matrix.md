@@ -1,6 +1,6 @@
-# OpsPilot V0.7 安全权限矩阵
+﻿# OpsPilot V0.7 安全权限矩阵
 
-> Language: 简体中文（当前） | [English](./security-permission-matrix.en.md)
+> Language: 简体中文（当前） | [English](./permission-matrix.en.md)
 
 本文档用于 V0.7 发布验收，记录当前 RBAC 权限面、内置角色和前后端路由门禁。
 

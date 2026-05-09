@@ -1,6 +1,6 @@
-# OpsPilot V0.7 Security Permission Matrix
+﻿# OpsPilot V0.7 Security Permission Matrix
 
-> Language: [简体中文](./security-permission-matrix.md) | English (current)
+> Language: [简体中文](./permission-matrix.md) | English (current)
 
 This document tracks the current RBAC surface for V0.7 release validation.
 

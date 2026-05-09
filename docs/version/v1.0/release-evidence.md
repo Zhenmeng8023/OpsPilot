@@ -1,6 +1,6 @@
-# OpsPilot V1.0 Release Evidence
+﻿# OpsPilot V1.0 Release Evidence
 
-> Language: 简体中文（当前） | [English](./v1.0-release-notes.en.md)
+> Language: 简体中文（当前） | [English](./release-evidence.en.md)
 
 本文档记录 V1.0 产品化验收过程中的命令、结果、环境和风险。当前状态为正式 `v1.0.0` 发布验收记录。
 

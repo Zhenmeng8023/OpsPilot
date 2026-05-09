@@ -1,6 +1,6 @@
-# OpsPilot V1.0 Acceptance Guide
+﻿# OpsPilot V1.0 Acceptance Guide
 
-> Language: [简体中文](./v1.0-acceptance-guide.md) | English (current)
+> Language: [简体中文](./acceptance-guide.md) | English (current)
 
 This guide is the execution checklist for the V1.0 acceptance gates defined in Section 13.1 and Section 16 of the V1.0 design document.
 

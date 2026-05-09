@@ -1,6 +1,6 @@
-# OpsPilot UML 更新说明（V1.0）
+﻿# OpsPilot UML 更新说明（V1.0）
 
-> Language: 简体中文（当前） | [English](./core-uml-v1.0-update.en.md)
+> Language: 简体中文（当前） | [English](./uml-update.en.md)
 
 生成日期：2026-05-08
 
@@ -8,8 +8,8 @@
 
 本文用于补充和修正以下两份 UML 基线：
 
-- 原始方案文档中的 UML：`docs/OpsPilot_技术与开发方案_V2.docx`
-- 当前仓库中的 UML 基线：`docs/UML/core-uml.md`
+- 原始方案文档中的 UML：`docs/version/v0/OpsPilot_技术与开发方案_V2.docx`
+- 当前仓库中的 UML 基线：`docs/architecture/uml/core-uml.md`
 
 结论很明确：随着 `Incident`、`Workflow` 以及相关前后端模块落地，原有 UML 已不能完整表达当前实现，尤其是自动化编排链路、事件化告警链路和新增数据模型。因此，本文件给出一组新的版本化 UML 图，作为 `OpsPilot V1.0` 当前实现快照的补充基线。
 
@@ -17,9 +17,9 @@
 
 | 基线 | 文件 | 对应版本 | 说明 |
 | --- | --- | --- | --- |
-| 原始 UML 基线 | `docs/OpsPilot_技术与开发方案_V2.docx` | 早期 V2 方案草案 | 反映的是早期任务调度/告警能力，不包含 `Workflow` 与 `Incident` 落地模型 |
-| 仓库 UML 基线 | `docs/UML/core-uml.md` | 通用核心 UML 基线 | 适合作为总览，但未显式按本轮实现变更给出版本化修订说明 |
-| 本次更新 UML | `docs/UML/core-uml-v1.0-update.md` | `OpsPilot V1.0` 当前实现快照（2026-05-08） | 用于覆盖本轮新增或已发生结构变化的图 |
+| 原始 UML 基线 | `docs/version/v0/OpsPilot_技术与开发方案_V2.docx` | 早期 V2 方案草案 | 反映的是早期任务调度/告警能力，不包含 `Workflow` 与 `Incident` 落地模型 |
+| 仓库 UML 基线 | `docs/architecture/uml/core-uml.md` | 通用核心 UML 基线 | 适合作为总览，但未显式按本轮实现变更给出版本化修订说明 |
+| 本次更新 UML | `docs/version/v1.0/uml-update.md` | `OpsPilot V1.0` 当前实现快照（2026-05-08） | 用于覆盖本轮新增或已发生结构变化的图 |
 
 ## 3. 为什么原图需要更新
 
@@ -385,11 +385,11 @@ flowchart LR
 
 ## 9. 建议的基线替换策略
 
-不建议直接覆盖 `docs/UML/core-uml.md`，原因如下：
+不建议直接覆盖 `docs/architecture/uml/core-uml.md`，原因如下：
 
-1. `docs/UML/core-uml.md` 仍适合作为通用总览。
+1. `docs/architecture/uml/core-uml.md` 仍适合作为通用总览。
 2. 本文件更适合承担“版本化变更说明”的角色。
-3. 如果后续需要收敛为单一文件，建议在 `V1.0` 发布时将本文件中的 5 张图并回 `docs/UML/core-uml.md`，并在标题处标注版本号。
+3. 如果后续需要收敛为单一文件，建议在 `V1.0` 发布时将本文件中的 5 张图并回 `docs/architecture/uml/core-uml.md`，并在标题处标注版本号。
 
 ## 10. 当前结论
 

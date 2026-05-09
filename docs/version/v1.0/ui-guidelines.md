@@ -1,6 +1,6 @@
-# OpsPilot V1.0 UI 规范
+﻿# OpsPilot V1.0 UI 规范
 
-> Language: 简体中文（当前） | [English](./v1.0-ui-guidelines.en.md)
+> Language: 简体中文（当前） | [English](./ui-guidelines.en.md)
 
 本文档定义 V1.0 页面在实现和验收时必须满足的最低 UI 标准。
 

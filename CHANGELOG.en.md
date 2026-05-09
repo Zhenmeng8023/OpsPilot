@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 > Language: [简体中文](./CHANGELOG.md) | English (current)
 
@@ -24,15 +24,17 @@
 - Expanded `scripts/e2e-smoke.ps1` into a full-stack release smoke covering secret masking, audit export/retention, manual/schedule/webhook workflow triggers, run cancel/retry, matcher simulation, and webhook replay.
 - CI now includes OpenAPI/router diff, `docker compose --profile full config`, full-stack Compose smoke, and encrypted notification-config-at-rest verification.
 - GitHub Actions has passed remotely on both `master` and the `v1.0.0-beta.1` tag; remaining V1.0 validation risk is now tracked as V1.1 hardening rather than a release blocker.
-- Added `docs/version/v1.1/v1.1-product-development-design.md`, positioning the next release around production hardening and scaled operations: Trace Center, Workflow reliability, Playwright UI smoke, Agent Fleet, Incident governance, and security/compliance hardening.
-- Added `docs/v1.0-release-notes.md` and the English version to record V1.0 validation commands, results, environment, and release closure status.
+- Added `docs/version/v1.1/product-development-design.md`, positioning the next release around production hardening and scaled operations: Trace Center, Workflow reliability, Playwright UI smoke, Agent Fleet, Incident governance, and security/compliance hardening.
+- Added `docs/version/product-development-roadmap.md` to plan V1.1, V1.2, V1.3, V2.0, and V2.1+ and to keep the new operations service delivery business model scoped to V2.0 rather than a minor release.
+- Added `docs/README.md` as the documentation structure guide, defining root, overview, architecture, security, and version directory responsibilities plus the phased migration plan.
+- Added `docs/version/v1.0/release-evidence.md` and the English version to record V1.0 validation commands, results, environment, and release closure status.
 - Fixed README V1.0 design document links and added the V1.0 release evidence entry.
 - Aligned Workflow permissions on `workflow:manage` while keeping `workflow:write` / `workflow:cancel` as compatibility aliases.
 - Removed several hard-coded English labels from Audit, Workflow, Agent, and Webhook pages by adding zh/en i18n keys.
 
 ### V0.7 Release Closure And Documentation
 
-- Added `docs/v0.7-release-notes.md` and `docs/v0.7-release-notes.en.md` for V0.7 positioning, completed capabilities, validation commands, known gaps, and follow-up order.
+- Added `docs/version/v0.7/release-notes.md` and `docs/version/v0.7/release-notes.en.md` for V0.7 positioning, completed capabilities, validation commands, known gaps, and follow-up order.
 - Standardized newly added explanatory docs into Chinese default files plus `.en.md` English files: `security-permission-matrix`, `v0.7-security-release-checklist`, and `v0.7-release-notes`.
 - Added Release/security document links to README and README.en.
 - Preserved the existing changelog section structure; new changes are appended as new sections without compressing historical entries.
@@ -78,7 +80,7 @@
 - Added root `VERSION`, build metadata injection, and public `GET /api/v1/version`.
 - Added API/Web Dockerfiles and extended the Compose `full` profile for migrate/API/Web/Agent startup.
 - Added migration checker `scripts/migration-check.ps1`.
-- Synced OpenAPI with current T5-T8 core routes and added `docs/e2e-demo.md` for manual acceptance.
+- Synced OpenAPI with current T5-T8 core routes and added `docs/overview/e2e-demo.md` for manual acceptance.
 
 ### V0.7 Security Baseline
 

@@ -1,15 +1,17 @@
-# OpsPilot
+﻿# OpsPilot
 
 > Language: [简体中文](./README.md) | English (current)
 
 Release/security documents:
-- [Security Permission Matrix](./docs/security-permission-matrix.en.md) / [简体中文](./docs/security-permission-matrix.md)
-- [V1.0 Product Development Design](./docs/version/v1.0/v1.0-product-development-design.en.md) / [简体中文](./docs/version/v1.0/v1.0-product-development-design.md)
-- [V1.0 Release Evidence](./docs/v1.0-release-notes.en.md) / [简体中文](./docs/v1.0-release-notes.md)
-- [V1.0 Deployment Guide](./docs/v1.0-deployment-guide.en.md) / [简体中文](./docs/v1.0-deployment-guide.md)
-- [V1.0 Acceptance Guide](./docs/v1.0-acceptance-guide.en.md) / [简体中文](./docs/v1.0-acceptance-guide.md)
-- [V1.0 UI Guidelines](./docs/v1.0-ui-guidelines.en.md) / [简体中文](./docs/v1.0-ui-guidelines.md)
-- [V1.1 Next Version Design](./docs/version/v1.1/v1.1-product-development-design.md)
+- [Documentation Structure](./docs/README.md)
+- [Security Permission Matrix](./docs/security/permission-matrix.en.md) / [简体中文](./docs/security/permission-matrix.md)
+- [V1.0 Product Development Design](./docs/version/v1.0/product-development-design.en.md) / [简体中文](./docs/version/v1.0/product-development-design.md)
+- [V1.0 Release Evidence](./docs/version/v1.0/release-evidence.en.md) / [简体中文](./docs/version/v1.0/release-evidence.md)
+- [V1.0 Deployment Guide](./docs/version/v1.0/deployment-guide.en.md) / [简体中文](./docs/version/v1.0/deployment-guide.md)
+- [V1.0 Acceptance Guide](./docs/version/v1.0/acceptance-guide.en.md) / [简体中文](./docs/version/v1.0/acceptance-guide.md)
+- [V1.0 UI Guidelines](./docs/version/v1.0/ui-guidelines.en.md) / [简体中文](./docs/version/v1.0/ui-guidelines.md)
+- [Product Development Roadmap](./docs/version/product-development-roadmap.md)
+- [V1.1 Next Version Design](./docs/version/v1.1/product-development-design.md)
 
 OpsPilot is an automation operations platform built with Go + Gin + React + TypeScript. The project now covers Agent onboarding, script templates, task execution, live logs, Cron scheduling, Webhook triggering, basic metrics, alerts, notifications, RBAC, and audit logs.
 
@@ -180,11 +182,11 @@ Version endpoint:
 GET /api/v1/version
 ```
 
-For the full manual acceptance flow, see [E2E Demo](./docs/e2e-demo.md).
+For the full manual acceptance flow, see [E2E Demo](./docs/overview/e2e-demo.md).
 
 Release/security documents:
-- [Security Permission Matrix](./docs/security-permission-matrix.en.md) / [安全权限矩阵](./docs/security-permission-matrix.md)
-- [V0.7 Security Release Checklist](./docs/v0.7-security-release-checklist.en.md) / [V0.7 安全发布检查清单](./docs/v0.7-security-release-checklist.md)
-- [V0.7 Release Notes](./docs/v0.7-release-notes.en.md) / [V0.7 发布说明](./docs/v0.7-release-notes.md)
-- [V1.0 Product Development Design](./docs/version/v1.0/v1.0-product-development-design.en.md) / [V1.0 项目开发设计书](./docs/version/v1.0/v1.0-product-development-design.md)
-- [V1.0 Release Evidence](./docs/v1.0-release-notes.en.md) / [V1.0 验收记录](./docs/v1.0-release-notes.md)
+- [Security Permission Matrix](./docs/security/permission-matrix.en.md) / [安全权限矩阵](./docs/security/permission-matrix.md)
+- [V0.7 Security Release Checklist](./docs/version/v0.7/security-release-checklist.en.md) / [V0.7 安全发布检查清单](./docs/version/v0.7/security-release-checklist.md)
+- [V0.7 Release Notes](./docs/version/v0.7/release-notes.en.md) / [V0.7 发布说明](./docs/version/v0.7/release-notes.md)
+- [V1.0 Product Development Design](./docs/version/v1.0/product-development-design.en.md) / [V1.0 项目开发设计书](./docs/version/v1.0/product-development-design.md)
+- [V1.0 Release Evidence](./docs/version/v1.0/release-evidence.en.md) / [V1.0 验收记录](./docs/version/v1.0/release-evidence.md)

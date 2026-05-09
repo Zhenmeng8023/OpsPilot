@@ -1,6 +1,6 @@
-# OpsPilot V1.0 Deployment Guide
+﻿# OpsPilot V1.0 Deployment Guide
 
-> Language: [简体中文](./v1.0-deployment-guide.md) | English (current)
+> Language: [简体中文](./deployment-guide.md) | English (current)
 
 This guide defines the supported V1.0 deployment path for local validation, CI parity, and Docker/Compose release checks.
 

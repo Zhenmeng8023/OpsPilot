@@ -1,6 +1,6 @@
-# OpsPilot V0.7 Security Release Checklist
+﻿# OpsPilot V0.7 Security Release Checklist
 
-> Language: [简体中文](./v0.7-security-release-checklist.md) | English (current)
+> Language: [简体中文](./security-release-checklist.md) | English (current)
 
 This checklist reflects the current implementation status for release review.
 

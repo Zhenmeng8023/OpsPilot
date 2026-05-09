@@ -1,6 +1,6 @@
-# OpsPilot V1.0 项目开发设计书
+﻿# OpsPilot V1.0 项目开发设计书
 
-> Language: 简体中文（当前） | [English](./v1.0-product-development-design.en.md)
+> Language: 简体中文（当前） | [English](./product-development-design.en.md)
 
 生成日期：2026-05-08
 
@@ -29,10 +29,10 @@
 
 参考资料：
 
-- `docs/v0.7-next-version-plan.md`
-- `docs/v0.7-release-notes.md`
+- `docs/version/v0.7/next-version-plan.md`
+- `docs/version/v0.7/release-notes.md`
 - `README.md`
-- `docs/core-uml.md`
+- `docs/architecture/uml/core-uml.md`
 - 当前仓库：`D:\+\1108026_rust_go\OpsPilot`
 - 当前分支：`master`
 
@@ -379,7 +379,7 @@ Workflow 编辑器优先目标是可靠，而不是炫技。
 | OP-10-002 | OpenAPI/router diff 检查 | `scripts`、`server/docs/openapi`、router | CI 能发现新增路由未写入 OpenAPI。 |
 | OP-10-003 | 自动化 E2E smoke | `scripts/e2e-smoke.*`、docs | 一键跑通登录、任务、日志、Schedule、Webhook、Alert、Notification。 |
 | OP-10-004 | 文档状态一致性检查 | README、CHANGELOG、Release notes、docs | 已完成能力不再被文档标为未实现。 |
-| OP-10-005 | Release evidence | `docs/v1.0-release-notes.md` | 每次验收记录命令、结果、环境、风险。 |
+| OP-10-005 | Release evidence | `docs/version/v1.0/release-evidence.md` | 每次验收记录命令、结果、环境、风险。 |
 
 ### 9.2 P0 前端平台与 UI 美化
 

@@ -1,6 +1,6 @@
-# OpsPilot V1.0 部署手册
+﻿# OpsPilot V1.0 部署手册
 
-> Language: 简体中文（当前） | [English](./v1.0-deployment-guide.en.md)
+> Language: 简体中文（当前） | [English](./deployment-guide.en.md)
 
 本文档定义 V1.0 的标准部署路径，用于本地验收、CI 对齐和 Docker/Compose 发布验证。
 

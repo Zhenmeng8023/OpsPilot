@@ -2,12 +2,12 @@
 
 本文基于当前代码实现整理，覆盖 OpsPilot 的核心业务闭环、模块边界、数据模型、状态机、时序和部署关系。图中的模块与关键来源如下：
 
-- 后端入口与路由：[server/internal/app/router.go](../server/internal/app/router.go)、[server/cmd/api/main.go](../server/cmd/api/main.go)
-- Agent 执行端：[server/cmd/agent/main.go](../server/cmd/agent/main.go)
-- 核心业务模块：[server/internal/modules](../server/internal/modules)
-- 数据库模型：[server/migrations/000001_init_mysql_schema.up.sql](../server/migrations/000001_init_mysql_schema.up.sql)、[server/migrations/000003_task_execution_security.up.sql](../server/migrations/000003_task_execution_security.up.sql)、[server/migrations/000004_v07_webhook_security.up.sql](../server/migrations/000004_v07_webhook_security.up.sql)
-- 前端路由/API：[web/src/app/router.tsx](../web/src/app/router.tsx)、[web/src/api](../web/src/api)
-- 部署编排：[deploy/docker-compose.yml](../deploy/docker-compose.yml)
+- 后端入口与路由：[server/internal/app/router.go](../../../server/internal/app/router.go)、[server/cmd/api/main.go](../../../server/cmd/api/main.go)
+- Agent 执行端：[server/cmd/agent/main.go](../../../server/cmd/agent/main.go)
+- 核心业务模块：[server/internal/modules](../../../server/internal/modules)
+- 数据库模型：[server/migrations/000001_init_mysql_schema.up.sql](../../../server/migrations/000001_init_mysql_schema.up.sql)、[server/migrations/000003_task_execution_security.up.sql](../../../server/migrations/000003_task_execution_security.up.sql)、[server/migrations/000004_v07_webhook_security.up.sql](../../../server/migrations/000004_v07_webhook_security.up.sql)
+- 前端路由/API：[web/src/app/router.tsx](../../../web/src/app/router.tsx)、[web/src/api](../../../web/src/api)
+- 部署编排：[deploy/docker-compose.yml](../../../deploy/docker-compose.yml)
 
 ## 1. 系统上下文与运行边界
 
@@ -1199,4 +1199,3 @@ flowchart TB
   HMAC --> Events
   LoginLog --> Audit
 ```
-

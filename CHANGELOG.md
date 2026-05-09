@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 > Language: 简体中文（当前） | [English](./CHANGELOG.en.md)
 
@@ -24,15 +24,17 @@
 - 扩展 `scripts/e2e-smoke.ps1` 为全栈发布 smoke，覆盖 secret masking、audit export/retention、manual/schedule/webhook workflow、run cancel/retry、matcher simulator 与 webhook replay。
 - CI 现已覆盖 OpenAPI/router diff、`docker compose --profile full config`、full-stack Compose smoke，以及 notification config 落盘加密断言。
 - GitHub Actions 已在 `master` 与 `v1.0.0-beta.1` tag 上完成远端绿色验证，V1.0 发布验收风险从发布阻塞项收敛为 V1.1 后续加固项。
-- 新增 `docs/version/v1.1/v1.1-product-development-design.md`，将下一版本定位为生产化加固与规模化运维版本，聚焦 Trace Center、Workflow 可靠性、Playwright UI smoke、Agent Fleet、Incident 治理和安全合规。
-- 新增 `docs/v1.0-release-notes.md` 与英文版，记录 V1.0 验收命令、结果、环境和发布收口状态。
+- 新增 `docs/version/v1.1/product-development-design.md`，将下一版本定位为生产化加固与规模化运维版本，聚焦 Trace Center、Workflow 可靠性、Playwright UI smoke、Agent Fleet、Incident 治理和安全合规。
+- 新增 `docs/version/product-development-roadmap.md`，规划 V1.1、V1.2、V1.3、V2.0、V2.1+ 的中长期产品路线，并明确 V2.0 才引入“运维服务交付平台”新主业务。
+- 新增 `docs/README.md` 文档目录规范，明确根目录、overview、architecture、security、version 各目录职责，并规划现有文档分阶段迁移。
+- 新增 `docs/version/v1.0/release-evidence.md` 与英文版，记录 V1.0 验收命令、结果、环境和发布收口状态。
 - 修正 README 中 V1.0 设计书路径，并补充 V1.0 验收记录入口。
 - Workflow 权限收敛为 `workflow:manage`，并保留 `workflow:write` / `workflow:cancel` 兼容别名。
 - 清理 Audit、Workflow、Agent、Webhook 页面部分硬编码英文文案，补齐对应 zh/en i18n key。
 
 ### V0.7 发布收尾与文档
 
-- 新增 `docs/v0.7-release-notes.md` 与 `docs/v0.7-release-notes.en.md`，记录 V0.7 定位、已完成能力、验收命令、已知缺口和后续顺序。
+- 新增 `docs/version/v0.7/release-notes.md` 与 `docs/version/v0.7/release-notes.en.md`，记录 V0.7 定位、已完成能力、验收命令、已知缺口和后续顺序。
 - 将新增说明文档统一为中英文双版本：`security-permission-matrix`、`v0.7-security-release-checklist`、`v0.7-release-notes` 均提供中文默认版和 `.en.md` 英文版。
 - README 与 README.en 补充 Release/security 文档入口，便于从项目首页进入发布、权限和安全验收材料。
 - 保持历史 changelog 分节结构不压缩，仅在现有小节基础上追加新变更。
@@ -78,7 +80,7 @@
 - 新增根目录 `VERSION`、构建版本注入和公开接口 `GET /api/v1/version`。
 - 新增 API/Web Dockerfile，并扩展 Compose `full` profile 支持 migrate/API/Web/Agent 全栈启动。
 - 新增迁移检查脚本 `scripts/migration-check.ps1`。
-- OpenAPI 同步到当前 T5-T8 核心路由，并新增 `docs/e2e-demo.md` 手工验收流程。
+- OpenAPI 同步到当前 T5-T8 核心路由，并新增 `docs/overview/e2e-demo.md` 手工验收流程。
 
 ### V0.7 安全基线
 

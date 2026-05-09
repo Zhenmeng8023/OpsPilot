@@ -1,6 +1,6 @@
-# OpsPilot UML Update Notes (V1.0)
+﻿# OpsPilot UML Update Notes (V1.0)
 
-> Language: English (current) | [Chinese](./core-uml-v1.0-update.md)
+> Language: English (current) | [Chinese](./uml-update.md)
 
 Generated: 2026-05-08
 
@@ -8,8 +8,8 @@ Generated: 2026-05-08
 
 This document supplements and corrects the following UML baselines:
 
-- The original UML in `docs/OpsPilot_技术与开发方案_V2.docx`
-- The repository UML baseline in `docs/UML/core-uml.md`
+- The original UML in `docs/version/v0/OpsPilot_技术与开发方案_V2.docx`
+- The repository UML baseline in `docs/architecture/uml/core-uml.md`
 
 The conclusion is straightforward: once `Incident`, `Workflow`, and their related backend/frontend modules were implemented, the older UML stopped reflecting the actual system. The biggest gaps are in orchestration flow, alert-to-incident operations, and the new database entities. This file provides a versioned UML supplement for the current `OpsPilot V1.0` implementation snapshot.
 
@@ -17,9 +17,9 @@ The conclusion is straightforward: once `Incident`, `Workflow`, and their relate
 
 | Baseline | File | Software version | Notes |
 | --- | --- | --- | --- |
-| Original UML baseline | `docs/OpsPilot_技术与开发方案_V2.docx` | Early V2 design draft | Captures early task scheduling and alerting concepts, but does not include implemented `Workflow` and `Incident` models |
-| Repository UML baseline | `docs/UML/core-uml.md` | Generic core UML baseline | Good for broad system overview, but not a versioned update for the recent implementation changes |
-| Updated UML in this document | `docs/UML/core-uml-v1.0-update.en.md` | `OpsPilot V1.0` current implementation snapshot (2026-05-08) | Covers the parts that changed and now need revised diagrams |
+| Original UML baseline | `docs/version/v0/OpsPilot_技术与开发方案_V2.docx` | Early V2 design draft | Captures early task scheduling and alerting concepts, but does not include implemented `Workflow` and `Incident` models |
+| Repository UML baseline | `docs/architecture/uml/core-uml.md` | Generic core UML baseline | Good for broad system overview, but not a versioned update for the recent implementation changes |
+| Updated UML in this document | `docs/version/v1.0/uml-update.en.md` | `OpsPilot V1.0` current implementation snapshot (2026-05-08) | Covers the parts that changed and now need revised diagrams |
 
 ## 3. Why the Old UML Needs an Update
 
@@ -385,11 +385,11 @@ What changed:
 
 ## 9. Recommended Baseline Strategy
 
-Do not overwrite `docs/UML/core-uml.md` directly yet:
+Do not overwrite `docs/architecture/uml/core-uml.md` directly yet:
 
-1. `docs/UML/core-uml.md` still works as the general system-wide UML baseline.
+1. `docs/architecture/uml/core-uml.md` still works as the general system-wide UML baseline.
 2. This file is better positioned as a versioned change supplement.
-3. If the project later wants one single canonical UML file for release, merge these five diagrams back into `docs/UML/core-uml.md` and add the version marker there.
+3. If the project later wants one single canonical UML file for release, merge these five diagrams back into `docs/architecture/uml/core-uml.md` and add the version marker there.
 
 ## 10. Conclusion
 

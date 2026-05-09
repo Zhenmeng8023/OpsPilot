@@ -1,6 +1,6 @@
-# OpsPilot V1.0 Release Evidence
+﻿# OpsPilot V1.0 Release Evidence
 
-> Language: [简体中文](./v1.0-release-notes.md) | English (current)
+> Language: [简体中文](./release-evidence.md) | English (current)
 
 This document records V1.0 productization validation commands, results, environment, and risks. The current state is the final `v1.0.0` release validation record.
 

@@ -1,6 +1,6 @@
-# OpsPilot V0.7 Release Notes
+﻿# OpsPilot V0.7 Release Notes
 
-> Language: [简体中文](./v0.7-release-notes.md) | English (current)
+> Language: [简体中文](./release-notes.md) | English (current)
 
 Generated on 2026-05-08.
 

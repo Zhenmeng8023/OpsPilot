@@ -1,6 +1,6 @@
-# OpsPilot V1.0 UI Guidelines
+﻿# OpsPilot V1.0 UI Guidelines
 
-> Language: [简体中文](./v1.0-ui-guidelines.md) | English (current)
+> Language: [简体中文](./ui-guidelines.md) | English (current)
 
 These guidelines define the minimum UI bar for V1.0 pages and acceptance reviews.
 

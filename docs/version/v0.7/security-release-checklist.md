@@ -1,6 +1,6 @@
-# OpsPilot V0.7 安全发布检查清单
+﻿# OpsPilot V0.7 安全发布检查清单
 
-> Language: 简体中文（当前） | [English](./v0.7-security-release-checklist.en.md)
+> Language: 简体中文（当前） | [English](./security-release-checklist.en.md)
 
 本文档记录当前实现状态，用于 V0.7 发布前安全复核。
 

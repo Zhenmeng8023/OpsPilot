@@ -1,6 +1,6 @@
-# OpsPilot V1.0 Product Development Design
+﻿# OpsPilot V1.0 Product Development Design
 
-> Language: [简体中文](./v1.0-product-development-design.md) | English (current)
+> Language: [简体中文](./product-development-design.md) | English (current)
 
 Generated on 2026-05-08.
 
@@ -30,10 +30,10 @@ Generated on 2026-05-08.
 
 References:
 
-- `docs/v0.7-next-version-plan.md`
-- `docs/v0.7-release-notes.md`
+- `docs/version/v0.7/next-version-plan.md`
+- `docs/version/v0.7/release-notes.md`
 - `README.en.md`
-- `docs/core-uml.md`
+- `docs/architecture/uml/core-uml.md`
 - Current repository: `D:\+\1108026_rust_go\OpsPilot`
 - Current branch: `master`
 

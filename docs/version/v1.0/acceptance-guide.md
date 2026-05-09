@@ -1,6 +1,6 @@
-# OpsPilot V1.0 验收手册
+﻿# OpsPilot V1.0 验收手册
 
-> Language: 简体中文（当前） | [English](./v1.0-acceptance-guide.en.md)
+> Language: 简体中文（当前） | [English](./acceptance-guide.en.md)
 
 本文档是 V1.0 设计书第 13.1 节和第 16 节的执行型验收清单。
 

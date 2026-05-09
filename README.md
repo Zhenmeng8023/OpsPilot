@@ -1,15 +1,17 @@
-# OpsPilot
+﻿# OpsPilot
 
 Release/security documents:
-- [安全权限矩阵](./docs/security-permission-matrix.md) / [Security Permission Matrix](./docs/security-permission-matrix.en.md)
-- [V0.7 安全发布检查清单](./docs/v0.7-security-release-checklist.md) / [V0.7 Security Release Checklist](./docs/v0.7-security-release-checklist.en.md)
-- [V0.7 发布说明](./docs/v0.7-release-notes.md) / [V0.7 Release Notes](./docs/v0.7-release-notes.en.md)
-- [V1.0 项目开发设计书](./docs/version/v1.0/v1.0-product-development-design.md) / [V1.0 Product Development Design](./docs/version/v1.0/v1.0-product-development-design.en.md)
-- [V1.0 验收记录](./docs/v1.0-release-notes.md) / [V1.0 Release Evidence](./docs/v1.0-release-notes.en.md)
-- [V1.0 部署手册](./docs/v1.0-deployment-guide.md) / [V1.0 Deployment Guide](./docs/v1.0-deployment-guide.en.md)
-- [V1.0 验收手册](./docs/v1.0-acceptance-guide.md) / [V1.0 Acceptance Guide](./docs/v1.0-acceptance-guide.en.md)
-- [V1.0 UI 规范](./docs/v1.0-ui-guidelines.md) / [V1.0 UI Guidelines](./docs/v1.0-ui-guidelines.en.md)
-- [V1.1 下一版本设计](./docs/version/v1.1/v1.1-product-development-design.md)
+- [文档目录规范](./docs/README.md)
+- [安全权限矩阵](./docs/security/permission-matrix.md) / [Security Permission Matrix](./docs/security/permission-matrix.en.md)
+- [V0.7 安全发布检查清单](./docs/version/v0.7/security-release-checklist.md) / [V0.7 Security Release Checklist](./docs/version/v0.7/security-release-checklist.en.md)
+- [V0.7 发布说明](./docs/version/v0.7/release-notes.md) / [V0.7 Release Notes](./docs/version/v0.7/release-notes.en.md)
+- [V1.0 项目开发设计书](./docs/version/v1.0/product-development-design.md) / [V1.0 Product Development Design](./docs/version/v1.0/product-development-design.en.md)
+- [V1.0 验收记录](./docs/version/v1.0/release-evidence.md) / [V1.0 Release Evidence](./docs/version/v1.0/release-evidence.en.md)
+- [V1.0 部署手册](./docs/version/v1.0/deployment-guide.md) / [V1.0 Deployment Guide](./docs/version/v1.0/deployment-guide.en.md)
+- [V1.0 验收手册](./docs/version/v1.0/acceptance-guide.md) / [V1.0 Acceptance Guide](./docs/version/v1.0/acceptance-guide.en.md)
+- [V1.0 UI 规范](./docs/version/v1.0/ui-guidelines.md) / [V1.0 UI Guidelines](./docs/version/v1.0/ui-guidelines.en.md)
+- [中长期软件开发设计规划](./docs/version/product-development-roadmap.md)
+- [V1.1 下一版本设计](./docs/version/v1.1/product-development-design.md)
 
 > 语言：简体中文（当前） | [English](./README.en.md)
 
@@ -195,4 +197,4 @@ cd D:\+\1108026_rust_go\OpsPilot
 GET /api/v1/version
 ```
 
-完整手工验收流程见 [E2E Demo](./docs/e2e-demo.md)。
+完整手工验收流程见 [E2E Demo](./docs/overview/e2e-demo.md)。

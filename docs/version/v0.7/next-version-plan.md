@@ -1,4 +1,4 @@
-# OpsPilot V0.7 下一版本细化执行规划
+﻿# OpsPilot V0.7 下一版本细化执行规划
 
 生成日期：2026-05-07
 
@@ -126,7 +126,7 @@ V0.7.0 版本定位：稳定化、工程化上线与生产可信能力增强版�
 | OP-07-004 | OpenAPI 同步到 T8 | `server/docs/openapi/openapi.yaml` | 覆盖 schedules、webhooks、metrics、alerts、notifications、agent metrics、agent task status。 |
 | OP-07-005 | Docker 构建准备 | `server/Dockerfile`、`web/Dockerfile`、`deploy/docker-compose.yml` | 可以 build API/Web 镜像；compose 可选择只启基础设施或全栈。 |
 | OP-07-006 | 迁移检查脚本 | `scripts/migration-check.ps1` 或 `scripts/migration-check.sh` | 空库执行 `000001 -> 000003` 成功；新增迁移必须 up/down 成对。 |
-| OP-07-007 | E2E demo 文档 | `docs/e2e-demo.md` | 从启动基础设施到告警通知可按步骤跑通，包含失败排查。 |
+| OP-07-007 | E2E demo 文档 | `docs/overview/e2e-demo.md` | 从启动基础设施到告警通知可按步骤跑通，包含失败排查。 |
 
 ### 6.2 P0 安全与权限
 
@@ -326,7 +326,7 @@ V0.7.0 不以“所有 P1 都完成”为唯一标准，但 P0 必须全部完�
 | 线程 | 目标 | 写入范围 |
 | --- | --- | --- |
 | A | CI、版本接口、Docker、OpenAPI | `.github`、`VERSION`、`server/internal/app`、`server/docs`、`deploy` |
-| B | 安全配置、权限矩阵、Token 边界测试 | `server/internal/config`、`auth`、`agents`、`docs/security-permission-matrix.md` |
+| B | 安全配置、权限矩阵、Token 边界测试 | `server/internal/config`、`auth`、`agents`、`docs/security/permission-matrix.md` |
 | C | Webhook timestamp/nonce/matcher/event 查询 | `server/internal/modules/webhooks`、`web/src/modules/webhooks` |
 | D | Notifications Email/retry/test UI | `server/internal/modules/notifications`、`web/src/modules/notifications` |
 | E | Metrics/Alerts OS 指标、ack、silence、恢复通知 | `server/cmd/agent`、`metrics`、`alerts`、`web/src/modules/metrics` |

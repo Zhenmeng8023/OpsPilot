@@ -23,6 +23,28 @@ button {
   cursor: pointer;
 }
 
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+input,
+select,
+textarea {
+  min-width: 0;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 3px solid rgb(215 156 47 / 28%);
+  outline-offset: 2px;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -518,6 +540,28 @@ a {
   font-weight: 800;
 }
 
+.form-control,
+.form-grid input,
+.form-grid select,
+.form-grid textarea,
+.inline-form input,
+.inline-form select,
+.inline-form textarea,
+.toolbar-row input,
+.toolbar-row select,
+.toolbar-row textarea,
+.editor-form input,
+.editor-form select,
+.editor-form textarea,
+.enrollment-form input,
+.enrollment-form select,
+.enrollment-form textarea,
+.confirm-message input,
+.confirm-message select,
+.confirm-message textarea,
+.matcher-row input,
+.matcher-row select,
+.matcher-row textarea,
 .form-panel input,
 .form-panel select,
 .form-panel textarea {
@@ -528,22 +572,177 @@ a {
   padding: 0.9rem 1rem;
   color: var(--text);
   background: var(--surface);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
+.form-grid input:hover,
+.form-grid select:hover,
+.form-grid textarea:hover,
+.inline-form input:hover,
+.inline-form select:hover,
+.inline-form textarea:hover,
+.toolbar-row input:hover,
+.toolbar-row select:hover,
+.toolbar-row textarea:hover,
+.editor-form input:hover,
+.editor-form select:hover,
+.editor-form textarea:hover,
+.enrollment-form input:hover,
+.enrollment-form select:hover,
+.enrollment-form textarea:hover,
+.confirm-message input:hover,
+.confirm-message select:hover,
+.confirm-message textarea:hover,
+.matcher-row input:hover,
+.matcher-row select:hover,
+.matcher-row textarea:hover,
+.form-panel input:hover,
+.form-panel select:hover,
+.form-panel textarea:hover {
+  border-color: var(--line-strong);
+}
+
+.form-grid input:focus,
+.form-grid select:focus,
+.form-grid textarea:focus,
+.inline-form input:focus,
+.inline-form select:focus,
+.inline-form textarea:focus,
+.toolbar-row input:focus,
+.toolbar-row select:focus,
+.toolbar-row textarea:focus,
+.editor-form input:focus,
+.editor-form select:focus,
+.editor-form textarea:focus,
+.enrollment-form input:focus,
+.enrollment-form select:focus,
+.enrollment-form textarea:focus,
+.confirm-message input:focus,
+.confirm-message select:focus,
+.confirm-message textarea:focus,
+.matcher-row input:focus,
+.matcher-row select:focus,
+.matcher-row textarea:focus,
+.form-panel input:focus,
+.form-panel select:focus,
+.form-panel textarea:focus {
+  border-color: rgb(23 79 104 / 55%);
+  box-shadow: 0 0 0 3px rgb(23 79 104 / 10%);
+}
+
+.form-grid textarea,
+.inline-form textarea,
+.toolbar-row textarea,
+.editor-form textarea,
+.enrollment-form textarea,
+.confirm-message textarea,
+.matcher-row textarea,
+.form-panel textarea {
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.form-grid select[multiple],
+.inline-form select[multiple],
+.toolbar-row select[multiple],
+.editor-form select[multiple],
+.enrollment-form select[multiple],
+.matcher-row select[multiple],
+.form-panel select[multiple] {
+  min-height: 7rem;
+  padding: 0.55rem;
+}
+
+.form-grid input[type="checkbox"],
+.inline-form input[type="checkbox"],
+.toolbar-row input[type="checkbox"],
+.editor-form input[type="checkbox"],
+.enrollment-form input[type="checkbox"],
+.matcher-row input[type="checkbox"],
+.form-panel input[type="checkbox"] {
+  width: 1rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0;
+  accent-color: var(--brand);
+}
+
+.form-grid input[type="color"],
+.inline-form input[type="color"],
+.toolbar-row input[type="color"],
+.editor-form input[type="color"],
+.enrollment-form input[type="color"],
+.matcher-row input[type="color"],
+.form-panel input[type="color"] {
+  width: 4.2rem;
+  height: 2.65rem;
+  padding: 0.25rem;
+  cursor: pointer;
+}
+
+.form-grid input[type="color"]::-webkit-color-swatch-wrapper,
+.inline-form input[type="color"]::-webkit-color-swatch-wrapper,
+.toolbar-row input[type="color"]::-webkit-color-swatch-wrapper,
+.editor-form input[type="color"]::-webkit-color-swatch-wrapper,
+.enrollment-form input[type="color"]::-webkit-color-swatch-wrapper,
+.matcher-row input[type="color"]::-webkit-color-swatch-wrapper,
+.form-panel input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-grid input[type="color"]::-webkit-color-swatch,
+.inline-form input[type="color"]::-webkit-color-swatch,
+.toolbar-row input[type="color"]::-webkit-color-swatch,
+.editor-form input[type="color"]::-webkit-color-swatch,
+.enrollment-form input[type="color"]::-webkit-color-swatch,
+.matcher-row input[type="color"]::-webkit-color-swatch,
+.form-panel input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+
+.form-grid input[type="color"]::-moz-color-swatch,
+.inline-form input[type="color"]::-moz-color-swatch,
+.toolbar-row input[type="color"]::-moz-color-swatch,
+.editor-form input[type="color"]::-moz-color-swatch,
+.enrollment-form input[type="color"]::-moz-color-swatch,
+.matcher-row input[type="color"]::-moz-color-swatch,
+.form-panel input[type="color"]::-moz-color-swatch {
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+
+.form-grid button,
+.inline-form button,
+.toolbar-row button,
+.editor-form button,
+.enrollment-actions button,
+.matcher-row button,
 .form-panel button[type="submit"] {
-  grid-column: 1 / -1;
-  width: 100%;
   border: 0;
   border-radius: 999px;
   padding: 0.85rem 1rem;
   color: white;
   background: var(--brand);
   font-weight: 900;
+  transition: transform 160ms ease, background 160ms ease, opacity 160ms ease;
 }
 
-.form-panel button[type="submit"]:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+.form-grid button:hover:not(:disabled),
+.inline-form button:hover:not(:disabled),
+.toolbar-row button:hover:not(:disabled),
+.editor-form button:hover:not(:disabled),
+.enrollment-actions button:hover:not(:disabled),
+.matcher-row button:hover:not(:disabled),
+.form-panel button[type="submit"]:hover:not(:disabled) {
+  background: var(--brand-strong);
+  transform: translateY(-1px);
+}
+
+.form-grid button[type="submit"],
+.form-panel button[type="submit"] {
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .management-form button,
@@ -790,19 +989,6 @@ a {
   font-weight: 800;
 }
 
-.toolbar-row input,
-.toolbar-row select,
-.toolbar-row button,
-.editor-form input,
-.editor-form select,
-.editor-form textarea {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 0.75rem 0.9rem;
-  color: var(--text);
-  background: var(--surface);
-}
-
 .toolbar-row input {
   min-width: 16rem;
 }
@@ -868,6 +1054,56 @@ a {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+  margin-top: 1rem;
+}
+
+.form-grid label {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.inline-form {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(8rem, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+  margin-top: 1rem;
+}
+
+.inline-form label {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.inline-form button {
+  white-space: nowrap;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.inline-check input {
+  flex: 0 0 auto;
+}
+
+.toolbar-row .inline-check {
+  width: auto;
+  min-height: 2.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 0.75rem 0.9rem;
+  background: var(--surface);
 }
 
 .code-input {
@@ -1059,6 +1295,28 @@ a {
 
 .danger-button {
   background: var(--danger);
+}
+
+.action-cell .danger-button,
+.data-table td .danger-button,
+.form-grid .danger-button,
+.inline-form .danger-button,
+.toolbar-row .danger-button,
+.editor-form .danger-button,
+.enrollment-actions .danger-button,
+.matcher-row .danger-button {
+  background: var(--danger);
+}
+
+.action-cell .danger-button:hover:not(:disabled),
+.data-table td .danger-button:hover:not(:disabled),
+.form-grid .danger-button:hover:not(:disabled),
+.inline-form .danger-button:hover:not(:disabled),
+.toolbar-row .danger-button:hover:not(:disabled),
+.editor-form .danger-button:hover:not(:disabled),
+.enrollment-actions .danger-button:hover:not(:disabled),
+.matcher-row .danger-button:hover:not(:disabled) {
+  background: #a83f2d;
 }
 
 .ghost-button:disabled,
@@ -1655,6 +1913,7 @@ a {
   .hero-grid,
   .permission-checks,
   .matcher-row,
+  .inline-form,
   .template-grid,
   .overview-grid,
   .summary-grid,
@@ -1696,6 +1955,10 @@ a {
   .summary-grid,
   .event-detail-grid,
   .trend-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-form {
     grid-template-columns: 1fr;
   }
 
