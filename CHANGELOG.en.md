@@ -4,13 +4,15 @@
 
 ## Unreleased
 
+## V1.0.0 - 2026-05-09
+
 - Upgraded CI to `actions/checkout@v5`, `actions/setup-node@v6`, and `actions/setup-go@v6` so the workflow uses the native Node 24 action runtime instead of the deprecated Node 20 line.
 - Completed the strict V1.0 webhook matcher scope with `payload_exists`, `payload_not_equals`, `payload_regex`, and JSONPath array wildcard paths, extended the webhook UI/OpenAPI/E2E smoke accordingly, and added the missing V1.0 deployment, acceptance, and UI guideline documents.
 - Fixed the CI E2E schedule smoke to use a timezone-neutral every-minute cron and disable the smoke schedule after the first fired trigger, avoiding false failures when the GitHub runner timezone differs from the schedule timezone.
 
 ### V1.0 Productization Validation Engineering
 
-- Squashed the active V1.0 migration path into `server/migrations/000005_v10_productization_bundle.{up,down}.sql`, archived the original `000005`-`000015` incremental files under `server/migrations/archive/v1.0-incremental/`, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root `VERSION` marker to `1.0.0-dev`.
+- Squashed the active V1.0 migration path into `server/migrations/000005_v10_productization_bundle.{up,down}.sql`, archived the original `000005`-`000015` incremental files under `server/migrations/archive/v1.0-incremental/`, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root `VERSION` marker to `1.0.0`.
 - Removed remaining hard-coded copy from Workflow, Audit, Agent, and Webhook pages: localized the Workflow default sample nodes and UI approval/cancel reasons, localized Audit export failure copy and actor type/result rendering, and added the required zh/en dictionary entries.
 - Added Alert grouping operations view via `GET /api/v1/alert-groups`, grouped aggregation by rule/host group/severity/fingerprint, Metrics alert-group UI, OpenAPI updates, and alert grouping tests.
 - Agent Fleet now supports Host Group batch Agent disable, group-scoped diagnostics, and group-scoped maintenance windows.
@@ -21,7 +23,9 @@
 - Hardened Docker/Compose release validation: removed the Dockerfile syntax frontend dependency, parameterized published ports, removed fixed Compose container names, and aligned API/Agent timezone handling so wait/schedule execution stays correct in Docker.
 - Expanded `scripts/e2e-smoke.ps1` into a full-stack release smoke covering secret masking, audit export/retention, manual/schedule/webhook workflow triggers, run cancel/retry, matcher simulation, and webhook replay.
 - CI now includes OpenAPI/router diff, `docker compose --profile full config`, full-stack Compose smoke, and encrypted notification-config-at-rest verification.
-- Added `docs/v1.0-release-notes.md` and the English version to record V1.0 validation commands, results, environment, and remaining blockers.
+- GitHub Actions has passed remotely on both `master` and the `v1.0.0-beta.1` tag; remaining V1.0 validation risk is now tracked as V1.1 hardening rather than a release blocker.
+- Added `docs/version/v1.1/v1.1-product-development-design.md`, positioning the next release around production hardening and scaled operations: Trace Center, Workflow reliability, Playwright UI smoke, Agent Fleet, Incident governance, and security/compliance hardening.
+- Added `docs/v1.0-release-notes.md` and the English version to record V1.0 validation commands, results, environment, and release closure status.
 - Fixed README V1.0 design document links and added the V1.0 release evidence entry.
 - Aligned Workflow permissions on `workflow:manage` while keeping `workflow:write` / `workflow:cancel` as compatibility aliases.
 - Removed several hard-coded English labels from Audit, Workflow, Agent, and Webhook pages by adding zh/en i18n keys.

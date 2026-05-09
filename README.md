@@ -9,6 +9,7 @@ Release/security documents:
 - [V1.0 部署手册](./docs/v1.0-deployment-guide.md) / [V1.0 Deployment Guide](./docs/v1.0-deployment-guide.en.md)
 - [V1.0 验收手册](./docs/v1.0-acceptance-guide.md) / [V1.0 Acceptance Guide](./docs/v1.0-acceptance-guide.en.md)
 - [V1.0 UI 规范](./docs/v1.0-ui-guidelines.md) / [V1.0 UI Guidelines](./docs/v1.0-ui-guidelines.en.md)
+- [V1.1 下一版本设计](./docs/version/v1.1/v1.1-product-development-design.md)
 
 > 语言：简体中文（当前） | [English](./README.en.md)
 
@@ -41,7 +42,8 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 
 ## V1.0 当前状态
 
-- 当前仓库已经满足 Release Evidence 和验收手册中记录的 V1.0 验收门槛。
+- 当前仓库已经满足 Release Evidence 和验收手册中记录的 V1.0 验收门槛，根版本号已收口为 `1.0.0`。
+- GitHub Actions 已在 `master` 与 `v1.0.0-beta.1` tag 上完成远端绿色验证。
 - Webhook matcher 已补齐数组通配、`payload_exists`、`payload_not_equals`、`payload_regex` 等完整能力。
 
 ## 环境要求

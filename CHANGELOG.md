@@ -4,12 +4,14 @@
 
 ## Unreleased
 
+## V1.0.0 - 2026-05-09
+
 - 将 CI 升级到 `actions/checkout@v5`、`actions/setup-node@v6`、`actions/setup-go@v6`，让 workflow 直接使用原生 Node 24 action runtime，而不是继续停留在已弃用的 Node 20 版本线。
 - 完成严格意义上的 V1.0 Webhook matcher 范围：补齐 `payload_exists`、`payload_not_equals`、`payload_regex` 和 JSONPath 数组通配路径，同时同步 Webhook UI、OpenAPI、E2E smoke，并补齐 V1.0 部署手册、验收手册、UI 规范。
 
 - 修复 CI 中 schedule smoke 的时区误判：改为使用与 runner 本地时区无关的每分钟 cron，并在首个 fired trigger 后立即 disable smoke schedule，避免 GitHub Actions runner 时区与 schedule timezone 不一致时出现假失败。
 
-- Squashed the active V1.0 migration path into server/migrations/000005_v10_productization_bundle.{up,down}.sql, archived the original 000005-000015 incremental files under server/migrations/archive/v1.0-incremental/, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root VERSION marker to 1.0.0-dev.
+- Squashed the active V1.0 migration path into server/migrations/000005_v10_productization_bundle.{up,down}.sql, archived the original 000005-000015 incremental files under server/migrations/archive/v1.0-incremental/, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root VERSION marker to 1.0.0.
 - 清理 Workflow、Audit、Agent、Webhook 页面剩余硬编码文案：Workflow 默认示例节点和 UI 审批/取消原因改为 zh/en i18n，Audit 导出失败提示、actor type/result 展示改为 i18n，并补齐对应中英文词条。
 
 - 新增 Alert grouping 运营视图：提供 `GET /api/v1/alert-groups`，按 rule/host group/severity/fingerprint 聚合告警，并同步 Metrics 分组运营表、OpenAPI 与 alert grouping 测试。
@@ -21,7 +23,9 @@
 - 补强 Docker/Compose 发布验证：移除 Dockerfile syntax frontend 依赖，Compose 改为参数化发布端口并移除固定容器名，同时为 API/Agent 补齐时区配置，修正 Docker 下 wait/schedule 的时间漂移问题。
 - 扩展 `scripts/e2e-smoke.ps1` 为全栈发布 smoke，覆盖 secret masking、audit export/retention、manual/schedule/webhook workflow、run cancel/retry、matcher simulator 与 webhook replay。
 - CI 现已覆盖 OpenAPI/router diff、`docker compose --profile full config`、full-stack Compose smoke，以及 notification config 落盘加密断言。
-- 新增 `docs/v1.0-release-notes.md` 与英文版，记录 V1.0 验收命令、结果、环境和剩余阻塞项。
+- GitHub Actions 已在 `master` 与 `v1.0.0-beta.1` tag 上完成远端绿色验证，V1.0 发布验收风险从发布阻塞项收敛为 V1.1 后续加固项。
+- 新增 `docs/version/v1.1/v1.1-product-development-design.md`，将下一版本定位为生产化加固与规模化运维版本，聚焦 Trace Center、Workflow 可靠性、Playwright UI smoke、Agent Fleet、Incident 治理和安全合规。
+- 新增 `docs/v1.0-release-notes.md` 与英文版，记录 V1.0 验收命令、结果、环境和发布收口状态。
 - 修正 README 中 V1.0 设计书路径，并补充 V1.0 验收记录入口。
 - Workflow 权限收敛为 `workflow:manage`，并保留 `workflow:write` / `workflow:cancel` 兼容别名。
 - 清理 Audit、Workflow、Agent、Webhook 页面部分硬编码英文文案，补齐对应 zh/en i18n key。
