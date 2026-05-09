@@ -37,6 +37,7 @@ data/
 logs/
 artifacts/edge-*/
 artifacts/*.png
+server/migrations/archive/
 
 # Local developer docs
 docs/*.local.*
