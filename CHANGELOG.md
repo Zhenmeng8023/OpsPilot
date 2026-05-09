@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-- 在 CI 中显式开启 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`，消除 GitHub Actions 剩余的 Node 20 deprecation 风险，同时不改变当前已验证通过的 workflow 行为。
+- 将 CI 升级到 `actions/checkout@v5`、`actions/setup-node@v6`、`actions/setup-go@v6`，让 workflow 直接使用原生 Node 24 action runtime，而不是继续停留在已弃用的 Node 20 版本线。
 - 完成严格意义上的 V1.0 Webhook matcher 范围：补齐 `payload_exists`、`payload_not_equals`、`payload_regex` 和 JSONPath 数组通配路径，同时同步 Webhook UI、OpenAPI、E2E smoke，并补齐 V1.0 部署手册、验收手册、UI 规范。
 
 - 修复 CI 中 schedule smoke 的时区误判：改为使用与 runner 本地时区无关的每分钟 cron，并在首个 fired trigger 后立即 disable smoke schedule，避免 GitHub Actions runner 时区与 schedule timezone 不一致时出现假失败。
