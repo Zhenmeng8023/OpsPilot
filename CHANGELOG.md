@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 修复 CI 中 schedule smoke 的时区误判：改为使用与 runner 本地时区无关的每分钟 cron，并在首个 fired trigger 后立即 disable smoke schedule，避免 GitHub Actions runner 时区与 schedule timezone 不一致时出现假失败。
+
 - Squashed the active V1.0 migration path into server/migrations/000005_v10_productization_bundle.{up,down}.sql, archived the original 000005-000015 incremental files under server/migrations/archive/v1.0-incremental/, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root VERSION marker to 1.0.0-dev.
 - 清理 Workflow、Audit、Agent、Webhook 页面剩余硬编码文案：Workflow 默认示例节点和 UI 审批/取消原因改为 zh/en i18n，Audit 导出失败提示、actor type/result 展示改为 i18n，并补齐对应中英文词条。
 

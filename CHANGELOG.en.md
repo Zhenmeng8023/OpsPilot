@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Fixed the CI E2E schedule smoke to use a timezone-neutral every-minute cron and disable the smoke schedule after the first fired trigger, avoiding false failures when the GitHub runner timezone differs from the schedule timezone.
+
 ### V1.0 Productization Validation Engineering
 
 - Squashed the active V1.0 migration path into `server/migrations/000005_v10_productization_bundle.{up,down}.sql`, archived the original `000005`-`000015` incremental files under `server/migrations/archive/v1.0-incremental/`, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root `VERSION` marker to `1.0.0-dev`.

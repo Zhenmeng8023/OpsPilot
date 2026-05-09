@@ -384,8 +384,9 @@ Assert-True ($nodeRetriedDetail.status -eq "failed") "Expected node retried work
 Assert-True ((@($nodeRetriedDetail.events | Where-Object { $_.eventType -eq "node_retry" }).Count) -gt 0) "Expected node retry event to be recorded"
 
 Write-Host "Running schedule-triggered workflow..."
-$nextMinute = (Get-Date).AddMinutes(1)
-$cronExpr = "{0} {1} * * *" -f $nextMinute.Minute, $nextMinute.Hour
+# Use an every-minute cron so the smoke is independent from the runner's local timezone.
+# The schedule itself still exercises the configured schedule timezone inside the service.
+$cronExpr = "* * * * *"
 $schedule = Invoke-OpsPilotJson -Method POST -Url "$ApiBaseUrl/api/v1/schedules" -Headers $headers -Body @{
   name          = New-UniqueName "smoke-workflow-schedule"
   targetType    = "workflow"
@@ -408,6 +409,8 @@ $scheduleTrigger = Wait-Until -TimeoutSeconds $ScheduleTimeoutSeconds -IntervalS
 $scheduleRunDetail = Wait-WorkflowTerminal -Headers $headers -RunId $scheduleTrigger.workflowRunId -TimeoutSeconds $RunTimeoutSeconds
 Assert-True ($scheduleRunDetail.status -eq "success") "Expected schedule workflow run to succeed, got $($scheduleRunDetail.status)"
 Assert-WorkflowTraceability -Run $scheduleRunDetail -ExpectedTrigger "schedule"
+$scheduleDisabled = Invoke-OpsPilotJson -Method POST -Url "$ApiBaseUrl/api/v1/schedules/$($schedule.data.id)/disable" -Headers $headers
+Assert-Envelope $scheduleDisabled "disable smoke schedule"
 
 Write-Host "Running webhook-triggered workflow plus matcher simulator and replay..."
 $webhookSource = Invoke-OpsPilotJson -Method POST -Url "$ApiBaseUrl/api/v1/webhooks/sources" -Headers $headers -Body @{
