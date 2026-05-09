@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 完成严格意义上的 V1.0 Webhook matcher 范围：补齐 `payload_exists`、`payload_not_equals`、`payload_regex` 和 JSONPath 数组通配路径，同时同步 Webhook UI、OpenAPI、E2E smoke，并补齐 V1.0 部署手册、验收手册、UI 规范。
+
 - 修复 CI 中 schedule smoke 的时区误判：改为使用与 runner 本地时区无关的每分钟 cron，并在首个 fired trigger 后立即 disable smoke schedule，避免 GitHub Actions runner 时区与 schedule timezone 不一致时出现假失败。
 
 - Squashed the active V1.0 migration path into server/migrations/000005_v10_productization_bundle.{up,down}.sql, archived the original 000005-000015 incremental files under server/migrations/archive/v1.0-incremental/, validated MySQL apply/rollback plus schema equivalence against the legacy chain, and aligned the root VERSION marker to 1.0.0-dev.

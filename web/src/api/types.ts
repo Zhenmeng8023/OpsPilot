@@ -340,7 +340,7 @@ export interface WebhookMatcher {
 }
 
 export interface WebhookMatcherCondition {
-  type: "header_equals" | "payload_equals" | "payload_contains" | "event_type_equals" | "ref_equals" | "branch_equals";
+  type: "header_equals" | "payload_equals" | "payload_contains" | "payload_not_equals" | "payload_exists" | "payload_regex" | "event_type_equals" | "ref_equals" | "branch_equals";
   key?: string;
   path?: string;
   value: string;

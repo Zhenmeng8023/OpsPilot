@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1660,22 +1661,40 @@ func normalizeMatcher(input *Matcher) (*Matcher, *apperror.Error) {
 			Path:  strings.TrimSpace(item.Path),
 			Value: strings.TrimSpace(item.Value),
 		}
-		if condition.Type == "" || condition.Value == "" {
-			return nil, apperror.New(http.StatusBadRequest, 400505, "matcher type and value are required")
+		if condition.Type == "" {
+			return nil, apperror.New(http.StatusBadRequest, 400505, "matcher type is required")
 		}
 		switch condition.Type {
 		case "header_equals":
+			if condition.Value == "" {
+				return nil, apperror.New(http.StatusBadRequest, 400505, "matcher value is required")
+			}
 			if condition.Key == "" {
 				return nil, apperror.New(http.StatusBadRequest, 400505, "matcher key is required")
 			}
 			condition.Key = http.CanonicalHeaderKey(condition.Key)
 			condition.Path = ""
-		case "payload_equals", "payload_contains":
+		case "payload_equals", "payload_contains", "payload_not_equals", "payload_regex", "payload_exists":
 			if condition.Path == "" {
 				return nil, apperror.New(http.StatusBadRequest, 400505, "matcher path is required")
 			}
 			condition.Key = ""
+			if condition.Type == "payload_exists" {
+				condition.Value = ""
+				break
+			}
+			if condition.Value == "" {
+				return nil, apperror.New(http.StatusBadRequest, 400505, "matcher value is required")
+			}
+			if condition.Type == "payload_regex" {
+				if _, err := regexp.Compile(condition.Value); err != nil {
+					return nil, apperror.New(http.StatusBadRequest, 400505, "matcher regex is invalid")
+				}
+			}
 		case "event_type_equals", "ref_equals", "branch_equals":
+			if condition.Value == "" {
+				return nil, apperror.New(http.StatusBadRequest, 400505, "matcher value is required")
+			}
 			condition.Key = ""
 			condition.Path = ""
 		default:
@@ -1906,15 +1925,48 @@ func evaluateMatcherCondition(condition MatcherCondition, eventType string, head
 		}
 		return true, "", actual
 	case "payload_equals":
-		actual, ok := payloadValueAtPath(payload, condition.Path)
-		if !ok || actual != condition.Value {
+		actualValues, ok := payloadValuesAtPath(payload, condition.Path)
+		actual := joinMatcherActuals(actualValues)
+		if !ok || !containsExactValue(actualValues, condition.Value) {
 			return false, "payload_mismatch:" + condition.Path, actual
 		}
 		return true, "", actual
 	case "payload_contains":
-		actual, ok := payloadValueAtPath(payload, condition.Path)
-		if !ok || !strings.Contains(actual, condition.Value) {
+		actualValues, ok := payloadValuesAtPath(payload, condition.Path)
+		actual := joinMatcherActuals(actualValues)
+		if !ok || !containsPartialValue(actualValues, condition.Value) {
 			return false, "payload_contains_mismatch:" + condition.Path, actual
+		}
+		return true, "", actual
+	case "payload_not_equals":
+		actualValues, ok := payloadValuesAtPath(payload, condition.Path)
+		actual := joinMatcherActuals(actualValues)
+		if !ok {
+			return false, "payload_missing:" + condition.Path, actual
+		}
+		if containsExactValue(actualValues, condition.Value) {
+			return false, "payload_not_equals_mismatch:" + condition.Path, actual
+		}
+		return true, "", actual
+	case "payload_exists":
+		actualValues, ok := payloadValuesAtPath(payload, condition.Path)
+		actual := joinMatcherActuals(actualValues)
+		if !ok {
+			return false, "payload_missing:" + condition.Path, actual
+		}
+		return true, "", actual
+	case "payload_regex":
+		actualValues, ok := payloadValuesAtPath(payload, condition.Path)
+		actual := joinMatcherActuals(actualValues)
+		if !ok {
+			return false, "payload_missing:" + condition.Path, actual
+		}
+		pattern, err := regexp.Compile(condition.Value)
+		if err != nil {
+			return false, "matcher_invalid", actual
+		}
+		if !containsRegexMatch(actualValues, pattern) {
+			return false, "payload_regex_mismatch:" + condition.Path, actual
 		}
 		return true, "", actual
 	case "ref_equals":
@@ -1956,10 +2008,33 @@ func firstHeaderValue(headers map[string]string, key string) string {
 }
 
 func payloadValueAtPath(payload interface{}, path string) (string, bool) {
-	current, ok := resolveJSONPath(payload, path)
-	if !ok {
+	values, ok := payloadValuesAtPath(payload, path)
+	if !ok || len(values) == 0 {
 		return "", false
 	}
+	return values[0], true
+}
+
+func payloadValuesAtPath(payload interface{}, path string) ([]string, bool) {
+	current, ok := resolveJSONPathValues(payload, path)
+	if !ok {
+		return nil, false
+	}
+	values := make([]string, 0, len(current))
+	for _, item := range current {
+		value, ok := stringifyPayloadValue(item)
+		if !ok {
+			continue
+		}
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		return nil, false
+	}
+	return values, true
+}
+
+func stringifyPayloadValue(current interface{}) (string, bool) {
 	switch value := current.(type) {
 	case string:
 		return value, true
@@ -1977,36 +2052,66 @@ func payloadValueAtPath(payload interface{}, path string) (string, bool) {
 }
 
 func resolveJSONPath(payload interface{}, path string) (interface{}, bool) {
+	values, ok := resolveJSONPathValues(payload, path)
+	if !ok || len(values) == 0 {
+		return nil, false
+	}
+	return values[0], true
+}
+
+func resolveJSONPathValues(payload interface{}, path string) ([]interface{}, bool) {
 	path = normalizeJSONPath(path)
 	if path == "" {
 		return nil, false
 	}
-	current := payload
+	current := []interface{}{payload}
 	for _, segment := range strings.Split(path, ".") {
 		if segment == "" {
 			return nil, false
 		}
-		name, indexes, ok := splitIndexedSegment(segment)
+		name, selectors, ok := splitIndexedSegment(segment)
 		if !ok {
 			return nil, false
 		}
-		if name != "" {
-			node, ok := current.(map[string]interface{})
-			if !ok {
-				return nil, false
+		next := make([]interface{}, 0, len(current))
+		for _, entry := range current {
+			node := entry
+			if name != "" {
+				objectValue, ok := node.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				resolved, ok := objectValue[name]
+				if !ok {
+					continue
+				}
+				node = resolved
 			}
-			current, ok = node[name]
-			if !ok {
-				return nil, false
+			nodes := []interface{}{node}
+			for _, selector := range selectors {
+				expanded := make([]interface{}, 0)
+				for _, candidate := range nodes {
+					items, ok := candidate.([]interface{})
+					if !ok {
+						continue
+					}
+					if selector.Wildcard {
+						expanded = append(expanded, items...)
+						continue
+					}
+					if selector.Index < 0 || selector.Index >= len(items) {
+						continue
+					}
+					expanded = append(expanded, items[selector.Index])
+				}
+				nodes = expanded
 			}
+			next = append(next, nodes...)
 		}
-		for _, index := range indexes {
-			items, ok := current.([]interface{})
-			if !ok || index < 0 || index >= len(items) {
-				return nil, false
-			}
-			current = items[index]
+		if len(next) == 0 {
+			return nil, false
 		}
+		current = next
 	}
 	return current, true
 }
@@ -2037,9 +2142,14 @@ func normalizeJSONPath(path string) string {
 	return strings.ReplaceAll(builder.String(), "][", "].[")
 }
 
-func splitIndexedSegment(segment string) (string, []int, bool) {
+type pathSelector struct {
+	Wildcard bool
+	Index    int
+}
+
+func splitIndexedSegment(segment string) (string, []pathSelector, bool) {
 	name := segment
-	indexes := make([]int, 0, 1)
+	indexes := make([]pathSelector, 0, 1)
 	for {
 		open := strings.Index(name, "[")
 		if open < 0 {
@@ -2049,15 +2159,62 @@ func splitIndexedSegment(segment string) (string, []int, bool) {
 		if close <= 1 {
 			return "", nil, false
 		}
-		indexValue, err := strconv.Atoi(strings.TrimSpace(name[open+1 : open+close]))
-		if err != nil {
-			return "", nil, false
+		indexText := strings.TrimSpace(name[open+1 : open+close])
+		if indexText == "*" {
+			indexes = append(indexes, pathSelector{Wildcard: true, Index: -1})
+		} else {
+			indexValue, err := strconv.Atoi(indexText)
+			if err != nil {
+				return "", nil, false
+			}
+			indexes = append(indexes, pathSelector{Index: indexValue})
 		}
-		indexes = append(indexes, indexValue)
 		name = name[:open] + name[open+close+1:]
 	}
 	name = strings.Trim(strings.TrimSpace(name), ".")
 	return name, indexes, true
+}
+
+func containsExactValue(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPartialValue(values []string, want string) bool {
+	for _, value := range values {
+		if strings.Contains(value, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsRegexMatch(values []string, pattern *regexp.Regexp) bool {
+	for _, value := range values {
+		if pattern.MatchString(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func joinMatcherActuals(values []string) string {
+	switch len(values) {
+	case 0:
+		return ""
+	case 1:
+		return values[0]
+	default:
+		bytes, err := json.Marshal(values)
+		if err != nil {
+			return strings.Join(values, ",")
+		}
+		return string(bytes)
+	}
 }
 
 type rejectedEventInput struct {

@@ -6,6 +6,9 @@ Release/security documents:
 - [V0.7 发布说明](./docs/v0.7-release-notes.md) / [V0.7 Release Notes](./docs/v0.7-release-notes.en.md)
 - [V1.0 项目开发设计书](./docs/version/v1.0/v1.0-product-development-design.md) / [V1.0 Product Development Design](./docs/version/v1.0/v1.0-product-development-design.en.md)
 - [V1.0 验收记录](./docs/v1.0-release-notes.md) / [V1.0 Release Evidence](./docs/v1.0-release-notes.en.md)
+- [V1.0 部署手册](./docs/v1.0-deployment-guide.md) / [V1.0 Deployment Guide](./docs/v1.0-deployment-guide.en.md)
+- [V1.0 验收手册](./docs/v1.0-acceptance-guide.md) / [V1.0 Acceptance Guide](./docs/v1.0-acceptance-guide.en.md)
+- [V1.0 UI 规范](./docs/v1.0-ui-guidelines.md) / [V1.0 UI Guidelines](./docs/v1.0-ui-guidelines.en.md)
 
 > 语言：简体中文（当前） | [English](./README.en.md)
 
@@ -36,10 +39,10 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 - Metrics / Alerts 监控闭环：Agent 上报真实 OS 指标和运行时指标；后台按 metric threshold 规则生成、确认、静默、恢复告警。
 - Notifications 通知闭环：支持 notification channel 管理、SMTP Email、webhook 类外部投递、delivery 查询/重试/test send、前端通知列表与标记已读。
 
-## V1.0 剩余收尾
+## V1.0 当前状态
 
-- 推送当前 CI 改动后，观察一次 GitHub Actions 全绿结果。
-- 数据库集成测试与关键页面响应式 / i18n 回归。
+- 当前仓库已经满足 Release Evidence 和验收手册中记录的 V1.0 验收门槛。
+- Webhook matcher 已补齐数组通配、`payload_exists`、`payload_not_equals`、`payload_regex` 等完整能力。
 
 ## 环境要求
 

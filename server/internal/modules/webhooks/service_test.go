@@ -89,7 +89,7 @@ func TestTriggerHandlerPassesSecurityHeaders(t *testing.T) {
 }
 
 func TestMatchRule(t *testing.T) {
-	payload := parsePayloadObject([]byte(`{"repository":{"name":"OpsPilot"},"ref":"refs/heads/main"}`))
+	payload := parsePayloadObject([]byte(`{"repository":{"name":"OpsPilot"},"ref":"refs/heads/main","commits":[{"id":"commit-1"},{"id":"commit-2"}]}`))
 	headers := map[string]string{
 		"X-GitHub-Event": "push",
 	}
@@ -118,6 +118,34 @@ func TestMatchRule(t *testing.T) {
 			name: "payload contains",
 			matcher: &Matcher{Conditions: []MatcherCondition{
 				{Type: "payload_contains", Path: "repository.name", Value: "Pilot"},
+			}},
+			wantOK: true,
+		},
+		{
+			name: "payload not equals",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "payload_not_equals", Path: "repository.name", Value: "Other"},
+			}},
+			wantOK: true,
+		},
+		{
+			name: "payload exists",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "payload_exists", Path: "repository.name"},
+			}},
+			wantOK: true,
+		},
+		{
+			name: "payload regex",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "payload_regex", Path: "repository.name", Value: "^Ops.*$"},
+			}},
+			wantOK: true,
+		},
+		{
+			name: "payload wildcard equals",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "payload_equals", Path: "commits[*].id", Value: "commit-2"},
 			}},
 			wantOK: true,
 		},
@@ -164,6 +192,27 @@ func TestMatchRule(t *testing.T) {
 			wantReason: "event_type_condition_mismatch",
 		},
 		{
+			name: "payload not equals mismatch",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "payload_not_equals", Path: "repository.name", Value: "OpsPilot"},
+			}},
+			wantReason: "payload_not_equals_mismatch:repository.name",
+		},
+		{
+			name: "payload exists mismatch",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "payload_exists", Path: "repository.owner"},
+			}},
+			wantReason: "payload_missing:repository.owner",
+		},
+		{
+			name: "payload regex mismatch",
+			matcher: &Matcher{Conditions: []MatcherCondition{
+				{Type: "payload_regex", Path: "repository.name", Value: "^api$"},
+			}},
+			wantReason: "payload_regex_mismatch:repository.name",
+		},
+		{
 			name: "ref mismatch",
 			matcher: &Matcher{Conditions: []MatcherCondition{
 				{Type: "ref_equals", Value: "refs/heads/release"},
@@ -193,7 +242,7 @@ func TestMatchRule(t *testing.T) {
 }
 
 func TestMatchRuleMultipleConditions(t *testing.T) {
-	payload := parsePayloadObject([]byte(`{"repository":{"name":"OpsPilot"},"ref":"refs/heads/main"}`))
+	payload := parsePayloadObject([]byte(`{"repository":{"name":"OpsPilot"},"ref":"refs/heads/main","commits":[{"id":"commit-1"},{"id":"commit-2"}]}`))
 	headers := map[string]string{
 		"X-GitHub-Event": "push",
 	}
@@ -203,6 +252,9 @@ func TestMatchRuleMultipleConditions(t *testing.T) {
 		{Type: "event_type_equals", Value: "push"},
 		{Type: "payload_equals", Path: "ref", Value: "refs/heads/main"},
 		{Type: "payload_contains", Path: "repository.name", Value: "Pilot"},
+		{Type: "payload_not_equals", Path: "repository.name", Value: "Other"},
+		{Type: "payload_exists", Path: "commits[*].id"},
+		{Type: "payload_regex", Path: "commits[*].id", Value: "^commit-[12]$"},
 		{Type: "ref_equals", Value: "refs/heads/main"},
 		{Type: "branch_equals", Value: "main"},
 	}}, "push", headers, payload)
@@ -232,6 +284,16 @@ func TestNormalizeMatcherRejectsInvalidCondition(t *testing.T) {
 	}
 }
 
+func TestNormalizeMatcherRejectsInvalidRegexCondition(t *testing.T) {
+	_, appErr := normalizeMatcher(&Matcher{Conditions: []MatcherCondition{{Type: "payload_regex", Path: "repository.name", Value: "["}}})
+	if appErr == nil {
+		t.Fatal("expected invalid regex matcher to fail")
+	}
+	if appErr.Code != 400505 {
+		t.Fatalf("unexpected app error: %+v", appErr)
+	}
+}
+
 func TestNormalizeMatcherSupportsEventAndRefConditions(t *testing.T) {
 	matcher, appErr := normalizeMatcher(&Matcher{Conditions: []MatcherCondition{
 		{Type: "event_type_equals", Key: "ignored", Path: "ignored", Value: "push"},
@@ -248,6 +310,21 @@ func TestNormalizeMatcherSupportsEventAndRefConditions(t *testing.T) {
 		if condition.Key != "" || condition.Path != "" {
 			t.Fatalf("expected key/path to be cleared, got %+v", condition)
 		}
+	}
+}
+
+func TestNormalizeMatcherSupportsPayloadExistsConditionWithoutValue(t *testing.T) {
+	matcher, appErr := normalizeMatcher(&Matcher{Conditions: []MatcherCondition{
+		{Type: "payload_exists", Path: "commits[*].id", Value: "ignored"},
+	}})
+	if appErr != nil {
+		t.Fatalf("normalizeMatcher returned error: %+v", appErr)
+	}
+	if len(matcher.Conditions) != 1 {
+		t.Fatalf("expected 1 condition, got %d", len(matcher.Conditions))
+	}
+	if matcher.Conditions[0].Value != "" || matcher.Conditions[0].Key != "" {
+		t.Fatalf("expected payload_exists to clear value/key, got %+v", matcher.Conditions[0])
 	}
 }
 

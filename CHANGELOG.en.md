@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- Completed the strict V1.0 webhook matcher scope with `payload_exists`, `payload_not_equals`, `payload_regex`, and JSONPath array wildcard paths, extended the webhook UI/OpenAPI/E2E smoke accordingly, and added the missing V1.0 deployment, acceptance, and UI guideline documents.
 - Fixed the CI E2E schedule smoke to use a timezone-neutral every-minute cron and disable the smoke schedule after the first fired trigger, avoiding false failures when the GitHub runner timezone differs from the schedule timezone.
 
 ### V1.0 Productization Validation Engineering

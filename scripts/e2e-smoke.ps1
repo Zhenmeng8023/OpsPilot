@@ -424,9 +424,28 @@ Assert-True (-not [string]::IsNullOrWhiteSpace($webhookSource.data.signingSecret
 $ruleMatcher = @{
   conditions = @(
     @{
+      type = "payload_exists"
+      path = "payload.service"
+    }
+    @{
       type  = "payload_equals"
       path  = "payload.service"
       value = "api"
+    },
+    @{
+      type  = "payload_not_equals"
+      path  = "payload.environment"
+      value = "prod"
+    },
+    @{
+      type  = "payload_regex"
+      path  = "payload.commits[*].id"
+      value = "^commit-[0-9]+$"
+    },
+    @{
+      type  = "payload_contains"
+      path  = "payload.commits[*].author.name"
+      value = "pilot"
     }
   )
 }
@@ -444,6 +463,10 @@ $payloadObject = @{
   payload = @{
     service     = "api"
     environment = "staging"
+    commits     = @(
+      @{ id = "commit-1"; author = @{ name = "ops" } },
+      @{ id = "commit-2"; author = @{ name = "pilot" } }
+    )
   }
 }
 $payloadText = $payloadObject | ConvertTo-Json -Depth 20 -Compress
@@ -455,7 +478,8 @@ $simulation = Invoke-OpsPilotJson -Method POST -Url "$ApiBaseUrl/api/v1/webhooks
 }
 Assert-Envelope $simulation "simulate webhook matcher"
 Assert-True ($simulation.data.matched -eq $true) "Expected webhook matcher simulation to match"
-Assert-True ($simulation.data.conditions.Count -eq 1 -and $simulation.data.conditions[0].matched -eq $true) "Expected webhook matcher condition to match"
+Assert-True ($simulation.data.conditions.Count -eq 5) "Expected all webhook matcher conditions to be evaluated"
+Assert-True ((@($simulation.data.conditions | Where-Object { $_.matched -eq $true }).Count) -eq 5) "Expected every webhook matcher condition to match"
 
 $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
 $nonce = New-UniqueName "nonce"

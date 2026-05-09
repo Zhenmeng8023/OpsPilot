@@ -751,12 +751,12 @@ paths:
                       type: array
                       items:
                         type: object
-                        required: [type, value]
+                        required: [type]
                         properties:
-                          type: { type: string, enum: [header_equals, payload_equals, payload_contains, event_type_equals, ref_equals, branch_equals] }
+                          type: { type: string, enum: [header_equals, payload_equals, payload_contains, payload_not_equals, payload_exists, payload_regex, event_type_equals, ref_equals, branch_equals] }
                           key: { type: string, example: X-GitHub-Event }
-                          path: { type: string, example: repository.name }
-                          value: { type: string, example: push }
+                          path: { type: string, example: commits[*].author.name }
+                          value: { type: string, example: push, description: Optional only for `payload_exists`; otherwise required. }
       responses:
         "200": { description: Updated rule summary }
   /api/v1/webhooks/rules/{id}/pause:
@@ -807,12 +807,12 @@ paths:
                       type: array
                       items:
                         type: object
-                        required: [type, value]
+                        required: [type]
                         properties:
-                          type: { type: string, enum: [header_equals, payload_equals, payload_contains, event_type_equals, ref_equals, branch_equals] }
+                          type: { type: string, enum: [header_equals, payload_equals, payload_contains, payload_not_equals, payload_exists, payload_regex, event_type_equals, ref_equals, branch_equals] }
                           key: { type: string }
                           path: { type: string }
-                          value: { type: string }
+                          value: { type: string, description: Optional only for `payload_exists`; otherwise required. }
       responses:
         "200": { description: Matcher simulation result }
   /api/v1/webhook-events:
@@ -1826,12 +1826,12 @@ components:
               type: array
               items:
                 type: object
-                required: [type, value]
+                required: [type]
                 properties:
-                  type: { type: string, enum: [header_equals, payload_equals, payload_contains, event_type_equals, ref_equals, branch_equals] }
+                  type: { type: string, enum: [header_equals, payload_equals, payload_contains, payload_not_equals, payload_exists, payload_regex, event_type_equals, ref_equals, branch_equals] }
                   key: { type: string, example: X-GitHub-Event }
-                  path: { type: string, example: repository.name }
-                  value: { type: string, example: push }
+                  path: { type: string, example: commits[*].author.name }
+                  value: { type: string, example: push, description: Optional only for `payload_exists`; otherwise required. }
     MetricsUploadPayload:
       type: object
       required: [metrics]

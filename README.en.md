@@ -2,6 +2,14 @@
 
 > Language: [简体中文](./README.md) | English (current)
 
+Release/security documents:
+- [Security Permission Matrix](./docs/security-permission-matrix.en.md) / [简体中文](./docs/security-permission-matrix.md)
+- [V1.0 Product Development Design](./docs/version/v1.0/v1.0-product-development-design.en.md) / [简体中文](./docs/version/v1.0/v1.0-product-development-design.md)
+- [V1.0 Release Evidence](./docs/v1.0-release-notes.en.md) / [简体中文](./docs/v1.0-release-notes.md)
+- [V1.0 Deployment Guide](./docs/v1.0-deployment-guide.en.md) / [简体中文](./docs/v1.0-deployment-guide.md)
+- [V1.0 Acceptance Guide](./docs/v1.0-acceptance-guide.en.md) / [简体中文](./docs/v1.0-acceptance-guide.md)
+- [V1.0 UI Guidelines](./docs/v1.0-ui-guidelines.en.md) / [简体中文](./docs/v1.0-ui-guidelines.md)
+
 OpsPilot is an automation operations platform built with Go + Gin + React + TypeScript. The project now covers Agent onboarding, script templates, task execution, live logs, Cron scheduling, Webhook triggering, basic metrics, alerts, notifications, RBAC, and audit logs.
 
 ## Current Stage
@@ -33,10 +41,10 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 - Task execution safety gate: high-risk command blocking, configurable command allowlist/denylist, maximum timeout enforcement, per-task Agent work directories, Agent-side log redaction before upload, and local process termination when canceling a running task.
 - Audit events for auth, scripts, tasks, agents, and role permission updates.
 
-## Remaining V1.0 Closure
+## V1.0 Status
 
-- Observe one green GitHub Actions run after the current CI changes are pushed.
-- Broader database integration tests and responsive/i18n regression for key frontend pages.
+- The current repository satisfies the V1.0 acceptance gates recorded in the Release Evidence and Acceptance Guide.
+- The webhook matcher scope now includes arrays, `payload_exists`, `payload_not_equals`, and `payload_regex`, in addition to the original matcher types.
 
 ## Requirements
 

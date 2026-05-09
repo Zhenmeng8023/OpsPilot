@@ -33,6 +33,13 @@ const DEFAULT_SIMULATION_PAYLOAD = JSON.stringify({
   ref: "refs/heads/main",
   repository: {
     name: "OpsPilot"
+  },
+  commits: [
+    { id: "commit-1", author: { name: "ops" } },
+    { id: "commit-2", author: { name: "pilot" } }
+  ],
+  deployment: {
+    environment: "staging"
   }
 }, null, 2);
 
@@ -183,8 +190,9 @@ export function WebhookPage() {
             ...item,
             ...patch,
             ...(patch.type === "header_equals" ? { path: "" } : {}),
-            ...(patch.type === "payload_equals" || patch.type === "payload_contains" ? { key: "" } : {}),
-            ...(patch.type === "event_type_equals" || patch.type === "ref_equals" || patch.type === "branch_equals" ? { key: "", path: "" } : {}),
+            ...(isPayloadMatcherType(patch.type) ? { key: "" } : {}),
+            ...(isEventMatcherType(patch.type) ? { key: "", path: "" } : {}),
+            ...(patch.type === "payload_exists" ? { value: "" } : {}),
             ...(patch.type === "" ? { key: "", path: "", value: "" } : {})
           }
         : item
@@ -254,6 +262,15 @@ export function WebhookPage() {
     }
     if (value.startsWith("payload_contains_mismatch:")) {
       return t("webhooks.reasonPayloadContainsMismatch").replace("{value}", value.slice("payload_contains_mismatch:".length));
+    }
+    if (value.startsWith("payload_not_equals_mismatch:")) {
+      return t("webhooks.reasonPayloadNotEqualsMismatch").replace("{value}", value.slice("payload_not_equals_mismatch:".length));
+    }
+    if (value.startsWith("payload_regex_mismatch:")) {
+      return t("webhooks.reasonPayloadRegexMismatch").replace("{value}", value.slice("payload_regex_mismatch:".length));
+    }
+    if (value.startsWith("payload_missing:")) {
+      return t("webhooks.reasonPayloadMissing").replace("{value}", value.slice("payload_missing:".length));
     }
     if (value === "event_type_condition_mismatch") {
       return t("webhooks.reasonEventTypeConditionMismatch");
@@ -417,6 +434,9 @@ export function WebhookPage() {
                       <option value="header_equals">header_equals</option>
                       <option value="payload_equals">payload_equals</option>
                       <option value="payload_contains">payload_contains</option>
+                      <option value="payload_not_equals">payload_not_equals</option>
+                      <option value="payload_exists">payload_exists</option>
+                      <option value="payload_regex">payload_regex</option>
                       <option value="event_type_equals">event_type_equals</option>
                       <option value="ref_equals">ref_equals</option>
                       <option value="branch_equals">branch_equals</option>
@@ -428,13 +448,13 @@ export function WebhookPage() {
                       updateMatcherDraft(index, { key: event.target.value });
                     }} placeholder="X-GitHub-Event" /></label>
                   ) : null}
-                  {draft.type === "payload_equals" || draft.type === "payload_contains" ? (
+                  {isPayloadMatcherType(draft.type) ? (
                     <label>{t("webhooks.matcherPath")}<input value={draft.path} onChange={(event) => {
                       setMatcherError("");
                       updateMatcherDraft(index, { path: event.target.value });
-                    }} placeholder="repository.name" /></label>
+                    }} placeholder="commits[*].author.name" /></label>
                   ) : null}
-                  {draft.type ? (
+                  {draft.type && matcherTypeRequiresValue(draft.type) ? (
                     <label>{t("webhooks.matcherValue")}<input value={draft.value} onChange={(event) => {
                       setMatcherError("");
                       updateMatcherDraft(index, { value: event.target.value });
@@ -488,7 +508,7 @@ export function WebhookPage() {
             <button type="submit" disabled={simulateMatcherMutation.isPending}>{t("webhooks.simulateMatcherAction")}</button>
           </form>
           {simulateMatcherMutation.isError ? <p className="form-error">{simulateMatcherMutation.error.message}</p> : null}
-          {simulatorResult ? <MatcherSimulationPanel result={simulatorResult} ruleName={currentRuleForSimulation?.name} t={t} /> : null}
+          {simulatorResult ? <MatcherSimulationPanel result={simulatorResult} ruleName={currentRuleForSimulation?.name} t={t} formatReason={formatMatchReason} /> : null}
         </section>
       ) : null}
 
@@ -640,12 +660,12 @@ export function WebhookPage() {
   );
 }
 
-function MatcherSimulationPanel({ result, ruleName, t }: { result: WebhookMatcherSimulationResult; ruleName?: string; t: (key: string) => string }) {
+function MatcherSimulationPanel({ result, ruleName, t, formatReason }: { result: WebhookMatcherSimulationResult; ruleName?: string; t: (key: string) => string; formatReason: (reason?: string) => string }) {
   return (
     <div className="event-payload-stack">
       <div className="event-payload">
         <strong>{ruleName || result.ruleName || t("webhooks.matcherResult")}</strong>
-        <small>{result.matched ? t("common.status.matched") : result.reason || t("common.status.failed")}</small>
+        <small>{result.matched ? t("common.status.matched") : formatReason(result.reason) || t("common.status.failed")}</small>
       </div>
       <DataTable empty={result.conditions.length === 0} emptyMessage={t("webhooks.noConditionsEvaluated")}>
         <table>
@@ -663,7 +683,7 @@ function MatcherSimulationPanel({ result, ruleName, t }: { result: WebhookMatche
                 <td><strong>{condition.type}</strong><small>{condition.key || condition.path || condition.value}</small></td>
                 <td><span className={`status-chip status-${condition.matched ? "success" : "failed"}`}>{condition.matched ? t("common.status.matched") : t("common.status.failed")}</span></td>
                 <td>{condition.actual || "-"}</td>
-                <td>{condition.reason || "-"}</td>
+                <td>{formatReason(condition.reason)}</td>
               </tr>
             ))}
           </tbody>
@@ -687,21 +707,27 @@ function buildRuleMatcher(drafts: MatcherDraft[]): { ok: true; matcher?: { condi
     if (!type && !key && !path && !value) {
       continue;
     }
-    if (!type || !value) {
+    if (!type) {
       return { ok: false };
     }
     if (type === "header_equals") {
-      if (!key) {
+      if (!key || !value) {
         return { ok: false };
       }
       conditions.push({ type, key, value });
       continue;
     }
     if (type === "event_type_equals" || type === "ref_equals" || type === "branch_equals") {
+      if (!value) {
+        return { ok: false };
+      }
       conditions.push({ type, value });
       continue;
     }
-    if (!path) {
+    if (!isPayloadMatcherType(type) || !path) {
+      return { ok: false };
+    }
+    if (matcherTypeRequiresValue(type) && !value) {
       return { ok: false };
     }
     conditions.push({ type, path, value });
@@ -733,6 +759,9 @@ function formatMatcher(matcher?: { conditions: Array<{ type: string; key?: strin
     if (condition.type === "event_type_equals" || condition.type === "ref_equals" || condition.type === "branch_equals") {
       return `${condition.type}=${condition.value}`;
     }
+    if (condition.type === "payload_exists") {
+      return `${condition.type}:${condition.path}`;
+    }
     return `${condition.type}:${condition.path}=${condition.value}`;
   }).join(" AND ");
 }
@@ -744,7 +773,25 @@ function matcherValuePlaceholder(type: MatcherDraft["type"]) {
   if (type === "ref_equals") {
     return "refs/heads/main";
   }
+  if (type === "payload_regex") {
+    return "^commit-[0-9]+$";
+  }
+  if (type === "payload_not_equals") {
+    return "prod";
+  }
   return "main";
+}
+
+function matcherTypeRequiresValue(type: MatcherDraft["type"] | undefined) {
+  return Boolean(type) && type !== "payload_exists";
+}
+
+function isPayloadMatcherType(type: MatcherDraft["type"] | undefined) {
+  return type === "payload_equals" || type === "payload_contains" || type === "payload_not_equals" || type === "payload_exists" || type === "payload_regex";
+}
+
+function isEventMatcherType(type: MatcherDraft["type"] | undefined) {
+  return type === "event_type_equals" || type === "ref_equals" || type === "branch_equals";
 }
 
 function parseJSONMap(value: string) {
