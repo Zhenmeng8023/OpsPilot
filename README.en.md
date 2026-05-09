@@ -35,8 +35,7 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 
 ## Remaining V1.0 Closure
 
-- Final Docker-capable compose config and API/Web image build validation.
-- One-command E2E smoke validation against a full running environment.
+- Observe one green GitHub Actions run after the current CI changes are pushed.
 - Broader database integration tests and responsive/i18n regression for key frontend pages.
 
 ## Requirements
@@ -104,6 +103,8 @@ METRIC_ROLLUP_RETENTION_DAYS=90
 NOTIFICATION_DISPATCH_INTERVAL_SECONDS=15
 NOTIFICATION_HTTP_TIMEOUT_SECONDS=10
 ```
+
+If the database server timezone differs from the API process local timezone, do not keep `loc=Local`. Set the DSN `loc` to the matching IANA timezone, for example `loc=Asia%2FShanghai`, otherwise time-based features such as wait nodes and schedules can drift in Docker or cross-timezone environments.
 
 Production safeguards:
 

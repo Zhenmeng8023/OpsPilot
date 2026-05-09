@@ -13,8 +13,9 @@
 - Alert suppression/routing 支持按 Host Group 匹配，Metrics rollup/retention worker 已接入后台定时维护。
 - README、CHANGELOG、V1.0 Release Evidence、项目 summary、OpenAPI、UML 与 V1.0 设计文档同步当前 V1.0 验收状态。
 - 新增 `scripts/openapi-router-check.ps1`，从 Go router/handler 源码提取实际路由并与 `server/docs/openapi/openapi.yaml` 对比。
-- 新增 `scripts/e2e-smoke.ps1`，用于运行中环境的 health、version、login 和核心鉴权路由 smoke 检查。
-- CI 增加 OpenAPI/router diff 和 `docker compose --profile full config` 验证。
+- 补强 Docker/Compose 发布验证：移除 Dockerfile syntax frontend 依赖，Compose 改为参数化发布端口并移除固定容器名，同时为 API/Agent 补齐时区配置，修正 Docker 下 wait/schedule 的时间漂移问题。
+- 扩展 `scripts/e2e-smoke.ps1` 为全栈发布 smoke，覆盖 secret masking、audit export/retention、manual/schedule/webhook workflow、run cancel/retry、matcher simulator 与 webhook replay。
+- CI 现已覆盖 OpenAPI/router diff、`docker compose --profile full config`、full-stack Compose smoke，以及 notification config 落盘加密断言。
 - 新增 `docs/v1.0-release-notes.md` 与英文版，记录 V1.0 验收命令、结果、环境和剩余阻塞项。
 - 修正 README 中 V1.0 设计书路径，并补充 V1.0 验收记录入口。
 - Workflow 权限收敛为 `workflow:manage`，并保留 `workflow:write` / `workflow:cancel` 兼容别名。

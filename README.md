@@ -38,8 +38,7 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 
 ## V1.0 剩余收尾
 
-- Docker 可用环境下的 compose config 与 API/Web image build 终验。
-- 完整运行环境下的一键 E2E smoke 验收。
+- 推送当前 CI 改动后，观察一次 GitHub Actions 全绿结果。
 - 数据库集成测试与关键页面响应式 / i18n 回归。
 
 ## 环境要求
@@ -122,6 +121,8 @@ METRIC_ROLLUP_RETENTION_DAYS=90
 NOTIFICATION_DISPATCH_INTERVAL_SECONDS=15
 NOTIFICATION_HTTP_TIMEOUT_SECONDS=10
 ```
+
+如果数据库服务时区与 API 进程本地时区不同，不要继续使用 `loc=Local`。请将 DSN 中的 `loc` 改成与数据库一致的 IANA 时区，例如 `loc=Asia%2FShanghai`，否则 wait/schedule 等依赖时间比较的功能在 Docker 或跨时区环境下可能出现偏差。
 
 生产环境安全约束：
 

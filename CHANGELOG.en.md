@@ -14,8 +14,9 @@
 - Alert suppression/routing now supports Host Group matching, and Metrics rollup/retention workers are wired into background maintenance.
 - README, CHANGELOG, V1.0 Release Evidence, project summary, OpenAPI, UML, and V1.0 design docs now reflect the current V1.0 acceptance status.
 - Added `scripts/openapi-router-check.ps1`, which extracts routes from Go router/handler source and compares them with `server/docs/openapi/openapi.yaml`.
-- Added `scripts/e2e-smoke.ps1` for health, version, login, and authenticated core-route smoke checks against a running environment.
-- CI now includes OpenAPI/router diff and `docker compose --profile full config` validation.
+- Hardened Docker/Compose release validation: removed the Dockerfile syntax frontend dependency, parameterized published ports, removed fixed Compose container names, and aligned API/Agent timezone handling so wait/schedule execution stays correct in Docker.
+- Expanded `scripts/e2e-smoke.ps1` into a full-stack release smoke covering secret masking, audit export/retention, manual/schedule/webhook workflow triggers, run cancel/retry, matcher simulation, and webhook replay.
+- CI now includes OpenAPI/router diff, `docker compose --profile full config`, full-stack Compose smoke, and encrypted notification-config-at-rest verification.
 - Added `docs/v1.0-release-notes.md` and the English version to record V1.0 validation commands, results, environment, and remaining blockers.
 - Fixed README V1.0 design document links and added the V1.0 release evidence entry.
 - Aligned Workflow permissions on `workflow:manage` while keeping `workflow:write` / `workflow:cancel` as compatibility aliases.

@@ -78,3 +78,40 @@ jobs:
 
       - name: Build Web image
         run: docker build -f web/Dockerfile .
+
+  e2e:
+    name: E2E Smoke
+    runs-on: ubuntu-latest
+    needs: [docker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start full stack
+        env:
+          SCHEDULE_SCAN_INTERVAL_SECONDS: 2
+          ALERT_SCAN_INTERVAL_SECONDS: 2
+          NOTIFICATION_DISPATCH_INTERVAL_SECONDS: 2
+          METRIC_ROLLUP_INTERVAL_SECONDS: 3600
+          METRIC_RETENTION_INTERVAL_SECONDS: 3600
+        run: docker compose -p opspilot-e2e -f deploy/docker-compose.yml --profile full up --build -d
+
+      - name: Run E2E smoke
+        shell: pwsh
+        run: ./scripts/e2e-smoke.ps1 -ApiBaseUrl http://127.0.0.1:8080 -ScheduleTimeoutSeconds 180
+
+      - name: Verify encrypted notification config at rest
+        shell: bash
+        run: |
+          value="$(docker compose -p opspilot-e2e -f deploy/docker-compose.yml exec -T mysql sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -Nse "SELECT config FROM notification_channels WHERE config IS NOT NULL ORDER BY id DESC LIMIT 1"' )"
+          test -n "$value"
+          echo "$value" | grep '"_encrypted"'
+          ! echo "$value" | grep -q 'smoke-channel-secret'
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -p opspilot-e2e -f deploy/docker-compose.yml --profile full logs --no-color
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -p opspilot-e2e -f deploy/docker-compose.yml --profile full down -v

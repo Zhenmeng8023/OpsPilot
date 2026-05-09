@@ -3,7 +3,6 @@ name: opspilot
 services:
   mysql:
     image: mysql:8.0.39
-    container_name: opspilot-mysql
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
@@ -17,7 +16,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-opspilot_root}
       TZ: Asia/Shanghai
     ports:
-      - "3306:3306"
+      - "${MYSQL_PUBLISHED_PORT:-3306}:3306"
     volumes:
       - opspilot-mysql-data:/var/lib/mysql
     healthcheck:
@@ -28,10 +27,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: opspilot-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PUBLISHED_PORT:-6379}:6379"
     volumes:
       - opspilot-redis-data:/data
     healthcheck:
@@ -42,7 +40,6 @@ services:
 
   migrate:
     image: mysql:8.0.39
-    container_name: opspilot-migrate
     profiles: ["full"]
     depends_on:
       mysql:
@@ -71,7 +68,6 @@ services:
         APP_VERSION: ${APP_VERSION:-}
         APP_COMMIT: ${APP_COMMIT:-}
         APP_BUILD_TIME: ${APP_BUILD_TIME:-}
-    container_name: opspilot-api
     profiles: ["full"]
     depends_on:
       mysql:
@@ -83,6 +79,7 @@ services:
     environment:
       APP_NAME: OpsPilot
       APP_ENV: ${APP_ENV:-local}
+      TZ: Asia/Shanghai
       APP_VERSION: ${APP_VERSION:-}
       APP_COMMIT: ${APP_COMMIT:-}
       APP_BUILD_TIME: ${APP_BUILD_TIME:-}
@@ -109,7 +106,7 @@ services:
       NOTIFICATION_DISPATCH_INTERVAL_SECONDS: ${NOTIFICATION_DISPATCH_INTERVAL_SECONDS:-15}
       NOTIFICATION_HTTP_TIMEOUT_SECONDS: ${NOTIFICATION_HTTP_TIMEOUT_SECONDS:-10}
     ports:
-      - "8080:8080"
+      - "${API_PUBLISHED_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
       interval: 30s
@@ -122,13 +119,12 @@ services:
       dockerfile: web/Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
-    container_name: opspilot-web
     profiles: ["full"]
     depends_on:
       api:
         condition: service_started
     ports:
-      - "5173:80"
+      - "${WEB_PUBLISHED_PORT:-5173}:80"
 
   agent:
     build:
@@ -138,7 +134,6 @@ services:
         APP_VERSION: ${APP_VERSION:-}
         APP_COMMIT: ${APP_COMMIT:-}
         APP_BUILD_TIME: ${APP_BUILD_TIME:-}
-    container_name: opspilot-agent
     profiles: ["full"]
     depends_on:
       api:
@@ -146,6 +141,7 @@ services:
     command: ["/app/agent"]
     environment:
       APP_ENV: ${APP_ENV:-local}
+      TZ: Asia/Shanghai
       AGENT_API_BASE_URL: http://api:8080
       AGENT_BOOTSTRAP_SECRET: ${AGENT_BOOTSTRAP_SECRET:-change-me-agent-bootstrap-secret}
       AGENT_WORK_DIR: /app/.tmp/agent-work
