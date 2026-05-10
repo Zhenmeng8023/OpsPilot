@@ -193,6 +193,7 @@ go vet ./...
 
 ```powershell
 cd D:\+\1108026_rust_go\OpsPilot\web
+npm ci --include=optional --no-audit --no-fund --registry=https://registry.npmjs.org
 npm run build
 ```
 
