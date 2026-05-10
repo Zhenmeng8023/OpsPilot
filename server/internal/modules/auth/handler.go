@@ -363,7 +363,7 @@ func ClaimsFromContext(c *gin.Context) (*jwtplatform.Claims, bool) {
 }
 
 func writeAppError(c *gin.Context, appErr *apperror.Error) {
-	response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+	response.FailAppError(c, appErr)
 }
 
 func traceID(c *gin.Context) string {

@@ -2,12 +2,15 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import {
+  compareDiagnostics,
   createHostGroup,
   createMaintenanceWindow,
   createEnrollmentToken,
   createTag,
   disableAgent,
   disableHostGroupAgents,
+  getDisableHostGroupAgentsPlan,
+  getFleetDistribution,
   listAgentDiagnostics,
   listHostGroupDiagnostics,
   listAgents,
@@ -23,7 +26,7 @@ import {
   updateHostGroup,
   updateMaintenanceWindow
 } from "../../api/agents";
-import type { Agent, EnrollmentTokenDetail, HostGroup, MaintenanceWindow, TagSummary } from "../../api/types";
+import type { Agent, EnrollmentTokenDetail, HostGroup, HostGroupBatchPlan, MaintenanceWindow, TagSummary } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 
 const statusOrder = ["online", "offline", "disabled", "registered", "upgrading"];
@@ -63,6 +66,8 @@ export function AgentManagementPage() {
   });
   const [editingHostGroupId, setEditingHostGroupId] = useState("");
   const [selectedBatchGroupId, setSelectedBatchGroupId] = useState("");
+  const [plannerOptions, setPlannerOptions] = useState({ batchSize: 50, maxBatches: 20, stopOnFailure: true });
+  const [diffPair, setDiffPair] = useState({ left: "", right: "" });
 
   const agentsQuery = useQuery({
     queryKey: ["agents"],
@@ -80,6 +85,10 @@ export function AgentManagementPage() {
     queryKey: ["agentDiagnostics"],
     queryFn: listAgentDiagnostics
   });
+  const fleetDistributionQuery = useQuery({
+    queryKey: ["fleetDistribution"],
+    queryFn: getFleetDistribution
+  });
   const maintenanceQuery = useQuery({
     queryKey: ["maintenanceWindows"],
     queryFn: listMaintenanceWindows
@@ -96,6 +105,16 @@ export function AgentManagementPage() {
     queryKey: ["hostGroupDiagnostics", selectedBatchGroupId],
     queryFn: () => listHostGroupDiagnostics(selectedBatchGroupId),
     enabled: selectedBatchGroupId !== ""
+  });
+  const disablePlanQuery = useQuery({
+    queryKey: ["hostGroupDisablePlan", selectedBatchGroupId, plannerOptions],
+    queryFn: () => getDisableHostGroupAgentsPlan(selectedBatchGroupId, plannerOptions),
+    enabled: selectedBatchGroupId !== ""
+  });
+  const diagnosticDiffQuery = useQuery({
+    queryKey: ["diagnosticDiff", diffPair],
+    queryFn: () => compareDiagnostics(diffPair.left, diffPair.right),
+    enabled: diffPair.left !== "" && diffPair.right !== ""
   });
 
   const disableAgentMutation = useMutation({
@@ -191,10 +210,13 @@ export function AgentManagementPage() {
   const hosts = hostsQuery.data?.items ?? [];
   const enrollmentTokens = enrollmentQuery.data ?? [];
   const diagnostics = diagnosticsQuery.data ?? [];
+  const fleetDistribution = fleetDistributionQuery.data;
   const maintenanceWindows = maintenanceQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
   const hostGroups = hostGroupsQuery.data ?? [];
   const hostGroupDiagnostics = hostGroupDiagnosticsQuery.data ?? [];
+  const disablePlan = disablePlanQuery.data;
+  const diagnosticDiff = diagnosticDiffQuery.data;
   const counts = useMemo(() => summarizeAgents(agents), [agents]);
 
   async function copyToken(token: string) {
@@ -261,6 +283,28 @@ export function AgentManagementPage() {
         ))}
       </section>
 
+      <section className="panel table-panel">
+        <div className="panel-title">
+          <h3>{t("agents.fleetInsights")}</h3>
+          <span>{fleetDistribution?.totalAgents ?? 0} {t("common.total")}</span>
+        </div>
+        <div className="summary-grid">
+          {(fleetDistribution?.versions ?? []).slice(0, 4).map((item) => (
+            <div key={item.version} className="summary-card">
+              <span>{t("common.version")}</span>
+              <strong>{item.version}</strong>
+              <small>{item.count}</small>
+            </div>
+          ))}
+        </div>
+        <div className="chip-row">
+          {(fleetDistribution?.staleReasons ?? []).map((item) => (
+            <span className="tag-badge" key={item.reason}>{item.reason}: {item.count}</span>
+          ))}
+        </div>
+        {fleetDistributionQuery.isError ? <p className="form-error">{String(fleetDistributionQuery.error.message)}</p> : null}
+      </section>
+
       <section className="agent-grid">
         <section className="panel table-panel">
           <div className="panel-title">
@@ -325,11 +369,34 @@ export function AgentManagementPage() {
               <option value="">{t("agents.hostGroups")}</option>
               {hostGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
             </select>
+            <input
+              type="number"
+              min={1}
+              value={plannerOptions.batchSize}
+              onChange={(event) => setPlannerOptions((current) => ({ ...current, batchSize: Number(event.target.value) || 1 }))}
+              placeholder="batchSize"
+            />
+            <input
+              type="number"
+              min={1}
+              value={plannerOptions.maxBatches}
+              onChange={(event) => setPlannerOptions((current) => ({ ...current, maxBatches: Number(event.target.value) || 1 }))}
+              placeholder="maxBatches"
+            />
+            <label className="inline-check">
+              <input
+                type="checkbox"
+                checked={plannerOptions.stopOnFailure}
+                onChange={(event) => setPlannerOptions((current) => ({ ...current, stopOnFailure: event.target.checked }))}
+              />
+              {t("agents.stopOnFailure")}
+            </label>
             <button type="button" disabled={!selectedBatchGroupId || disableHostGroupAgentsMutation.isPending} onClick={() => disableHostGroupAgentsMutation.mutate(selectedBatchGroupId)}>
               {t("agents.disable")}
             </button>
           </div>
           {disableHostGroupAgentsMutation.data ? <p className="empty-state">{disableHostGroupAgentsMutation.data.groupName}: {disableHostGroupAgentsMutation.data.affectedAgents} Agents / {disableHostGroupAgentsMutation.data.affectedHosts} Hosts</p> : null}
+          {disablePlan ? <BatchPlanView plan={disablePlan} /> : null}
           {selectedBatchGroupId ? (
             <div className="data-table">
               <table>
@@ -365,6 +432,7 @@ export function AgentManagementPage() {
           {!hostGroupsQuery.isLoading && hostGroups.length === 0 ? <p className="empty-state">{t("agents.emptyHostGroups")}</p> : null}
           {hostGroupsQuery.isError ? <p className="form-error">{String(hostGroupsQuery.error.message)}</p> : null}
           {hostGroupDiagnosticsQuery.isError ? <p className="form-error">{String(hostGroupDiagnosticsQuery.error.message)}</p> : null}
+          {disablePlanQuery.isError ? <p className="form-error">{String(disablePlanQuery.error.message)}</p> : null}
           {createHostGroupMutation.isError ? <p className="form-error">{String(createHostGroupMutation.error.message)}</p> : null}
           {updateHostGroupMutation.isError ? <p className="form-error">{String(updateHostGroupMutation.error.message)}</p> : null}
           {disableHostGroupAgentsMutation.isError ? <p className="form-error">{String(disableHostGroupAgentsMutation.error.message)}</p> : null}
@@ -377,6 +445,38 @@ export function AgentManagementPage() {
             <h3>{t("agents.diagnostics")}</h3>
             <span>{diagnostics.length} {t("common.total")}</span>
           </div>
+          <div className="inline-form">
+            <select value={diffPair.left} onChange={(event) => setDiffPair((current) => ({ ...current, left: event.target.value }))}>
+              <option value="">{t("agents.diffLeft")}</option>
+              {diagnostics.map((item) => <option key={`left-${item.id}`} value={item.id}>{item.agentName} / {item.reportedAt}</option>)}
+            </select>
+            <select value={diffPair.right} onChange={(event) => setDiffPair((current) => ({ ...current, right: event.target.value }))}>
+              <option value="">{t("agents.diffRight")}</option>
+              {diagnostics.map((item) => <option key={`right-${item.id}`} value={item.id}>{item.agentName} / {item.reportedAt}</option>)}
+            </select>
+          </div>
+          {diagnosticDiff ? (
+            <div className="data-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("agents.diffField")}</th>
+                    <th>{diagnosticDiff.left.agentName}</th>
+                    <th>{diagnosticDiff.right.agentName}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {diagnosticDiff.differences.map((item) => (
+                    <tr key={item.field}>
+                      <td><strong>{item.field}</strong></td>
+                      <td><small>{item.left || "-"}</small></td>
+                      <td><small>{item.right || "-"}</small></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
           <div className="data-table">
             <table>
               <thead>
@@ -405,6 +505,7 @@ export function AgentManagementPage() {
           </div>
           {!diagnosticsQuery.isLoading && diagnostics.length === 0 ? <p className="empty-state">{t("agents.emptyDiagnostics")}</p> : null}
           {diagnosticsQuery.isError ? <p className="form-error">{String(diagnosticsQuery.error.message)}</p> : null}
+          {diagnosticDiffQuery.isError ? <p className="form-error">{String(diagnosticDiffQuery.error.message)}</p> : null}
         </section>
 
         <section className="panel table-panel">
@@ -700,6 +801,40 @@ function TagRow({ tags }: { tags: TagSummary[] }) {
 
 function TagBadge({ tag }: { tag: TagSummary }) {
   return <span className="tag-badge" style={tag.color ? { borderColor: tag.color, color: tag.color } : undefined}>{tag.name}</span>;
+}
+
+function BatchPlanView({ plan }: { plan: HostGroupBatchPlan }) {
+  return (
+    <div className="event-payload">
+      <strong>{plan.groupName}</strong>
+      <small>
+        {plan.totalAgents} agents / {plan.totalHosts} hosts / {plan.batches.length} batches
+      </small>
+      {plan.truncated ? <small>truncated, remaining {plan.remainingAgents}</small> : null}
+      <div className="data-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Batch</th>
+              <th>Agents</th>
+              <th>Hosts</th>
+              <th>Sample IDs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plan.batches.map((batch) => (
+              <tr key={`batch-${batch.index}`}>
+                <td>{batch.index}</td>
+                <td>{batch.agentCount}</td>
+                <td>{batch.hostCount}</td>
+                <td><small>{batch.agentIds.slice(0, 4).join(", ")}</small></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 function selectedValues(select: HTMLSelectElement) {

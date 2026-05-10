@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,8 +24,10 @@ import (
 	"opspilot/server/internal/modules/schedules"
 	"opspilot/server/internal/modules/scripts"
 	"opspilot/server/internal/modules/tasks"
+	"opspilot/server/internal/modules/tracecenter"
 	"opspilot/server/internal/modules/webhooks"
 	"opspilot/server/internal/modules/workflows"
+	"opspilot/server/internal/platform/migrations"
 	"opspilot/server/internal/shared/response"
 )
 
@@ -49,9 +52,9 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 	router.Use(middleware.AccessLog(log))
 
 	router.GET("/health", func(c *gin.Context) {
-		httpStatus, data := healthData(c.Request.Context(), cfg, deps)
+		httpStatus, data, errMessage := healthData(c.Request.Context(), cfg, deps)
 		if httpStatus != http.StatusOK {
-			response.Fail(c, httpStatus, 503001, "service dependencies unavailable")
+			response.Fail(c, httpStatus, 503001, errMessage)
 			return
 		}
 		response.Success(c, data)
@@ -85,6 +88,7 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 		workflows.NewHandler(workflows.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 		notifications.NewHandler(notifications.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 		audits.NewHandler(audits.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
+		tracecenter.NewHandler(tracecenter.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 	}
 
 	router.NoRoute(func(c *gin.Context) {
@@ -105,20 +109,38 @@ func versionData(cfg config.Config) gin.H {
 	}
 }
 
-func healthData(parent context.Context, cfg config.Config, deps Dependencies) (int, gin.H) {
+func healthData(parent context.Context, cfg config.Config, deps Dependencies) (int, gin.H, string) {
 	ctx, cancel := context.WithTimeout(parent, time.Second)
 	defer cancel()
 
 	dependencyStatus := gin.H{}
 	httpStatus := http.StatusOK
+	failures := make([]string, 0, 2)
 
 	if deps.DB == nil {
 		dependencyStatus["database"] = "not_configured"
 	} else if err := pingDB(ctx, deps.DB); err != nil {
 		dependencyStatus["database"] = "unavailable"
 		httpStatus = http.StatusServiceUnavailable
+		failures = append(failures, "database ping failed: "+err.Error())
 	} else {
 		dependencyStatus["database"] = "ok"
+		schemaStatus, err := migrations.Verify(ctx, deps.DB)
+		if err != nil {
+			dependencyStatus["schema"] = "unavailable"
+			httpStatus = http.StatusServiceUnavailable
+			failures = append(failures, "schema verify failed: "+err.Error())
+		} else if !schemaStatus.Ready {
+			dependencyStatus["schema"] = "invalid"
+			dependencyStatus["schemaDetails"] = gin.H{
+				"missingTables":     schemaStatus.MissingTables,
+				"missingMigrations": schemaStatus.MissingMigrations,
+			}
+			httpStatus = http.StatusServiceUnavailable
+			failures = append(failures, schemaStatus.Message())
+		} else {
+			dependencyStatus["schema"] = "ok"
+		}
 	}
 
 	if deps.Redis == nil {
@@ -126,6 +148,7 @@ func healthData(parent context.Context, cfg config.Config, deps Dependencies) (i
 	} else if err := deps.Redis.Ping(ctx).Err(); err != nil {
 		dependencyStatus["redis"] = "unavailable"
 		httpStatus = http.StatusServiceUnavailable
+		failures = append(failures, "redis ping failed: "+err.Error())
 	} else {
 		dependencyStatus["redis"] = "ok"
 	}
@@ -135,6 +158,11 @@ func healthData(parent context.Context, cfg config.Config, deps Dependencies) (i
 		status = "degraded"
 	}
 
+	message := "service dependencies unavailable"
+	if len(failures) > 0 {
+		message = message + ": " + strings.Join(failures, "; ")
+	}
+
 	return httpStatus, gin.H{
 		"status":  status,
 		"service": cfg.App.Name,
@@ -142,7 +170,7 @@ func healthData(parent context.Context, cfg config.Config, deps Dependencies) (i
 		"env":     cfg.App.Env,
 		"time":    time.Now().Format(time.RFC3339),
 		"checks":  dependencyStatus,
-	}
+	}, message
 }
 
 func pingDB(ctx context.Context, db *gorm.DB) error {

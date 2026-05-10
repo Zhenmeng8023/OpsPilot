@@ -3,6 +3,7 @@ package incidents
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/shared/apperror"
+	"opspilot/server/internal/shared/audit"
 )
 
 type Service struct {
@@ -22,12 +24,44 @@ type ListInput struct {
 	Severity string
 }
 
+type AuditContext struct {
+	ActorUID      string
+	IP            string
+	UserAgent     string
+	TraceID       string
+	RequestMethod string
+	RequestPath   string
+}
+
+type LifecycleUpdateInput struct {
+	Owner          string `json:"owner"`
+	ImpactScope    string `json:"impactScope"`
+	RootCauseClass string `json:"rootCauseClass"`
+	Postmortem     string `json:"postmortem"`
+	Audit          AuditContext
+}
+
+type MergeInput struct {
+	TargetIncidentID string `json:"targetIncidentId"`
+	Reason           string `json:"reason"`
+	Audit            AuditContext
+}
+
+type CloseInput struct {
+	Reason string `json:"reason"`
+	Audit  AuditContext
+}
+
 type Summary struct {
 	ID          string `json:"id"`
 	AlertID     string `json:"alertId,omitempty"`
 	Title       string `json:"title"`
 	Severity    string `json:"severity"`
 	Status      string `json:"status"`
+	Owner       string `json:"owner,omitempty"`
+	ImpactScope string `json:"impactScope,omitempty"`
+	RootCause   string `json:"rootCause,omitempty"`
+	MergedInto  string `json:"mergedInto,omitempty"`
 	RuleID      string `json:"ruleId,omitempty"`
 	RuleName    string `json:"ruleName,omitempty"`
 	HostID      string `json:"hostId,omitempty"`
@@ -50,6 +84,7 @@ type Event struct {
 
 type Detail struct {
 	Summary
+	Postmortem string  `json:"postmortem,omitempty"`
 	Events []Event `json:"events"`
 }
 
@@ -69,10 +104,19 @@ type incidentRecord struct {
 	Message     sql.NullString
 	Severity    string
 	Status      string
+	Metadata    sql.NullString
 	FirstSeenAt string
 	LastSeenAt  string
 	ResolvedAt  sql.NullString
 	AlertCount  int
+}
+
+type incidentMetadata struct {
+	Owner          string `json:"owner,omitempty"`
+	ImpactScope    string `json:"impactScope,omitempty"`
+	RootCauseClass string `json:"rootCauseClass,omitempty"`
+	Postmortem     string `json:"postmortem,omitempty"`
+	MergedInto     string `json:"mergedInto,omitempty"`
 }
 
 type eventRecord struct {
@@ -134,14 +178,244 @@ func (s *Service) Get(ctx context.Context, incidentID string) (Detail, *apperror
 	if err != nil {
 		return Detail{}, apperror.Wrap(http.StatusInternalServerError, 500903, "list incident timeline failed", err)
 	}
-	return Detail{Summary: summary(rows[0]), Events: events}, nil
+	meta := parseIncidentMetadata(rows[0].Metadata)
+	return Detail{Summary: summary(rows[0]), Postmortem: meta.Postmortem, Events: events}, nil
+}
+
+func (s *Service) UpdateLifecycle(ctx context.Context, incidentID string, input LifecycleUpdateInput) (Detail, *apperror.Error) {
+	incidentID = strings.TrimSpace(incidentID)
+	if incidentID == "" {
+		return Detail{}, apperror.New(http.StatusBadRequest, 400001, "incident id is required")
+	}
+	var updated Detail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, appErr := s.workspace(ctx)
+		if appErr != nil {
+			return appErr
+		}
+		rows, err := (&Service{db: tx, cfg: s.cfg}).queryIncidents(ctx, "WHERE i.workspace_id = ? AND i.uid = ? AND i.deleted_at IS NULL", workspace.ID, incidentID)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return apperror.New(http.StatusNotFound, 404901, "incident not found")
+		}
+		current := rows[0]
+		meta := parseIncidentMetadata(current.Metadata)
+		meta.Owner = limit(strings.TrimSpace(input.Owner), 128)
+		meta.ImpactScope = limit(strings.TrimSpace(input.ImpactScope), 1024)
+		meta.RootCauseClass = limit(strings.TrimSpace(input.RootCauseClass), 128)
+		meta.Postmortem = limit(strings.TrimSpace(input.Postmortem), 8192)
+
+		if err := tx.WithContext(ctx).Exec(
+			"UPDATE incidents SET metadata = ?, updated_at = NOW(3) WHERE id = ?",
+			marshalIncidentMetadata(meta), current.ID,
+		).Error; err != nil {
+			return err
+		}
+		actorID, _ := audit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err := tx.WithContext(ctx).Exec(
+			"INSERT INTO incident_events(incident_id, event_type, message, actor_id, payload) VALUES (?, 'lifecycle_updated', ?, ?, ?)",
+			current.ID, nullString("incident lifecycle updated"), actorID, marshalIncidentMetadata(meta),
+		).Error; err != nil {
+			return err
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "incident.lifecycle.update",
+			ResourceType:  "incident",
+			ResourceID:    sql.NullInt64{Int64: int64(current.ID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Metadata:      meta,
+		})
+		out, appErr := (&Service{db: tx, cfg: s.cfg}).Get(ctx, incidentID)
+		if appErr != nil {
+			return appErr
+		}
+		updated = out
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return Detail{}, appErr
+		}
+		return Detail{}, apperror.Wrap(http.StatusInternalServerError, 500906, "update incident lifecycle failed", txErr)
+	}
+	return updated, nil
+}
+
+func (s *Service) Merge(ctx context.Context, incidentID string, input MergeInput) (Detail, *apperror.Error) {
+	incidentID = strings.TrimSpace(incidentID)
+	targetID := strings.TrimSpace(input.TargetIncidentID)
+	if incidentID == "" || targetID == "" {
+		return Detail{}, apperror.New(http.StatusBadRequest, 400001, "incident id and targetIncidentId are required")
+	}
+	if incidentID == targetID {
+		return Detail{}, apperror.New(http.StatusBadRequest, 400902, "incident cannot be merged into itself")
+	}
+	var merged Detail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, appErr := s.workspace(ctx)
+		if appErr != nil {
+			return appErr
+		}
+		sourceRows, err := (&Service{db: tx, cfg: s.cfg}).queryIncidents(ctx, "WHERE i.workspace_id = ? AND i.uid = ? AND i.deleted_at IS NULL", workspace.ID, incidentID)
+		if err != nil {
+			return err
+		}
+		targetRows, err := (&Service{db: tx, cfg: s.cfg}).queryIncidents(ctx, "WHERE i.workspace_id = ? AND i.uid = ? AND i.deleted_at IS NULL", workspace.ID, targetID)
+		if err != nil {
+			return err
+		}
+		if len(sourceRows) == 0 || len(targetRows) == 0 {
+			return apperror.New(http.StatusNotFound, 404901, "incident not found")
+		}
+		source := sourceRows[0]
+		target := targetRows[0]
+
+		sourceMeta := parseIncidentMetadata(source.Metadata)
+		sourceMeta.MergedInto = target.UID
+		if err := tx.WithContext(ctx).Exec(
+			"UPDATE incidents SET status = 'resolved', resolved_at = NOW(3), last_seen_at = NOW(3), metadata = ?, updated_at = NOW(3) WHERE id = ?",
+			marshalIncidentMetadata(sourceMeta), source.ID,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`INSERT IGNORE INTO incident_alerts(incident_id, alert_id)
+			 SELECT ?, alert_id FROM incident_alerts WHERE incident_id = ?`,
+			target.ID, source.ID,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			"DELETE FROM incident_alerts WHERE incident_id = ?",
+			source.ID,
+		).Error; err != nil {
+			return err
+		}
+		actorID, _ := audit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		reason := strings.TrimSpace(input.Reason)
+		if reason == "" {
+			reason = "incident merged"
+		}
+		payload := map[string]string{"targetIncidentId": target.UID, "reason": reason}
+		if err := tx.WithContext(ctx).Exec(
+			"INSERT INTO incident_events(incident_id, event_type, message, actor_id, payload) VALUES (?, 'merged', ?, ?, ?)",
+			source.ID, nullString(reason), actorID, jsonNull(payload),
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Exec(
+			"INSERT INTO incident_events(incident_id, event_type, message, actor_id, payload) VALUES (?, 'merged_from', ?, ?, ?)",
+			target.ID, nullString(source.UID), actorID, jsonNull(map[string]string{"sourceIncidentId": source.UID}),
+		).Error; err != nil {
+			return err
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "incident.merge",
+			ResourceType:  "incident",
+			ResourceID:    sql.NullInt64{Int64: int64(source.ID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Metadata:      payload,
+		})
+		out, appErr := (&Service{db: tx, cfg: s.cfg}).Get(ctx, incidentID)
+		if appErr != nil {
+			return appErr
+		}
+		merged = out
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return Detail{}, appErr
+		}
+		return Detail{}, apperror.Wrap(http.StatusInternalServerError, 500907, "merge incident failed", txErr)
+	}
+	return merged, nil
+}
+
+func (s *Service) Close(ctx context.Context, incidentID string, input CloseInput) (Detail, *apperror.Error) {
+	incidentID = strings.TrimSpace(incidentID)
+	if incidentID == "" {
+		return Detail{}, apperror.New(http.StatusBadRequest, 400001, "incident id is required")
+	}
+	var closed Detail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, appErr := s.workspace(ctx)
+		if appErr != nil {
+			return appErr
+		}
+		rows, err := (&Service{db: tx, cfg: s.cfg}).queryIncidents(ctx, "WHERE i.workspace_id = ? AND i.uid = ? AND i.deleted_at IS NULL", workspace.ID, incidentID)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return apperror.New(http.StatusNotFound, 404901, "incident not found")
+		}
+		current := rows[0]
+		if err := tx.WithContext(ctx).Exec(
+			"UPDATE incidents SET status = 'resolved', resolved_at = NOW(3), last_seen_at = NOW(3), updated_at = NOW(3) WHERE id = ?",
+			current.ID,
+		).Error; err != nil {
+			return err
+		}
+		actorID, _ := audit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		reason := strings.TrimSpace(input.Reason)
+		if reason == "" {
+			reason = "incident closed"
+		}
+		if err := tx.WithContext(ctx).Exec(
+			"INSERT INTO incident_events(incident_id, event_type, message, actor_id, payload) VALUES (?, 'closed', ?, ?, ?)",
+			current.ID, nullString(reason), actorID, jsonNull(map[string]string{"reason": reason}),
+		).Error; err != nil {
+			return err
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "incident.close",
+			ResourceType:  "incident",
+			ResourceID:    sql.NullInt64{Int64: int64(current.ID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Metadata:      map[string]string{"reason": reason},
+		})
+		out, appErr := (&Service{db: tx, cfg: s.cfg}).Get(ctx, incidentID)
+		if appErr != nil {
+			return appErr
+		}
+		closed = out
+		return nil
+	})
+	if txErr != nil {
+		if appErr, ok := txErr.(*apperror.Error); ok {
+			return Detail{}, appErr
+		}
+		return Detail{}, apperror.Wrap(http.StatusInternalServerError, 500908, "close incident failed", txErr)
+	}
+	return closed, nil
 }
 
 func (s *Service) queryIncidents(ctx context.Context, where string, args ...interface{}) ([]incidentRecord, error) {
 	var rows []incidentRecord
 	err := s.db.WithContext(ctx).Raw(
 		`SELECT i.id, i.uid, MIN(a.uid) AS alert_uid, ar.uid AS rule_uid, ar.name AS rule_name, h.uid AS host_uid, h.name AS host_name,
-		        i.title, i.message, i.severity, i.status,
+		        i.title, i.message, i.severity, i.status, i.metadata,
 		        DATE_FORMAT(i.first_seen_at, '%Y-%m-%d %H:%i:%s') AS first_seen_at,
 		        DATE_FORMAT(i.last_seen_at, '%Y-%m-%d %H:%i:%s') AS last_seen_at,
 		        DATE_FORMAT(i.resolved_at, '%Y-%m-%d %H:%i:%s') AS resolved_at,
@@ -152,7 +426,7 @@ func (s *Service) queryIncidents(ctx context.Context, where string, args ...inte
 		   LEFT JOIN incident_alerts ia ON ia.incident_id = i.id
 		   LEFT JOIN alerts a ON a.id = ia.alert_id
 		  `+where+`
-		  GROUP BY i.id, i.uid, ar.uid, ar.name, h.uid, h.name, i.title, i.message, i.severity, i.status,
+		  GROUP BY i.id, i.uid, ar.uid, ar.name, h.uid, h.name, i.title, i.message, i.severity, i.status, i.metadata,
 		           i.first_seen_at, i.last_seen_at, i.resolved_at
 		  ORDER BY CASE i.status WHEN 'open' THEN 0 WHEN 'acknowledged' THEN 1 WHEN 'silenced' THEN 2 ELSE 3 END,
 		           i.last_seen_at DESC
@@ -204,12 +478,17 @@ func (s *Service) workspace(ctx context.Context) (workspaceRecord, *apperror.Err
 }
 
 func summary(row incidentRecord) Summary {
+	meta := parseIncidentMetadata(row.Metadata)
 	return Summary{
 		ID:          row.UID,
 		AlertID:     row.AlertUID.String,
 		Title:       row.Title,
 		Severity:    row.Severity,
 		Status:      row.Status,
+		Owner:       meta.Owner,
+		ImpactScope: meta.ImpactScope,
+		RootCause:   meta.RootCauseClass,
+		MergedInto:  meta.MergedInto,
 		RuleID:      row.RuleUID.String,
 		RuleName:    row.RuleName.String,
 		HostID:      row.HostUID.String,
@@ -220,4 +499,51 @@ func summary(row incidentRecord) Summary {
 		ResolvedAt:  row.ResolvedAt.String,
 		AlertCount:  row.AlertCount,
 	}
+}
+
+func parseIncidentMetadata(raw sql.NullString) incidentMetadata {
+	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return incidentMetadata{}
+	}
+	var out incidentMetadata
+	if err := json.Unmarshal([]byte(raw.String), &out); err != nil {
+		return incidentMetadata{}
+	}
+	out.Owner = strings.TrimSpace(out.Owner)
+	out.ImpactScope = strings.TrimSpace(out.ImpactScope)
+	out.RootCauseClass = strings.TrimSpace(out.RootCauseClass)
+	out.Postmortem = strings.TrimSpace(out.Postmortem)
+	out.MergedInto = strings.TrimSpace(out.MergedInto)
+	return out
+}
+
+func marshalIncidentMetadata(value incidentMetadata) sql.NullString {
+	bytes, err := json.Marshal(value)
+	if err != nil || string(bytes) == "null" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(bytes), Valid: true}
+}
+
+func nullString(value string) sql.NullString {
+	value = strings.TrimSpace(value)
+	return sql.NullString{String: value, Valid: value != ""}
+}
+
+func jsonNull(value interface{}) sql.NullString {
+	if value == nil {
+		return sql.NullString{}
+	}
+	bytes, err := json.Marshal(value)
+	if err != nil || string(bytes) == "null" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(bytes), Valid: true}
+}
+
+func limit(value string, max int) string {
+	if len(value) <= max {
+		return value
+	}
+	return value[:max]
 }

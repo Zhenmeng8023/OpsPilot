@@ -25,6 +25,10 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Vulnerability scan (Go)
+        shell: pwsh
+        run: ../scripts/govulncheck.ps1
+
       - name: Check migration pairs
         shell: pwsh
         run: ../scripts/migration-check.ps1 -SkipExecution
@@ -57,7 +61,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --include=optional --no-audit --no-fund
+
+      - name: Vulnerability scan (npm high+)
+        run: npm audit --audit-level=high --omit=dev --registry=https://registry.npmjs.org
 
       - name: Build
         run: npm run build
@@ -99,6 +106,45 @@ jobs:
       - name: Run E2E smoke
         shell: pwsh
         run: ./scripts/e2e-smoke.ps1 -ApiBaseUrl http://127.0.0.1:8080 -ScheduleTimeoutSeconds 180
+
+      - name: Verify schema migrations were recorded
+        shell: bash
+        run: |
+          recorded="$(docker compose -p opspilot-e2e -f deploy/docker-compose.yml exec -T mysql sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -Nse "SELECT COUNT(*) FROM schema_migrations WHERE status IN (\"applied\",\"legacy\",\"skipped\")"' )"
+          test "$recorded" -ge 6
+
+      - name: Set up Node.js for Playwright smoke
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci --include=optional --no-audit --no-fund
+
+      - name: Install Playwright browser
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright smoke
+        working-directory: web
+        env:
+          SMOKE_BASE_URL: http://127.0.0.1:5173
+          SMOKE_USERNAME: admin
+          SMOKE_PASSWORD: Admin@123456
+        run: npm run test:smoke
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-artifacts
+          path: |
+            web/playwright-report
+            web/test-results
+          if-no-files-found: ignore
 
       - name: Verify encrypted notification config at rest
         shell: bash

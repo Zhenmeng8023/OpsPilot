@@ -10,6 +10,7 @@ import { useLanguageStore } from "../../i18n/language";
 import { hasPermission } from "../auth/permissions";
 import { useAuthStore } from "../auth/store";
 import { alertEventTypes, alertHistoryRangeOptions, alertRuleTemplates, metricCatalog, overviewMetrics, quickTrendMetrics, trendRangeOptions } from "./catalog";
+import { AlertNoiseGovernancePanel } from "./AlertNoiseGovernancePanel";
 
 export function MetricsPage() {
   const user = useAuthStore((state) => state.user);
@@ -1030,6 +1031,8 @@ export function MetricsPage() {
           {ruleStatusMutation.isError ? <p className="form-error">{ruleStatusMutation.error.message}</p> : null}
         </section>
       ) : null}
+
+      {canReadAlerts ? <AlertNoiseGovernancePanel /> : null}
 
       <section className="panel">
         <div className="panel-title">

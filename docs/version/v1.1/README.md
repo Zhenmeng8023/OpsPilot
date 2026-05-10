@@ -1,8 +1,9 @@
 # OpsPilot V1.1 文档索引
 
-V1.1 是 V1.0 后的生产化加固版本，重点围绕 Trace Center、Workflow 可靠性和 UI smoke 验收推进。
+V1.1 聚焦生产化加固：值班可用、失败可排查、发布可验证。
 
 ## 文档
 
-- [产品开发设计书](./product-development-design.md)
+- [V1.1 产品开发设计书](./product-development-design.md)
+- [V1.1 运维加固演练手册](./operations-hardening.md)
 - [中长期软件开发设计规划](../product-development-roadmap.md)

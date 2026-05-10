@@ -216,7 +216,7 @@ func parseInt(value string) int {
 }
 
 func writeAppError(c *gin.Context, appErr *apperror.Error) {
-	response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+	response.FailAppError(c, appErr)
 }
 
 func actorUID(c *gin.Context) string {

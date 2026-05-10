@@ -1,5 +1,5 @@
 import { request } from "./request";
-import type { AlertEventSummary, AlertGroupSummary, AlertHistoryPoint, AlertRoutingPolicy, AlertRule, AlertSummary, AlertSuppressionRule } from "./types";
+import type { AlertEventSummary, AlertGroupSummary, AlertHistoryPoint, AlertNoiseTrendPoint, AlertRoutingDryRunResult, AlertRoutingPolicy, AlertRule, AlertSummary, AlertSuppressionDryRunResult, AlertSuppressionRule, NoisyRuleSummary } from "./types";
 
 export function listAlertRules() {
   return request<AlertRule[]>("/api/v1/alert-rules");
@@ -145,6 +145,44 @@ export function listAlertHistory(params: { hours?: number; bucketMinutes?: numbe
   if (params.ruleId) search.set("ruleId", params.ruleId);
   if (params.hostId) search.set("hostId", params.hostId);
   return request<AlertHistoryPoint[]>(`/api/v1/alerts/history${search.toString() ? `?${search}` : ""}`);
+}
+
+export function listNoisyRules(params: { hours?: number; limit?: number } = {}) {
+  const search = new URLSearchParams();
+  if (params.hours) search.set("hours", String(params.hours));
+  if (params.limit) search.set("limit", String(params.limit));
+  return request<NoisyRuleSummary[]>(`/api/v1/alerts/noisy-rules${search.toString() ? `?${search}` : ""}`);
+}
+
+export function listAlertNoiseTrends(params: { hours?: number } = {}) {
+  const search = new URLSearchParams();
+  if (params.hours) search.set("hours", String(params.hours));
+  return request<AlertNoiseTrendPoint[]>(`/api/v1/alerts/noise-trends${search.toString() ? `?${search}` : ""}`);
+}
+
+export function runAlertSuppressionDryRun(payload: {
+  ruleId?: string;
+  hostId?: string;
+  hostGroupId?: string;
+  severity?: string;
+}) {
+  return request<AlertSuppressionDryRunResult>("/api/v1/alerts/suppression-dry-run", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function runAlertRoutingDryRun(payload: {
+  ruleId?: string;
+  hostId?: string;
+  hostGroupId?: string;
+  severity?: string;
+  channelId: string;
+}) {
+  return request<AlertRoutingDryRunResult>("/api/v1/alerts/routing-dry-run", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function listAlertEvents(id: string, params: { eventType?: string } = {}) {

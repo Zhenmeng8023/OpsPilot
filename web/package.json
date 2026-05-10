@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test:smoke": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "5.100.8",
@@ -16,6 +17,7 @@
     "zustand": "5.0.12"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.1",

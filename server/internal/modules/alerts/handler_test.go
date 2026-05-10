@@ -69,6 +69,84 @@ func TestListAlertHistoryPassesWindowParams(t *testing.T) {
 	}
 }
 
+func TestListNoisyRulesPassesQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureAlertService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alerts/noisy-rules?hours=48&limit=7", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.noisyInput.Hours != 48 || service.noisyInput.Limit != 7 {
+		t.Fatalf("unexpected noisy input: %#v", service.noisyInput)
+	}
+}
+
+func TestListNoiseTrendsPassesQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureAlertService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alerts/noise-trends?hours=36", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.noiseTrendInput.Hours != 36 {
+		t.Fatalf("unexpected trend input: %#v", service.noiseTrendInput)
+	}
+}
+
+func TestSuppressionDryRunPassesPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureAlertService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/alerts/suppression-dry-run", strings.NewReader(`{"ruleId":"rule-1","hostId":"host-1","hostGroupId":"group-1","severity":"critical"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.suppressionDryRunInput.RuleID != "rule-1" || service.suppressionDryRunInput.HostID != "host-1" || service.suppressionDryRunInput.HostGroupID != "group-1" || service.suppressionDryRunInput.Severity != "critical" {
+		t.Fatalf("unexpected suppression dry-run input: %#v", service.suppressionDryRunInput)
+	}
+}
+
+func TestRoutingDryRunPassesPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureAlertService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughAlertAuth, passThroughAlertPermission)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/alerts/routing-dry-run", strings.NewReader(`{"ruleId":"rule-1","hostGroupId":"group-2","severity":"warning","channelId":"channel-7"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if service.routingDryRunInput.RuleID != "rule-1" || service.routingDryRunInput.HostGroupID != "group-2" || service.routingDryRunInput.Severity != "warning" || service.routingDryRunInput.ChannelID != "channel-7" {
+		t.Fatalf("unexpected routing dry-run input: %#v", service.routingDryRunInput)
+	}
+}
+
 func TestAcknowledgePassesID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -238,21 +316,25 @@ func TestUnsilencePassesID(t *testing.T) {
 }
 
 type captureAlertService struct {
-	alertGroupsInput ListAlertGroupsInput
-	alertsInput      ListAlertsInput
-	historyInput     AlertHistoryInput
-	eventsAlertID    string
-	eventsEventType  string
-	ackAlertID       string
-	silenceAlertID   string
-	silenceInput     SilenceInput
-	unsilenceAlertID string
-	updateRuleID     string
-	updateRuleInput  UpdateRuleInput
-	ruleStatusID     string
-	ruleStatus       string
-	suppressionInput SuppressionRuleInput
-	routingInput     RoutingPolicyInput
+	alertGroupsInput       ListAlertGroupsInput
+	alertsInput            ListAlertsInput
+	historyInput           AlertHistoryInput
+	noisyInput             NoisyRuleInput
+	noiseTrendInput        NoiseTrendInput
+	suppressionDryRunInput SuppressionDryRunInput
+	routingDryRunInput     RoutingDryRunInput
+	eventsAlertID          string
+	eventsEventType        string
+	ackAlertID             string
+	silenceAlertID         string
+	silenceInput           SilenceInput
+	unsilenceAlertID       string
+	updateRuleID           string
+	updateRuleInput        UpdateRuleInput
+	ruleStatusID           string
+	ruleStatus             string
+	suppressionInput       SuppressionRuleInput
+	routingInput           RoutingPolicyInput
 }
 
 func (s *captureAlertService) ListRules(context.Context) ([]AlertRuleSummary, *apperror.Error) {
@@ -315,6 +397,26 @@ func (s *captureAlertService) ListAlerts(_ context.Context, input ListAlertsInpu
 
 func (s *captureAlertService) ListAlertHistory(_ context.Context, input AlertHistoryInput) ([]AlertHistoryPoint, *apperror.Error) {
 	s.historyInput = input
+	return nil, nil
+}
+
+func (s *captureAlertService) ListNoisyRules(_ context.Context, input NoisyRuleInput) ([]NoisyRuleSummary, *apperror.Error) {
+	s.noisyInput = input
+	return nil, nil
+}
+
+func (s *captureAlertService) SuppressionDryRun(_ context.Context, input SuppressionDryRunInput) (SuppressionDryRunResult, *apperror.Error) {
+	s.suppressionDryRunInput = input
+	return SuppressionDryRunResult{}, nil
+}
+
+func (s *captureAlertService) RoutingDryRun(_ context.Context, input RoutingDryRunInput) (RoutingDryRunResult, *apperror.Error) {
+	s.routingDryRunInput = input
+	return RoutingDryRunResult{}, nil
+}
+
+func (s *captureAlertService) ListNoiseTrends(_ context.Context, input NoiseTrendInput) ([]NoiseTrendPoint, *apperror.Error) {
+	s.noiseTrendInput = input
 	return nil, nil
 }
 

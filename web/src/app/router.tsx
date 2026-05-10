@@ -26,6 +26,7 @@ const TaskDetailPage = lazyNamed(() => import("../modules/tasks/TaskDetailPage")
 const TaskListPage = lazyNamed(() => import("../modules/tasks/TaskListPage"), "TaskListPage");
 const WebhookPage = lazyNamed(() => import("../modules/webhooks/WebhookPage"), "WebhookPage");
 const WorkflowPage = lazyNamed(() => import("../modules/workflows/WorkflowPage"), "WorkflowPage");
+const TraceCenterPage = lazyNamed(() => import("../modules/tracecenter/TraceCenterPage"), "TraceCenterPage");
 
 type RouteHandle = {
   meta?: {
@@ -174,6 +175,11 @@ export const router = createBrowserRouter([
             path: "audit-logs",
             element: <LazyRoute><AuditLogsPage /></LazyRoute>,
             handle: { meta: { permission: "audit.read", titleKey: "audit.title", sectionKey: "audit.eyebrow" } }
+          },
+          {
+            path: "trace-center",
+            element: <LazyRoute><TraceCenterPage /></LazyRoute>,
+            handle: { meta: { permission: "audit.read", titleKey: "traceCenter.title", sectionKey: "audit.eyebrow" } }
           }
         ]
       }

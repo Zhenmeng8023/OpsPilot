@@ -8,6 +8,7 @@ This document records V1.0 productization validation commands, results, environm
 
 | Date | Version / Commit | Update | Sync Notes |
 | --- | --- | --- | --- |
+| 2026-05-10 | V1.0 hardening / pending | Closed incident lifecycle loop, delivered minimal alert-noise governance, and added CI vulnerability gates plus backup drill script. | Added Incident lifecycle/merge/close API+UI+OpenAPI+tests; added alerts noisy-rules / suppression dry-run / routing dry-run / noise-trends API+UI+OpenAPI+tests; Playwright smoke now includes incidents and trace-center; CI now runs govulncheck and npm audit; added `scripts/db-backup.ps1` and the V1.1 operations hardening runbook. |
 | 2026-05-09 | `v1.0.0` release closure | The root version marker is now `1.0.0`, and remote CI has passed. | GitHub Actions is green on both `master` and the `v1.0.0-beta.1` tag; remaining V1.0 risks are now tracked as V1.1 hardening work. |
 | 2026-05-09 | V1.0 in progress / pending | Cleared the remaining GitHub Actions runtime deprecation risk. | CI now uses `actions/checkout@v5`, `actions/setup-node@v6`, and `actions/setup-go@v6`, moving the workflow onto the native Node 24 action runtime. |
 | 2026-05-09 | V1.0 in progress / pending | Closed the remaining strict V1.0 matcher and documentation gaps. | Added `payload_exists`, `payload_not_equals`, `payload_regex`, and JSONPath array wildcard matcher support across backend/frontend/OpenAPI/E2E smoke, then added the V1.0 deployment guide, acceptance guide, and UI guidelines. |

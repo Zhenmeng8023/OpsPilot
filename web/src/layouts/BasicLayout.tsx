@@ -19,6 +19,7 @@ const navItems = [
   { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read" },
   { to: "/incidents", labelKey: "nav.incidents", permission: "alert:read" },
   { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read" },
+  { to: "/trace-center", labelKey: "nav.traceCenter", permission: "audit.read" },
   { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read" }
 ] as const;
 

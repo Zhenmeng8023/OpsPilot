@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -90,6 +92,54 @@ type RetryNodeInput struct {
 	RunID  string
 	NodeID string
 	Audit  AuditContext
+}
+
+type RetryPlanInput struct {
+	RunID  string
+	NodeID string
+}
+
+type RetryPlanNode struct {
+	NodeID        string `json:"nodeId"`
+	NodeType      string `json:"nodeType"`
+	NodeName      string `json:"nodeName,omitempty"`
+	CurrentStatus string `json:"currentStatus"`
+	Action        string `json:"action"`
+	Reason        string `json:"reason,omitempty"`
+}
+
+type RetryPlanResult struct {
+	RunID        string          `json:"runId"`
+	Scope        string          `json:"scope"`
+	NodeID       string          `json:"nodeId,omitempty"`
+	Retryable    bool            `json:"retryable"`
+	RerunNodeIDs []string        `json:"rerunNodeIds"`
+	SkipNodeIDs  []string        `json:"skipNodeIds"`
+	Nodes        []RetryPlanNode `json:"nodes"`
+}
+
+type ActionHistoryItem struct {
+	ID        uint64 `json:"id"`
+	Action    string `json:"action"`
+	Actor     string `json:"actor,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+	Result    string `json:"result,omitempty"`
+	TraceID   string `json:"traceId,omitempty"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type DefinitionDiffResult struct {
+	RunID             string   `json:"runId"`
+	WorkflowID        string   `json:"workflowId"`
+	WorkflowName      string   `json:"workflowName"`
+	RunVersion        uint     `json:"runVersion"`
+	CurrentVersion    uint     `json:"currentVersion"`
+	Changed           bool     `json:"changed"`
+	SnapshotHash      string   `json:"snapshotHash"`
+	CurrentHash       string   `json:"currentHash"`
+	Diff              []string `json:"diff"`
+	SnapshotDefinition string  `json:"snapshotDefinition"`
+	CurrentDefinition  string  `json:"currentDefinition"`
 }
 
 type DefinitionSummary struct {
@@ -1047,6 +1097,28 @@ func (s *Service) resolveApprovalNode(ctx context.Context, input ApprovalInput, 
 			return err
 		}
 		detail = loaded
+		action := "workflow.node_reject"
+		if approved {
+			action = "workflow.node_approve"
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        action,
+			ResourceType:  "workflow_run",
+			ResourceID:    sql.NullInt64{Int64: int64(run.ID), Valid: run.ID != 0},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After: map[string]interface{}{
+				"runId":    run.UID,
+				"nodeId":   targetNodeID,
+				"approved": approved,
+				"comment":  comment,
+			},
+		})
 		return nil
 	})
 	if txErr != nil {
@@ -1129,10 +1201,51 @@ func (s *Service) CancelRun(ctx context.Context, input CancelInput) (RunDetail, 
 		).Scan(&taskRunIDs).Error; err != nil {
 			return err
 		}
+		cancelResults := make([]map[string]string, 0, len(taskRunIDs))
 		for _, taskRunID := range taskRunIDs {
+			var taskBefore struct {
+				UID    string `gorm:"column:uid"`
+				Status string `gorm:"column:status"`
+			}
+			if err := tx.WithContext(ctx).Raw(
+				"SELECT uid, status FROM task_runs WHERE id = ? LIMIT 1",
+				taskRunID,
+			).Scan(&taskBefore).Error; err != nil {
+				return err
+			}
+			if taskBefore.UID == "" {
+				cancelResults = append(cancelResults, map[string]string{
+					"taskRunId": strconv.FormatUint(taskRunID, 10),
+					"result":    "not_found",
+					"reason":    "task run does not exist",
+				})
+				continue
+			}
 			if err := tasks.CancelRunByIDTx(ctx, tx, taskRunID, actorID, reason); err != nil {
 				return err
 			}
+			var taskAfter struct {
+				Status string `gorm:"column:status"`
+			}
+			if err := tx.WithContext(ctx).Raw(
+				"SELECT status FROM task_runs WHERE id = ? LIMIT 1",
+				taskRunID,
+			).Scan(&taskAfter).Error; err != nil {
+				return err
+			}
+			result := "cancel_requested"
+			reasonText := ""
+			if taskBefore.Status == taskAfter.Status && (taskAfter.Status == "success" || taskAfter.Status == "failed" || taskAfter.Status == "canceled" || taskAfter.Status == "timeout") {
+				result = "skipped"
+				reasonText = "task run already terminal: " + taskAfter.Status
+			}
+			cancelResults = append(cancelResults, map[string]string{
+				"taskRunId": taskBefore.UID,
+				"before":    taskBefore.Status,
+				"after":     taskAfter.Status,
+				"result":    result,
+				"reason":    reasonText,
+			})
 		}
 		if err := tx.WithContext(ctx).Exec(
 			`UPDATE workflow_runs
@@ -1152,8 +1265,13 @@ func (s *Service) CancelRun(ctx context.Context, input CancelInput) (RunDetail, 
 		}
 		if err := tx.WithContext(ctx).Exec(
 			`INSERT INTO workflow_run_events(run_id, event_type, message, actor_id, payload)
-			 VALUES (?, 'canceled', 'Workflow run canceled', ?, JSON_OBJECT('reason', ?, 'taskRuns', ?))`,
-			run.ID, actorID, reason, len(taskRunIDs),
+			 VALUES (?, 'canceled', 'Workflow run canceled', ?, ?)`,
+			run.ID, actorID, jsonNull(map[string]interface{}{
+				"reason":          reason,
+				"taskRunCount":    len(taskRunIDs),
+				"propagation":     cancelResults,
+				"unableToCancel":  filterCancelFailures(cancelResults),
+			}),
 		).Error; err != nil {
 			return err
 		}
@@ -1181,4 +1299,335 @@ func (s *Service) CancelRun(ctx context.Context, input CancelInput) (RunDetail, 
 		return RunDetail{}, wrapAppError(txErr, 501010, "cancel workflow run failed")
 	}
 	return canceled, nil
+}
+
+func (s *Service) RetryPlan(ctx context.Context, input RetryPlanInput) (RetryPlanResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return RetryPlanResult{}, appErr
+	}
+	runID := strings.TrimSpace(input.RunID)
+	nodeID := strings.TrimSpace(input.NodeID)
+	run, err := runByUID(ctx, s.db, workspace.ID, runID)
+	if err != nil {
+		return RetryPlanResult{}, apperror.Wrap(http.StatusInternalServerError, 501021, "load workflow run failed", err)
+	}
+	if run.ID == 0 {
+		return RetryPlanResult{}, apperror.New(http.StatusNotFound, 404002, "workflow run not found")
+	}
+	var def Definition
+	if err := json.Unmarshal([]byte(run.DefinitionSnapshot), &def); err != nil {
+		return RetryPlanResult{}, apperror.Wrap(http.StatusInternalServerError, 501022, "parse workflow definition failed", err)
+	}
+	nodeRows, err := runNodes(ctx, s.db, run.ID)
+	if err != nil {
+		return RetryPlanResult{}, apperror.Wrap(http.StatusInternalServerError, 501023, "load workflow nodes failed", err)
+	}
+	nodeStatus := make(map[string]RunNodeSummary, len(nodeRows))
+	for _, item := range nodeRows {
+		nodeStatus[item.NodeID] = item
+	}
+
+	scope := "run"
+	rerunSet := make(map[string]bool, len(def.Nodes))
+	retryable := retryableWorkflowStatus(run.Status)
+	if nodeID != "" {
+		scope = "node"
+		targetFound := false
+		for _, node := range def.Nodes {
+			if node.ID == nodeID {
+				targetFound = true
+				break
+			}
+		}
+		if !targetFound {
+			return RetryPlanResult{}, apperror.New(http.StatusNotFound, 404004, "workflow node not found")
+		}
+		targetState := nodeStatus[nodeID]
+		retryable = retryableNodeStatus(targetState.Status)
+		for _, id := range downstreamNodeIDs(def, nodeID) {
+			rerunSet[id] = true
+		}
+	} else {
+		for _, node := range def.Nodes {
+			rerunSet[node.ID] = true
+		}
+	}
+
+	nodes := make([]RetryPlanNode, 0, len(def.Nodes))
+	rerunIDs := make([]string, 0, len(def.Nodes))
+	skipIDs := make([]string, 0, len(def.Nodes))
+	for _, node := range def.Nodes {
+		current := nodeStatus[node.ID]
+		status := current.Status
+		if status == "" {
+			status = "pending"
+		}
+		item := RetryPlanNode{
+			NodeID:        node.ID,
+			NodeType:      node.Type,
+			NodeName:      node.Name,
+			CurrentStatus: status,
+		}
+		if rerunSet[node.ID] {
+			item.Action = "rerun"
+			item.Reason = "included in retry scope"
+			if scope == "run" {
+				item.Reason = "workflow retry creates a new run for all nodes"
+			} else if node.ID == nodeID {
+				item.Reason = "selected retry node"
+			} else {
+				item.Reason = "downstream dependency of selected node"
+			}
+			rerunIDs = append(rerunIDs, node.ID)
+		} else {
+			item.Action = "skip"
+			item.Reason = "outside retry scope"
+			skipIDs = append(skipIDs, node.ID)
+		}
+		nodes = append(nodes, item)
+	}
+
+	return RetryPlanResult{
+		RunID:        run.UID,
+		Scope:        scope,
+		NodeID:       nodeID,
+		Retryable:    retryable,
+		RerunNodeIDs: rerunIDs,
+		SkipNodeIDs:  skipIDs,
+		Nodes:        nodes,
+	}, nil
+}
+
+func (s *Service) ActionHistory(ctx context.Context, runUID string) ([]ActionHistoryItem, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	runUID = strings.TrimSpace(runUID)
+	run, err := runByUID(ctx, s.db, workspace.ID, runUID)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 501024, "load workflow run failed", err)
+	}
+	if run.ID == 0 {
+		return nil, apperror.New(http.StatusNotFound, 404002, "workflow run not found")
+	}
+
+	var audits []ActionHistoryItem
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT al.id, al.action, al.result, IFNULL(al.trace_id, '') AS trace_id,
+		        CONCAT(IFNULL(al.request_method, ''), ' ', IFNULL(al.request_path, '')) AS detail,
+		        COALESCE(u.username, ag.name, al.actor_type) AS actor,
+		        DATE_FORMAT(al.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM audit_logs al
+		   LEFT JOIN users u ON u.id = al.actor_user_id
+		   LEFT JOIN agents ag ON ag.id = al.actor_agent_id
+		  WHERE al.workspace_id = ?
+		    AND al.resource_type = 'workflow_run'
+		    AND al.resource_id = ?
+		    AND al.action IN ('workflow.retry', 'workflow.cancel', 'workflow.node_retry', 'workflow.node_approve', 'workflow.node_reject')
+		  ORDER BY al.created_at DESC, al.id DESC
+		  LIMIT 200`,
+		workspace.ID, run.ID,
+	).Scan(&audits).Error; err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 501025, "load workflow audit history failed", err)
+	}
+
+	var events []struct {
+		ID        uint64         `gorm:"column:id"`
+		EventType string         `gorm:"column:event_type"`
+		Message   sql.NullString `gorm:"column:message"`
+		Actor     sql.NullString `gorm:"column:actor"`
+		CreatedAt string         `gorm:"column:created_at"`
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT wre.id, wre.event_type, wre.message, u.username AS actor,
+		        DATE_FORMAT(wre.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM workflow_run_events wre
+		   LEFT JOIN users u ON u.id = wre.actor_id
+		  WHERE wre.run_id = ?
+		    AND (
+		      wre.event_type IN ('node_retry', 'canceled')
+		      OR (wre.event_type = 'node_success' AND wre.message = 'Approval granted')
+		      OR (wre.event_type = 'node_failed' AND wre.message = 'Approval rejected')
+		    )
+		  ORDER BY wre.created_at DESC, wre.id DESC
+		  LIMIT 200`,
+		run.ID,
+	).Scan(&events).Error; err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 501026, "load workflow event history failed", err)
+	}
+
+	items := make([]ActionHistoryItem, 0, len(audits)+len(events))
+	items = append(items, audits...)
+	for _, event := range events {
+		action := "workflow." + event.EventType
+		result := ""
+		switch event.EventType {
+		case "canceled":
+			action = "workflow.cancel"
+		case "node_retry":
+			action = "workflow.node_retry"
+		case "node_success":
+			action = "workflow.node_approve"
+			result = "success"
+		case "node_failed":
+			action = "workflow.node_reject"
+			result = "failed"
+		}
+		items = append(items, ActionHistoryItem{
+			ID:        1000000000 + event.ID,
+			Action:    action,
+			Actor:     event.Actor.String,
+			Detail:    event.Message.String,
+			Result:    result,
+			CreatedAt: event.CreatedAt,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt == items[j].CreatedAt {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].CreatedAt > items[j].CreatedAt
+	})
+	return items, nil
+}
+
+func (s *Service) DefinitionDiff(ctx context.Context, runUID string) (DefinitionDiffResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return DefinitionDiffResult{}, appErr
+	}
+	runUID = strings.TrimSpace(runUID)
+	run, err := runByUID(ctx, s.db, workspace.ID, runUID)
+	if err != nil {
+		return DefinitionDiffResult{}, apperror.Wrap(http.StatusInternalServerError, 501027, "load workflow run failed", err)
+	}
+	if run.ID == 0 {
+		return DefinitionDiffResult{}, apperror.New(http.StatusNotFound, 404002, "workflow run not found")
+	}
+	workflow, err := workflowRowByID(ctx, s.db, workspace.ID, run.WorkflowDBID)
+	if err != nil {
+		return DefinitionDiffResult{}, apperror.Wrap(http.StatusInternalServerError, 501028, "load workflow definition failed", err)
+	}
+	if workflow.ID == 0 {
+		return DefinitionDiffResult{}, apperror.New(http.StatusNotFound, 404001, "workflow not found")
+	}
+
+	snapshot := prettyJSON(run.DefinitionSnapshot)
+	current := prettyJSON(workflow.Definition)
+	snapshotHash := definitionHash(snapshot)
+	currentHash := definitionHash(current)
+	changed := snapshotHash != currentHash
+	diff := []string{}
+	if changed {
+		diff = buildDefinitionDiff(snapshot, current, 300)
+	}
+	return DefinitionDiffResult{
+		RunID:              run.UID,
+		WorkflowID:         run.WorkflowUID,
+		WorkflowName:       run.WorkflowName,
+		RunVersion:         run.WorkflowVersion,
+		CurrentVersion:     workflow.Version,
+		Changed:            changed,
+		SnapshotHash:       snapshotHash,
+		CurrentHash:        currentHash,
+		Diff:               diff,
+		SnapshotDefinition: snapshot,
+		CurrentDefinition:  current,
+	}, nil
+}
+
+func filterCancelFailures(items []map[string]string) []map[string]string {
+	out := make([]map[string]string, 0, len(items))
+	for _, item := range items {
+		if item["result"] != "cancel_requested" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func prettyJSON(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "{}"
+	}
+	var parsed interface{}
+	if err := json.Unmarshal([]byte(value), &parsed); err != nil {
+		return value
+	}
+	bytes, err := json.MarshalIndent(parsed, "", "  ")
+	if err != nil {
+		return value
+	}
+	return string(bytes)
+}
+
+func buildDefinitionDiff(before, after string, maxLines int) []string {
+	left := strings.Split(before, "\n")
+	right := strings.Split(after, "\n")
+	if before == after {
+		return nil
+	}
+	if len(left) == 1 && left[0] == "" {
+		left = []string{}
+	}
+	if len(right) == 1 && right[0] == "" {
+		right = []string{}
+	}
+	if len(left)*len(right) > 200000 {
+		out := []string{"- " + before, "+ " + after}
+		if len(out) > maxLines {
+			return out[:maxLines]
+		}
+		return out
+	}
+	n, m := len(left), len(right)
+	lcs := make([][]int, n+1)
+	for i := range lcs {
+		lcs[i] = make([]int, m+1)
+	}
+	for i := n - 1; i >= 0; i-- {
+		for j := m - 1; j >= 0; j-- {
+			if left[i] == right[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else if lcs[i+1][j] >= lcs[i][j+1] {
+				lcs[i][j] = lcs[i+1][j]
+			} else {
+				lcs[i][j] = lcs[i][j+1]
+			}
+		}
+	}
+	diff := make([]string, 0, n+m)
+	i, j := 0, 0
+	for i < n && j < m {
+		if left[i] == right[j] {
+			diff = append(diff, "  "+left[i])
+			i++
+			j++
+			continue
+		}
+		if lcs[i+1][j] >= lcs[i][j+1] {
+			diff = append(diff, "- "+left[i])
+			i++
+		} else {
+			diff = append(diff, "+ "+right[j])
+			j++
+		}
+	}
+	for i < n {
+		diff = append(diff, "- "+left[i])
+		i++
+	}
+	for j < m {
+		diff = append(diff, "+ "+right[j])
+		j++
+	}
+	if len(diff) > maxLines {
+		trimmed := append([]string{}, diff[:maxLines]...)
+		trimmed = append(trimmed, fmt.Sprintf("... diff truncated (%d lines omitted)", len(diff)-maxLines))
+		return trimmed
+	}
+	return diff
 }

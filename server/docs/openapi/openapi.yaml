@@ -155,6 +155,27 @@ paths:
       description: Requires `agent:read`.
       responses:
         "200": { description: Agent diagnostic snapshot list }
+  /api/v1/agents/fleet-distribution:
+    get:
+      summary: List Agent version distribution and stale reasons
+      description: Requires `agent:read`.
+      responses:
+        "200": { description: Fleet distribution summary }
+  /api/v1/agents/diagnostics/diff:
+    get:
+      summary: Compare two Agent diagnostic snapshots
+      description: Requires `agent:read`.
+      parameters:
+        - name: left
+          in: query
+          required: true
+          schema: { type: string }
+        - name: right
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Diagnostic diff result }
   /api/v1/agents/offline-scan:
     post:
       summary: Scan Agents and Hosts offline
@@ -288,6 +309,23 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Host Group batch operation result }
+  /api/v1/host-groups/{id}/disable-agents/plan:
+    get:
+      summary: Preview batch-disable execution plan for a Host Group
+      description: Requires `agent:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: batchSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: maxBatches
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+        - name: stopOnFailure
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200": { description: Host Group batch planner result }
   /api/v1/host-groups/{id}/diagnostics:
     get:
       summary: List latest Agent diagnostics for a Host Group
@@ -1144,6 +1182,75 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: Alert activity history }
+  /api/v1/alerts/noisy-rules:
+    get:
+      summary: List top noisy rules
+      description: Requires `alert:read`.
+      parameters:
+        - name: hours
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 336, default: 24 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        "200":
+          description: Top noisy rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NoisyRuleSummary"
+  /api/v1/alerts/noise-trends:
+    get:
+      summary: List host-group/severity noise trends
+      description: Requires `alert:read`.
+      parameters:
+        - name: hours
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 336, default: 24 }
+      responses:
+        "200":
+          description: Host group and severity trend points
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertNoiseTrendPoint"
+  /api/v1/alerts/suppression-dry-run:
+    post:
+      summary: Dry-run suppression matching
+      description: Requires `alert:read`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertDryRunPayload"
+      responses:
+        "200":
+          description: Suppression dry-run result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertSuppressionDryRunResult"
+  /api/v1/alerts/routing-dry-run:
+    post:
+      summary: Dry-run routing matching
+      description: Requires `alert:read`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRoutingDryRunPayload"
+      responses:
+        "200":
+          description: Routing dry-run result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRoutingDryRunResult"
   /api/v1/alerts/{id}/events:
     get:
       summary: List alert events
@@ -1221,6 +1328,60 @@ paths:
       description: Requires `alert:read`.
       parameters:
         - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Incident detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentDetail"
+  /api/v1/incidents/{id}/lifecycle:
+    patch:
+      summary: Update incident lifecycle context
+      description: Requires `alert:write`. Updates owner, impact scope, root-cause class, and postmortem draft.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentLifecycleUpdatePayload"
+      responses:
+        "200":
+          description: Incident detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentDetail"
+  /api/v1/incidents/{id}/merge:
+    post:
+      summary: Merge incident
+      description: Requires `alert:write`. Merges source incident into target incident and keeps timeline evidence.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentMergePayload"
+      responses:
+        "200":
+          description: Source incident detail after merge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentDetail"
+  /api/v1/incidents/{id}/close:
+    post:
+      summary: Close incident
+      description: Requires `alert:write`. Marks incident as resolved and records close reason.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentClosePayload"
       responses:
         "200":
           description: Incident detail
@@ -1386,6 +1547,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkflowRunDetail"
+  /api/v1/workflow-runs/{id}/retry-plan:
+    get:
+      summary: Preview workflow retry plan
+      description: Requires `workflow:execute`. Returns rerun/skip node scope for full-run retry or node retry.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: nodeId
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200": { description: Workflow retry plan }
+  /api/v1/workflow-runs/{id}/actions:
+    get:
+      summary: List workflow action history
+      description: Requires `workflow:read`. Returns retry/cancel/approval action history from audit and run events.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Workflow action history }
+  /api/v1/workflow-runs/{id}/definition-diff:
+    get:
+      summary: Compare run snapshot definition with current workflow definition
+      description: Requires `workflow:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Workflow definition diff }
   /api/v1/workflow-runs/{id}/cancel:
     post:
       summary: Cancel workflow run
@@ -1625,6 +1814,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditLogPage"
+  /api/v1/trace-center:
+    get:
+      summary: Search trace center timeline
+      description: Requires `audit.read`. Correlates trace/workflow/task/webhook into a single troubleshooting timeline.
+      parameters:
+        - name: traceId
+          in: query
+          schema: { type: string }
+        - name: taskRunId
+          in: query
+          schema: { type: string }
+        - name: workflowRunId
+          in: query
+          schema: { type: string }
+        - name: webhookEventId
+          in: query
+          schema: { type: string }
+      responses:
+        "200": { description: Trace center timeline result }
   /api/v1/audit-logs/export:
     get:
       summary: Export audit logs
@@ -1943,6 +2151,71 @@ components:
         firstSeenAt: { type: string }
         lastSeenAt: { type: string }
         resolvedAt: { type: string }
+    NoisyRuleSummary:
+      type: object
+      properties:
+        ruleId: { type: string }
+        ruleName: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+        alertCount: { type: integer }
+        activeCount: { type: integer }
+        hostCount: { type: integer }
+        lastSeenAt: { type: string }
+    AlertNoiseTrendPoint:
+      type: object
+      properties:
+        bucketStart: { type: string }
+        hostGroupId: { type: string }
+        hostGroupName: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+        alertCount: { type: integer }
+    AlertDryRunPayload:
+      type: object
+      properties:
+        ruleId: { type: string }
+        hostId: { type: string }
+        hostGroupId: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+    AlertRoutingDryRunPayload:
+      allOf:
+        - $ref: "#/components/schemas/AlertDryRunPayload"
+        - type: object
+          required: [channelId]
+          properties:
+            channelId: { type: string }
+    DryRunExplanation:
+      type: object
+      properties:
+        dimension: { type: string }
+        value: { type: string }
+        matched: { type: boolean }
+        reason: { type: string }
+    AlertSuppressionDryRunResult:
+      type: object
+      properties:
+        matchedAlerts: { type: integer }
+        sampleAlertIds:
+          type: array
+          items: { type: string }
+        explanations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DryRunExplanation"
+    AlertRoutingDryRunResult:
+      type: object
+      properties:
+        matchedAlerts: { type: integer }
+        matchedPolicies: { type: integer }
+        sampleAlertIds:
+          type: array
+          items: { type: string }
+        policyIds:
+          type: array
+          items: { type: string }
+        explanations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DryRunExplanation"
     IncidentSummary:
       type: object
       properties:
@@ -1951,6 +2224,10 @@ components:
         title: { type: string }
         severity: { type: string, enum: [info, warning, critical] }
         status: { type: string, enum: [open, acknowledged, silenced, resolved] }
+        owner: { type: string }
+        impactScope: { type: string }
+        rootCause: { type: string }
+        mergedInto: { type: string }
         ruleId: { type: string }
         ruleName: { type: string }
         hostId: { type: string }
@@ -1974,10 +2251,28 @@ components:
         - $ref: "#/components/schemas/IncidentSummary"
         - type: object
           properties:
+            postmortem: { type: string }
             events:
               type: array
               items:
                 $ref: "#/components/schemas/IncidentEvent"
+    IncidentLifecycleUpdatePayload:
+      type: object
+      properties:
+        owner: { type: string }
+        impactScope: { type: string }
+        rootCauseClass: { type: string }
+        postmortem: { type: string }
+    IncidentMergePayload:
+      type: object
+      required: [targetIncidentId]
+      properties:
+        targetIncidentId: { type: string }
+        reason: { type: string }
+    IncidentClosePayload:
+      type: object
+      properties:
+        reason: { type: string }
     WorkflowDefinitionPayload:
       type: object
       required: [name, definition]

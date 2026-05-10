@@ -468,6 +468,13 @@ a {
   font-weight: 900;
 }
 
+.panel-title-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .health-list {
   display: grid;
   gap: 0.8rem;
@@ -1371,6 +1378,30 @@ a {
   gap: 0.35rem;
 }
 
+.incident-action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.2rem;
+}
+
+.incident-action-grid h4 {
+  margin: 0;
+}
+
+.incident-action-grid p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.incident-lifecycle-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.incident-toolbar {
+  margin-top: 0.5rem;
+}
+
 .event-payload {
   display: grid;
   gap: 0.5rem;
@@ -1918,6 +1949,7 @@ a {
   .overview-grid,
   .summary-grid,
   .event-detail-grid,
+  .incident-action-grid,
   .trend-layout,
   .trend-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1954,6 +1986,7 @@ a {
   .overview-grid,
   .summary-grid,
   .event-detail-grid,
+  .incident-action-grid,
   .trend-stats {
     grid-template-columns: 1fr;
   }

@@ -98,6 +98,8 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.Use(userAuth)
 	protected.GET("/agents", requirePermission("agent:read"), h.listAgents)
 	protected.GET("/agents/diagnostics", requirePermission("agent:read"), h.listDiagnostics)
+	protected.GET("/agents/fleet-distribution", requirePermission("agent:read"), h.fleetDistribution)
+	protected.GET("/agents/diagnostics/diff", requirePermission("agent:read"), h.diagnosticDiff)
 	protected.PUT("/agents/:id/tags", requirePermission("agent:write"), h.setAgentTags)
 	protected.GET("/tags", requirePermission("agent:read"), h.listTags)
 	protected.POST("/tags", requirePermission("agent:write"), h.createTag)
@@ -107,6 +109,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.PUT("/host-groups/:id", requirePermission("host:write"), h.updateHostGroup)
 	protected.PUT("/host-groups/:id/members", requirePermission("host:write"), h.setHostGroupMembers)
 	protected.POST("/host-groups/:id/disable-agents", requirePermission("agent:write"), h.disableHostGroupAgents)
+	protected.GET("/host-groups/:id/disable-agents/plan", requirePermission("agent:write"), h.disableHostGroupAgentsPlan)
 	protected.GET("/host-groups/:id/diagnostics", requirePermission("agent:read"), h.listHostGroupDiagnostics)
 	protected.GET("/maintenance-windows", requirePermission("agent:read"), h.listMaintenanceWindows)
 	protected.POST("/maintenance-windows", requirePermission("agent:write"), h.createMaintenanceWindow)
@@ -202,6 +205,24 @@ func (h *Handler) listDiagnostics(c *gin.Context) {
 		return
 	}
 	response.Success(c, items)
+}
+
+func (h *Handler) fleetDistribution(c *gin.Context) {
+	item, appErr := h.service.FleetDistribution(c.Request.Context())
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) diagnosticDiff(c *gin.Context) {
+	item, appErr := h.service.DiagnosticDiff(c.Request.Context(), c.Query("left"), c.Query("right"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
 }
 
 func (h *Handler) listMaintenanceWindows(c *gin.Context) {
@@ -354,6 +375,19 @@ func (h *Handler) setHostGroupMembers(c *gin.Context) {
 
 func (h *Handler) disableHostGroupAgents(c *gin.Context) {
 	result, appErr := h.service.DisableHostGroupAgents(c.Request.Context(), c.Param("id"), auditContext(c))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *Handler) disableHostGroupAgentsPlan(c *gin.Context) {
+	result, appErr := h.service.DisableHostGroupAgentsPlan(c.Request.Context(), c.Param("id"), BatchPlanInput{
+		BatchSize:     parseInt(c.DefaultQuery("batchSize", "50")),
+		MaxBatches:    parseInt(c.DefaultQuery("maxBatches", "20")),
+		StopOnFailure: strings.EqualFold(strings.TrimSpace(c.DefaultQuery("stopOnFailure", "true")), "true"),
+	})
 	if appErr != nil {
 		writeAppError(c, appErr)
 		return
@@ -606,5 +640,5 @@ func traceID(c *gin.Context) string {
 }
 
 func writeAppError(c *gin.Context, appErr *apperror.Error) {
-	response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+	response.FailAppError(c, appErr)
 }

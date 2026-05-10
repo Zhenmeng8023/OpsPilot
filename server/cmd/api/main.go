@@ -20,6 +20,7 @@ import (
 	"opspilot/server/internal/modules/schedules"
 	"opspilot/server/internal/platform/db"
 	"opspilot/server/internal/platform/logger"
+	"opspilot/server/internal/platform/migrations"
 	redisplatform "opspilot/server/internal/platform/redis"
 )
 
@@ -46,6 +47,20 @@ func main() {
 		os.Exit(1)
 	}
 	defer sqlDB.Close()
+	schemaStatus, err := migrations.Verify(startupCtx, dbHandle)
+	if err != nil {
+		log.Error("verify database schema failed", "error", err)
+		os.Exit(1)
+	}
+	if !schemaStatus.Ready {
+		log.Error(
+			"database schema is not ready",
+			"message", schemaStatus.Message(),
+			"missing_tables", schemaStatus.MissingTables,
+			"missing_migrations", schemaStatus.MissingMigrations,
+		)
+		os.Exit(1)
+	}
 	if err := auth.Seed(startupCtx, dbHandle, cfg); err != nil {
 		log.Error("bootstrap auth data failed", "error", err)
 		os.Exit(1)

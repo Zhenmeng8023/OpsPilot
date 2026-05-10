@@ -4,6 +4,23 @@ type RequestOptions = RequestInit & {
   skipAuth?: boolean;
 };
 
+export class ApiError extends Error {
+  status: number;
+  code: number;
+  traceId: string;
+  debugMessage: string;
+
+  constructor(args: { message: string; status?: number; code?: number; traceId?: string; debugMessage?: string }) {
+    const message = formatMessage(args.message, args.traceId, args.debugMessage);
+    super(message);
+    this.name = "ApiError";
+    this.status = args.status ?? 0;
+    this.code = args.code ?? -1;
+    this.traceId = args.traceId ?? "";
+    this.debugMessage = args.debugMessage ?? "";
+  }
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 const TOKEN_KEY = "opspilot.accessToken";
 const REFRESH_TOKEN_KEY = "opspilot.refreshToken";
@@ -26,9 +43,25 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     localStorage.removeItem(TOKEN_KEY);
   }
 
-  const body = (await response.json()) as ApiResponse<T>;
-  if (!response.ok || body.code !== 0) {
-    throw new Error(body.message || `Request failed with status ${response.status}`);
+  const body = await parseApiResponse<T>(response);
+  if (!response.ok || !body || body.code !== 0) {
+    throw new ApiError({
+      message: body?.message || `Request failed with status ${response.status}`,
+      status: response.status,
+      code: body?.code,
+      traceId: body?.traceId || response.headers.get("X-Trace-Id") || "",
+      debugMessage: body?.debugMessage
+    });
+  }
+
+  if (typeof body.data === "undefined") {
+    throw new ApiError({
+      message: "Response payload is missing data.",
+      status: response.status,
+      code: body.code,
+      traceId: body.traceId || response.headers.get("X-Trace-Id") || "",
+      debugMessage: body.debugMessage
+    });
   }
 
   return body.data;
@@ -80,6 +113,25 @@ export async function streamSSE(
       handlers.onEvent(event, data);
     }
   }
+}
+
+async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T> | null> {
+  try {
+    return (await response.json()) as ApiResponse<T>;
+  } catch {
+    return null;
+  }
+}
+
+function formatMessage(message: string, traceId?: string, debugMessage?: string) {
+  const parts = [message];
+  if (traceId) {
+    parts.push(`traceId=${traceId}`);
+  }
+  if (debugMessage) {
+    parts.push(`debug=${debugMessage}`);
+  }
+  return parts.join(" | ");
 }
 
 export { API_BASE_URL, REFRESH_TOKEN_KEY, TOKEN_KEY };

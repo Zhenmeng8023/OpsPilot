@@ -2,9 +2,12 @@ import { request } from "./request";
 import type {
   Agent,
   AgentDiagnostic,
+  DiagnosticDiffResult,
   EnrollmentTokenDetail,
   EnrollmentTokenSummary,
+  FleetDistributionResult,
   Host,
+  HostGroupBatchPlan,
   HostGroupBatchResult,
   HostGroup,
   MaintenanceWindow,
@@ -45,6 +48,17 @@ export function listHosts(params: ListQuery = {}) {
 
 export function listAgentDiagnostics() {
   return request<AgentDiagnostic[]>("/api/v1/agents/diagnostics");
+}
+
+export function getFleetDistribution() {
+  return request<FleetDistributionResult>("/api/v1/agents/fleet-distribution");
+}
+
+export function compareDiagnostics(left: string, right: string) {
+  const search = new URLSearchParams();
+  search.set("left", left);
+  search.set("right", right);
+  return request<DiagnosticDiffResult>(`/api/v1/agents/diagnostics/diff?${search.toString()}`);
 }
 
 export function listMaintenanceWindows() {
@@ -110,6 +124,15 @@ export function setHostGroupMembers(id: string, hostIds: string[]) {
 
 export function disableHostGroupAgents(id: string) {
   return request<HostGroupBatchResult>(`/api/v1/host-groups/${id}/disable-agents`, { method: "POST" });
+}
+
+export function getDisableHostGroupAgentsPlan(id: string, params: { batchSize?: number; maxBatches?: number; stopOnFailure?: boolean } = {}) {
+  const search = new URLSearchParams();
+  if (params.batchSize) search.set("batchSize", String(params.batchSize));
+  if (params.maxBatches) search.set("maxBatches", String(params.maxBatches));
+  if (typeof params.stopOnFailure === "boolean") search.set("stopOnFailure", String(params.stopOnFailure));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return request<HostGroupBatchPlan>(`/api/v1/host-groups/${id}/disable-agents/plan${suffix}`);
 }
 
 export function listHostGroupDiagnostics(id: string) {

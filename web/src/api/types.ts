@@ -3,6 +3,7 @@ export interface ApiResponse<T> {
   message: string;
   data: T;
   traceId: string;
+  debugMessage?: string;
 }
 
 export interface HealthData {
@@ -14,6 +15,11 @@ export interface HealthData {
   checks?: {
     database?: string;
     redis?: string;
+    schema?: string;
+    schemaDetails?: {
+      missingTables?: string[];
+      missingMigrations?: string[];
+    };
   };
 }
 
@@ -151,6 +157,64 @@ export interface HostGroupBatchResult {
   groupName: string;
   affectedAgents: number;
   affectedHosts: number;
+}
+
+export interface VersionDistributionItem {
+  version: string;
+  count: number;
+}
+
+export interface StaleReasonItem {
+  reason: string;
+  count: number;
+}
+
+export interface FleetDistributionResult {
+  snapshotAt: string;
+  totalAgents: number;
+  versions: VersionDistributionItem[];
+  staleReasons: StaleReasonItem[];
+}
+
+export interface DiagnosticSnapshot {
+  id: string;
+  agentId: string;
+  agentName: string;
+  hostId?: string;
+  hostName?: string;
+  reportedAt: string;
+}
+
+export interface DiagnosticFieldDiff {
+  field: string;
+  left: string;
+  right: string;
+}
+
+export interface DiagnosticDiffResult {
+  left: DiagnosticSnapshot;
+  right: DiagnosticSnapshot;
+  differences: DiagnosticFieldDiff[];
+}
+
+export interface BatchPlanBatch {
+  index: number;
+  agentCount: number;
+  hostCount: number;
+  agentIds: string[];
+}
+
+export interface HostGroupBatchPlan {
+  groupId: string;
+  groupName: string;
+  batchSize: number;
+  maxBatches: number;
+  stopOnFailure: boolean;
+  totalAgents: number;
+  totalHosts: number;
+  truncated: boolean;
+  remainingAgents?: number;
+  batches: BatchPlanBatch[];
 }
 
 export interface TagSummary {
@@ -576,12 +640,55 @@ export interface AlertHistoryPoint {
   silencedCount: number;
 }
 
+export interface NoisyRuleSummary {
+  ruleId?: string;
+  ruleName: string;
+  severity: string;
+  alertCount: number;
+  activeCount: number;
+  hostCount: number;
+  lastSeenAt: string;
+}
+
+export interface DryRunExplanation {
+  dimension: string;
+  value?: string;
+  matched: boolean;
+  reason?: string;
+}
+
+export interface AlertSuppressionDryRunResult {
+  matchedAlerts: number;
+  sampleAlertIds: string[];
+  explanations: DryRunExplanation[];
+}
+
+export interface AlertRoutingDryRunResult {
+  matchedAlerts: number;
+  matchedPolicies: number;
+  sampleAlertIds: string[];
+  policyIds: string[];
+  explanations: DryRunExplanation[];
+}
+
+export interface AlertNoiseTrendPoint {
+  bucketStart: string;
+  hostGroupId?: string;
+  hostGroupName: string;
+  severity: string;
+  alertCount: number;
+}
+
 export interface IncidentSummary {
   id: string;
   alertId?: string;
   title: string;
   severity: string;
   status: string;
+  owner?: string;
+  impactScope?: string;
+  rootCause?: string;
+  mergedInto?: string;
   ruleId?: string;
   ruleName?: string;
   hostId?: string;
@@ -603,6 +710,7 @@ export interface IncidentEvent {
 }
 
 export interface IncidentDetail extends IncidentSummary {
+  postmortem?: string;
   events: IncidentEvent[];
 }
 
@@ -686,6 +794,67 @@ export interface WorkflowRunDetail extends WorkflowRunSummary {
   definition: string;
   nodes: WorkflowRunNode[];
   events: WorkflowRunEvent[];
+}
+
+export interface WorkflowRetryPlanNode {
+  nodeId: string;
+  nodeType: string;
+  nodeName?: string;
+  currentStatus: string;
+  action: string;
+  reason?: string;
+}
+
+export interface WorkflowRetryPlan {
+  runId: string;
+  scope: string;
+  nodeId?: string;
+  retryable: boolean;
+  rerunNodeIds: string[];
+  skipNodeIds: string[];
+  nodes: WorkflowRetryPlanNode[];
+}
+
+export interface WorkflowActionHistoryItem {
+  id: number;
+  action: string;
+  actor?: string;
+  detail?: string;
+  result?: string;
+  traceId?: string;
+  createdAt: string;
+}
+
+export interface WorkflowDefinitionDiff {
+  runId: string;
+  workflowId: string;
+  workflowName: string;
+  runVersion: number;
+  currentVersion: number;
+  changed: boolean;
+  snapshotHash: string;
+  currentHash: string;
+  diff: string[];
+  snapshotDefinition: string;
+  currentDefinition: string;
+}
+
+export interface TraceCenterTimelineItem {
+  time: string;
+  category: string;
+  title: string;
+  status?: string;
+  reference?: string;
+  detail?: string;
+  payload?: string;
+}
+
+export interface TraceCenterResult {
+  traceId?: string;
+  taskRunId?: string;
+  workflowRunId?: string;
+  webhookEventId?: string;
+  timeline: TraceCenterTimelineItem[];
 }
 
 export interface NotificationChannel {

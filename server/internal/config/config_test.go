@@ -49,10 +49,7 @@ func TestLoadVersionEnvOverridesBuildInfo(t *testing.T) {
 }
 
 func TestLoadProdDisablesPublicRegistrationByDefault(t *testing.T) {
-	t.Setenv("APP_ENV", "prod")
-	t.Setenv("JWT_ACCESS_SECRET", "12345678901234567890123456789012")
-	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
-	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
+	setProdBaselineEnv(t)
 	t.Setenv("AUTH_PUBLIC_REGISTRATION_ENABLED", "")
 
 	cfg, err := Load()
@@ -65,10 +62,7 @@ func TestLoadProdDisablesPublicRegistrationByDefault(t *testing.T) {
 }
 
 func TestLoadProdAllowsExplicitPublicRegistration(t *testing.T) {
-	t.Setenv("APP_ENV", "prod")
-	t.Setenv("JWT_ACCESS_SECRET", "12345678901234567890123456789012")
-	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
-	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
+	setProdBaselineEnv(t)
 	t.Setenv("AUTH_PUBLIC_REGISTRATION_ENABLED", "true")
 
 	cfg, err := Load()
@@ -81,10 +75,8 @@ func TestLoadProdAllowsExplicitPublicRegistration(t *testing.T) {
 }
 
 func TestLoadRejectsDefaultJWTSecretInProd(t *testing.T) {
-	t.Setenv("APP_ENV", "prod")
+	setProdBaselineEnv(t)
 	t.Setenv("JWT_ACCESS_SECRET", defaultAccessSecret)
-	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
-	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("expected default JWT secret to be rejected in prod")
@@ -92,12 +84,39 @@ func TestLoadRejectsDefaultJWTSecretInProd(t *testing.T) {
 }
 
 func TestLoadRejectsShortJWTSecretInProd(t *testing.T) {
-	t.Setenv("APP_ENV", "prod")
+	setProdBaselineEnv(t)
 	t.Setenv("JWT_ACCESS_SECRET", "short-secret")
-	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
-	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("expected short JWT secret to be rejected in prod")
 	}
+}
+
+func TestLoadRejectsLocalAllowOriginInProd(t *testing.T) {
+	setProdBaselineEnv(t)
+	t.Setenv("HTTP_ALLOW_ORIGIN", "http://localhost:5173")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected local HTTP_ALLOW_ORIGIN to be rejected in prod")
+	}
+}
+
+func TestLoadRejectsDatabaseDSNWithoutParseTimeInProd(t *testing.T) {
+	setProdBaselineEnv(t)
+	t.Setenv("DATABASE_DSN", "opspilot:opspilot@tcp(127.0.0.1:3306)/opspilot")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected DATABASE_DSN without parseTime=True to be rejected in prod")
+	}
+}
+
+func setProdBaselineEnv(t *testing.T) {
+	t.Setenv("APP_ENV", "prod")
+	t.Setenv("JWT_ACCESS_SECRET", "12345678901234567890123456789012")
+	t.Setenv("JWT_REFRESH_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
+	t.Setenv("SECRET_ENCRYPTION_KEY", "prod-secret-encryption-key-123456")
+	t.Setenv("AGENT_BOOTSTRAP_SECRET", "prod-agent-bootstrap-secret-123456")
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "prod-admin-password-1234567890-secure")
+	t.Setenv("HTTP_ALLOW_ORIGIN", "https://ops.example.com")
+	t.Setenv("DATABASE_DSN", "opspilot:prod@tcp(db:3306)/opspilot?charset=utf8mb4&parseTime=True&loc=UTC")
 }

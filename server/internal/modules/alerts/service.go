@@ -221,6 +221,69 @@ type AlertHistoryPoint struct {
 	SilencedCount     int    `json:"silencedCount"`
 }
 
+type NoisyRuleInput struct {
+	Hours int
+	Limit int
+}
+
+type NoisyRuleSummary struct {
+	RuleID      string `json:"ruleId,omitempty"`
+	RuleName    string `json:"ruleName"`
+	Severity    string `json:"severity"`
+	AlertCount  int    `json:"alertCount"`
+	ActiveCount int    `json:"activeCount"`
+	HostCount   int    `json:"hostCount"`
+	LastSeenAt  string `json:"lastSeenAt"`
+}
+
+type SuppressionDryRunInput struct {
+	RuleID      string `json:"ruleId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Severity    string `json:"severity"`
+}
+
+type RoutingDryRunInput struct {
+	RuleID      string `json:"ruleId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Severity    string `json:"severity"`
+	ChannelID   string `json:"channelId"`
+}
+
+type DryRunExplanation struct {
+	Dimension string `json:"dimension"`
+	Value     string `json:"value,omitempty"`
+	Matched   bool   `json:"matched"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type SuppressionDryRunResult struct {
+	MatchedAlerts  int                 `json:"matchedAlerts"`
+	SampleAlertIDs []string            `json:"sampleAlertIds"`
+	Explanations   []DryRunExplanation `json:"explanations"`
+}
+
+type RoutingDryRunResult struct {
+	MatchedAlerts   int                 `json:"matchedAlerts"`
+	MatchedPolicies int                 `json:"matchedPolicies"`
+	SampleAlertIDs  []string            `json:"sampleAlertIds"`
+	PolicyIDs       []string            `json:"policyIds"`
+	Explanations    []DryRunExplanation `json:"explanations"`
+}
+
+type NoiseTrendInput struct {
+	Hours int
+}
+
+type NoiseTrendPoint struct {
+	BucketStart   string `json:"bucketStart"`
+	HostGroupID   string `json:"hostGroupId,omitempty"`
+	HostGroupName string `json:"hostGroupName"`
+	Severity      string `json:"severity"`
+	AlertCount    int    `json:"alertCount"`
+}
+
 type workspaceRecord struct {
 	ID uint64
 }
@@ -323,6 +386,28 @@ type alertGroupRecord struct {
 	FirstSeenAt   string
 	LastSeenAt    string
 	ResolvedAt    sql.NullString
+}
+
+type noisyRuleRecord struct {
+	RuleUID     sql.NullString
+	RuleName    sql.NullString
+	Severity    sql.NullString
+	AlertCount  int
+	ActiveCount int
+	HostCount   int
+	LastSeenAt  sql.NullString
+}
+
+type noiseTrendRecord struct {
+	BucketStart   string
+	HostGroupUID  sql.NullString
+	HostGroupName sql.NullString
+	Severity      string
+	AlertCount    int
+}
+
+type dryRunPolicyRecord struct {
+	UID string
 }
 
 type alertGroupAccumulator struct {
@@ -872,6 +957,190 @@ func (s *Service) ListAlertHistory(ctx context.Context, input AlertHistoryInput)
 			ResolvedCount:     row.ResolvedCount,
 			AcknowledgedCount: row.AcknowledgedCount,
 			SilencedCount:     row.SilencedCount,
+		})
+	}
+	return result, nil
+}
+
+func (s *Service) ListNoisyRules(ctx context.Context, input NoisyRuleInput) ([]NoisyRuleSummary, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	hours := normalizeHistoryHours(input.Hours)
+	limit := normalizeNoisyLimit(input.Limit)
+	var rows []noisyRuleRecord
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT ar.uid AS rule_uid,
+		        ar.name AS rule_name,
+		        COALESCE(ar.severity, MAX(a.severity)) AS severity,
+		        COUNT(a.id) AS alert_count,
+		        SUM(CASE WHEN a.status IN ('firing', 'acknowledged', 'silenced') THEN 1 ELSE 0 END) AS active_count,
+		        COUNT(DISTINCT CASE WHEN a.resource_type = 'host' THEN a.resource_id END) AS host_count,
+		        DATE_FORMAT(MAX(a.last_seen_at), '%Y-%m-%d %H:%i:%s') AS last_seen_at
+		   FROM alerts a
+		   LEFT JOIN alert_rules ar ON ar.id = a.alert_rule_id
+		  WHERE a.workspace_id = ?
+		    AND a.created_at >= DATE_SUB(NOW(3), INTERVAL ? HOUR)
+		  GROUP BY ar.uid, ar.name, ar.severity
+		  ORDER BY alert_count DESC, active_count DESC, last_seen_at DESC
+		  LIMIT ?`,
+		workspace.ID, hours, limit,
+	).Scan(&rows).Error; err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500716, "list noisy rules failed", err)
+	}
+	result := make([]NoisyRuleSummary, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(row.RuleName.String)
+		if name == "" {
+			name = "(legacy rule)"
+		}
+		severity := strings.TrimSpace(row.Severity.String)
+		if severity == "" {
+			severity = "warning"
+		}
+		result = append(result, NoisyRuleSummary{
+			RuleID:      row.RuleUID.String,
+			RuleName:    name,
+			Severity:    severity,
+			AlertCount:  row.AlertCount,
+			ActiveCount: row.ActiveCount,
+			HostCount:   row.HostCount,
+			LastSeenAt:  row.LastSeenAt.String,
+		})
+	}
+	return result, nil
+}
+
+func (s *Service) SuppressionDryRun(ctx context.Context, input SuppressionDryRunInput) (SuppressionDryRunResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return SuppressionDryRunResult{}, appErr
+	}
+	filters := normalizedDryRunFilter{
+		RuleID:      strings.TrimSpace(input.RuleID),
+		HostID:      strings.TrimSpace(input.HostID),
+		HostGroupID: strings.TrimSpace(input.HostGroupID),
+		Severity:    strings.TrimSpace(input.Severity),
+	}
+	if err := validateDryRunFilter(filters); err != nil {
+		return SuppressionDryRunResult{}, err
+	}
+	matched, sampleIDs, err := s.matchedAlertsByFilter(ctx, workspace.ID, filters)
+	if err != nil {
+		return SuppressionDryRunResult{}, apperror.Wrap(http.StatusInternalServerError, 500717, "suppression dry-run failed", err)
+	}
+	return SuppressionDryRunResult{
+		MatchedAlerts:  matched,
+		SampleAlertIDs: sampleIDs,
+		Explanations:   dryRunExplanations(filters, matched > 0),
+	}, nil
+}
+
+func (s *Service) RoutingDryRun(ctx context.Context, input RoutingDryRunInput) (RoutingDryRunResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return RoutingDryRunResult{}, appErr
+	}
+	filters := normalizedDryRunFilter{
+		RuleID:      strings.TrimSpace(input.RuleID),
+		HostID:      strings.TrimSpace(input.HostID),
+		HostGroupID: strings.TrimSpace(input.HostGroupID),
+		Severity:    strings.TrimSpace(input.Severity),
+	}
+	if err := validateDryRunFilter(filters); err != nil {
+		return RoutingDryRunResult{}, err
+	}
+	channelID := strings.TrimSpace(input.ChannelID)
+	if channelID == "" {
+		return RoutingDryRunResult{}, apperror.New(http.StatusBadRequest, 400717, "channelId is required for routing dry-run")
+	}
+	matchedAlerts, sampleIDs, err := s.matchedAlertsByFilter(ctx, workspace.ID, filters)
+	if err != nil {
+		return RoutingDryRunResult{}, apperror.Wrap(http.StatusInternalServerError, 500718, "routing dry-run failed", err)
+	}
+	var policies []dryRunPolicyRecord
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT rp.uid
+		   FROM alert_routing_policies rp
+		  WHERE rp.workspace_id = ?
+		    AND rp.deleted_at IS NULL
+		    AND rp.status = 'active'
+		    AND rp.channel_uid = ?
+		    AND (? = '' OR rp.alert_rule_uid = ?)
+		    AND (? = '' OR rp.host_uid = ?)
+		    AND (? = '' OR rp.host_group_uid = ?)
+		    AND (? = '' OR rp.severity = ?)
+		  ORDER BY rp.updated_at DESC
+		  LIMIT 50`,
+		workspace.ID, channelID,
+		filters.RuleID, filters.RuleID,
+		filters.HostID, filters.HostID,
+		filters.HostGroupID, filters.HostGroupID,
+		filters.Severity, filters.Severity,
+	).Scan(&policies).Error; err != nil {
+		return RoutingDryRunResult{}, apperror.Wrap(http.StatusInternalServerError, 500719, "routing dry-run failed", err)
+	}
+	policyIDs := make([]string, 0, len(policies))
+	for _, item := range policies {
+		if strings.TrimSpace(item.UID) != "" {
+			policyIDs = append(policyIDs, item.UID)
+		}
+	}
+	explanations := dryRunExplanations(filters, matchedAlerts > 0)
+	explanations = append(explanations, DryRunExplanation{
+		Dimension: "channelId",
+		Value:     channelID,
+		Matched:   len(policyIDs) > 0,
+		Reason:    routingPolicyExplanation(len(policyIDs)),
+	})
+	return RoutingDryRunResult{
+		MatchedAlerts:   matchedAlerts,
+		MatchedPolicies: len(policyIDs),
+		SampleAlertIDs:  sampleIDs,
+		PolicyIDs:       policyIDs,
+		Explanations:    explanations,
+	}, nil
+}
+
+func (s *Service) ListNoiseTrends(ctx context.Context, input NoiseTrendInput) ([]NoiseTrendPoint, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	hours := normalizeHistoryHours(input.Hours)
+	var rows []noiseTrendRecord
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT DATE_FORMAT(a.created_at, '%Y-%m-%d %H:00:00') AS bucket_start,
+		        hg.uid AS host_group_uid,
+		        hg.name AS host_group_name,
+		        a.severity,
+		        COUNT(DISTINCT a.id) AS alert_count
+		   FROM alerts a
+		   LEFT JOIN hosts h ON a.resource_type = 'host' AND h.id = a.resource_id
+		   LEFT JOIN host_group_members hgm ON hgm.host_id = h.id
+		   LEFT JOIN host_groups hg ON hg.id = hgm.host_group_id
+		  WHERE a.workspace_id = ?
+		    AND a.created_at >= DATE_SUB(NOW(3), INTERVAL ? HOUR)
+		  GROUP BY bucket_start, host_group_uid, host_group_name, a.severity
+		  ORDER BY bucket_start ASC, alert_count DESC
+		  LIMIT 1500`,
+		workspace.ID, hours,
+	).Scan(&rows).Error; err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500720, "list noise trends failed", err)
+	}
+	result := make([]NoiseTrendPoint, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(row.HostGroupName.String)
+		if name == "" {
+			name = "Ungrouped"
+		}
+		result = append(result, NoiseTrendPoint{
+			BucketStart:   row.BucketStart,
+			HostGroupID:   strings.TrimSpace(row.HostGroupUID.String),
+			HostGroupName: name,
+			Severity:      strings.TrimSpace(row.Severity),
+			AlertCount:    row.AlertCount,
 		})
 	}
 	return result, nil
@@ -2149,6 +2418,147 @@ func maxMetricSeriesPoints(durationSeconds uint) int {
 		return 480
 	}
 	return estimated
+}
+
+type normalizedDryRunFilter struct {
+	RuleID      string
+	HostID      string
+	HostGroupID string
+	Severity    string
+}
+
+func (s *Service) matchedAlertsByFilter(ctx context.Context, workspaceID uint64, filters normalizedDryRunFilter) (int, []string, error) {
+	baseArgs := []interface{}{workspaceID}
+	where := "WHERE a.workspace_id = ? AND a.status IN ('firing', 'acknowledged', 'silenced')"
+	if filters.RuleID != "" {
+		where += " AND ar.uid = ?"
+		baseArgs = append(baseArgs, filters.RuleID)
+	}
+	if filters.HostID != "" {
+		where += " AND h.uid = ?"
+		baseArgs = append(baseArgs, filters.HostID)
+	}
+	if filters.HostGroupID != "" {
+		where += ` AND EXISTS (
+			SELECT 1
+			  FROM host_group_members hgm2
+			  JOIN host_groups hg2 ON hg2.id = hgm2.host_group_id
+			 WHERE hgm2.host_id = h.id
+			   AND hg2.uid = ?
+		)`
+		baseArgs = append(baseArgs, filters.HostGroupID)
+	}
+	if filters.Severity != "" {
+		where += " AND a.severity = ?"
+		baseArgs = append(baseArgs, filters.Severity)
+	}
+
+	var countRow struct {
+		Count int
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT COUNT(DISTINCT a.id) AS count
+		   FROM alerts a
+		   LEFT JOIN alert_rules ar ON ar.id = a.alert_rule_id
+		   LEFT JOIN hosts h ON a.resource_type = 'host' AND h.id = a.resource_id
+		  `+where,
+		baseArgs...,
+	).Scan(&countRow).Error; err != nil {
+		return 0, nil, err
+	}
+
+	var sampleRows []struct {
+		UID string
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT DISTINCT a.uid
+		   FROM alerts a
+		   LEFT JOIN alert_rules ar ON ar.id = a.alert_rule_id
+		   LEFT JOIN hosts h ON a.resource_type = 'host' AND h.id = a.resource_id
+		  `+where+`
+		  ORDER BY a.last_seen_at DESC
+		  LIMIT 20`,
+		baseArgs...,
+	).Scan(&sampleRows).Error; err != nil {
+		return 0, nil, err
+	}
+	sampleIDs := make([]string, 0, len(sampleRows))
+	for _, row := range sampleRows {
+		id := strings.TrimSpace(row.UID)
+		if id != "" {
+			sampleIDs = append(sampleIDs, id)
+		}
+	}
+	return countRow.Count, sampleIDs, nil
+}
+
+func validateDryRunFilter(filters normalizedDryRunFilter) *apperror.Error {
+	if filters.RuleID == "" && filters.HostID == "" && filters.HostGroupID == "" && filters.Severity == "" {
+		return apperror.New(http.StatusBadRequest, 400716, "at least one filter is required for dry-run")
+	}
+	if filters.Severity != "" {
+		switch filters.Severity {
+		case "info", "warning", "critical":
+		default:
+			return apperror.New(http.StatusBadRequest, 400718, "unsupported severity")
+		}
+	}
+	return nil
+}
+
+func dryRunExplanations(filters normalizedDryRunFilter, hasMatches bool) []DryRunExplanation {
+	pairs := []struct {
+		dimension string
+		value     string
+	}{
+		{dimension: "ruleId", value: filters.RuleID},
+		{dimension: "hostId", value: filters.HostID},
+		{dimension: "hostGroupId", value: filters.HostGroupID},
+		{dimension: "severity", value: filters.Severity},
+	}
+	out := make([]DryRunExplanation, 0, len(pairs))
+	for _, pair := range pairs {
+		value := strings.TrimSpace(pair.value)
+		if value == "" {
+			out = append(out, DryRunExplanation{
+				Dimension: pair.dimension,
+				Matched:   true,
+				Reason:    "not set, wildcard match",
+			})
+			continue
+		}
+		out = append(out, DryRunExplanation{
+			Dimension: pair.dimension,
+			Value:     value,
+			Matched:   hasMatches,
+			Reason:    matchExplanation(hasMatches),
+		})
+	}
+	return out
+}
+
+func matchExplanation(matched bool) string {
+	if matched {
+		return "matched alerts were found with current filter"
+	}
+	return "no alerts matched current filter"
+}
+
+func routingPolicyExplanation(matched int) string {
+	if matched > 0 {
+		return fmt.Sprintf("%d active routing policies matched channel and filter", matched)
+	}
+	return "no active routing policy matched channel and filter"
+}
+
+func normalizeNoisyLimit(value int) int {
+	if value <= 0 {
+		return 10
+	}
+	if value > 50 {
+		return 50
+	}
+	return value
 }
 
 func normalizeHistoryHours(value int) int {

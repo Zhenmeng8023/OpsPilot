@@ -1,5 +1,15 @@
 import { request } from "./request";
-import type { PageResult, WorkflowDefinitionDetail, WorkflowDefinitionSummary, WorkflowRunDetail, WorkflowRunSummary, WorkflowVersionSummary } from "./types";
+import type {
+  PageResult,
+  WorkflowActionHistoryItem,
+  WorkflowDefinitionDetail,
+  WorkflowDefinitionDiff,
+  WorkflowDefinitionSummary,
+  WorkflowRetryPlan,
+  WorkflowRunDetail,
+  WorkflowRunSummary,
+  WorkflowVersionSummary
+} from "./types";
 
 export interface WorkflowDefinitionPayload {
   name: string;
@@ -77,6 +87,20 @@ export function listWorkflowRuns(params: { keyword?: string; status?: string; pa
 
 export function getWorkflowRun(id: string) {
   return request<WorkflowRunDetail>(`/api/v1/workflow-runs/${id}`);
+}
+
+export function getWorkflowRetryPlan(id: string, nodeId?: string) {
+  const search = new URLSearchParams();
+  if (nodeId) search.set("nodeId", nodeId);
+  return request<WorkflowRetryPlan>(`/api/v1/workflow-runs/${id}/retry-plan${search.toString() ? `?${search}` : ""}`);
+}
+
+export function getWorkflowActionHistory(id: string) {
+  return request<WorkflowActionHistoryItem[]>(`/api/v1/workflow-runs/${id}/actions`);
+}
+
+export function getWorkflowDefinitionDiff(id: string) {
+  return request<WorkflowDefinitionDiff>(`/api/v1/workflow-runs/${id}/definition-diff`);
 }
 
 export function cancelWorkflowRun(id: string, reason?: string) {

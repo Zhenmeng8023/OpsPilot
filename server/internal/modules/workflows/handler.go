@@ -24,6 +24,9 @@ type ServiceContract interface {
 	Run(context.Context, RunInput) (RunDetail, *apperror.Error)
 	ListRuns(context.Context, ListInput) (RunListResult, *apperror.Error)
 	GetRun(context.Context, string) (RunDetail, *apperror.Error)
+	RetryPlan(context.Context, RetryPlanInput) (RetryPlanResult, *apperror.Error)
+	ActionHistory(context.Context, string) ([]ActionHistoryItem, *apperror.Error)
+	DefinitionDiff(context.Context, string) (DefinitionDiffResult, *apperror.Error)
 	CancelRun(context.Context, CancelInput) (RunDetail, *apperror.Error)
 	RetryRun(context.Context, RetryInput) (RunDetail, *apperror.Error)
 	RetryNode(context.Context, RetryNodeInput) (RunDetail, *apperror.Error)
@@ -80,6 +83,9 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	runs.Use(userAuth)
 	runs.GET("", requirePermission("workflow:read"), h.listRuns)
 	runs.GET("/:id", requirePermission("workflow:read"), h.getRun)
+	runs.GET("/:id/retry-plan", requirePermission("workflow:execute"), h.retryPlan)
+	runs.GET("/:id/actions", requirePermission("workflow:read"), h.actionHistory)
+	runs.GET("/:id/definition-diff", requirePermission("workflow:read"), h.definitionDiff)
 	runs.POST("/:id/cancel", requirePermission("workflow:manage"), h.cancelRun)
 	runs.POST("/:id/retry", requirePermission("workflow:execute"), h.retryRun)
 	runs.POST("/:id/nodes/:nodeId/retry", requirePermission("workflow:execute"), h.retryNode)
@@ -231,6 +237,36 @@ func (h *Handler) getRun(c *gin.Context) {
 	response.Success(c, item)
 }
 
+func (h *Handler) retryPlan(c *gin.Context) {
+	item, appErr := h.service.RetryPlan(c.Request.Context(), RetryPlanInput{
+		RunID:  c.Param("id"),
+		NodeID: c.Query("nodeId"),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) actionHistory(c *gin.Context) {
+	items, appErr := h.service.ActionHistory(c.Request.Context(), c.Param("id"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) definitionDiff(c *gin.Context) {
+	item, appErr := h.service.DefinitionDiff(c.Request.Context(), c.Param("id"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
 func (h *Handler) cancelRun(c *gin.Context) {
 	var req cancelRequest
 	_ = c.ShouldBindJSON(&req)
@@ -324,5 +360,5 @@ func parseUint(value string) uint64 {
 }
 
 func writeAppError(c *gin.Context, appErr *apperror.Error) {
-	response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+	response.FailAppError(c, appErr)
 }

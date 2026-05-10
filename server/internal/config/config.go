@@ -17,9 +17,12 @@ var (
 )
 
 const (
-	defaultAccessSecret  = "dev-access-secret-change-me"
-	defaultRefreshSecret = "dev-refresh-secret-change-me"
-	minJWTSecretLength   = 32
+	defaultAccessSecret        = "dev-access-secret-change-me"
+	defaultRefreshSecret       = "dev-refresh-secret-change-me"
+	defaultSecretEncryptionKey = "dev-secret-encryption-key-change-me"
+	defaultAgentBootstrapToken = "dev-agent-bootstrap-secret"
+	defaultAdminPassword       = "Admin@123456"
+	minJWTSecretLength         = 32
 )
 
 type Config struct {
@@ -169,7 +172,7 @@ func Load() (Config, error) {
 			RefreshTTL:    getEnvDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
 		},
 		Security: SecurityConfig{
-			SecretEncryptionKey: getEnv("SECRET_ENCRYPTION_KEY", "dev-secret-encryption-key-change-me"),
+			SecretEncryptionKey: getEnv("SECRET_ENCRYPTION_KEY", defaultSecretEncryptionKey),
 		},
 		Auth: AuthConfig{
 			PublicRegistrationEnabled: getEnvBool("AUTH_PUBLIC_REGISTRATION_ENABLED", getEnv("APP_ENV", "local") != "prod"),
@@ -177,7 +180,7 @@ func Load() (Config, error) {
 		Agent: AgentConfig{
 			APIBaseURL:          getEnv("AGENT_API_BASE_URL", "http://localhost:8080"),
 			Token:               getEnv("AGENT_TOKEN", ""),
-			BootstrapSecret:     getEnv("AGENT_BOOTSTRAP_SECRET", "dev-agent-bootstrap-secret"),
+			BootstrapSecret:     getEnv("AGENT_BOOTSTRAP_SECRET", defaultAgentBootstrapToken),
 			Hostname:            getEnv("AGENT_HOSTNAME", ""),
 			Workspace:           getEnv("AGENT_WORKSPACE", "default"),
 			PollInterval:        getEnvDurationSeconds("AGENT_POLL_INTERVAL_SECONDS", getEnvDuration("AGENT_POLL_INTERVAL", 5*time.Second)),
@@ -221,7 +224,7 @@ func Load() (Config, error) {
 			WorkspaceName: getEnv("BOOTSTRAP_WORKSPACE_NAME", "Default Workspace"),
 			WorkspaceSlug: getEnv("BOOTSTRAP_WORKSPACE_SLUG", "default"),
 			AdminUsername: getEnv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
-			AdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", "Admin@123456"),
+			AdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", defaultAdminPassword),
 			AdminEmail:    getEnv("BOOTSTRAP_ADMIN_EMAIL", "admin@opspilot.local"),
 		},
 	}
@@ -243,6 +246,18 @@ func Load() (Config, error) {
 			return Config{}, err
 		}
 		if err := validateProdSecretEncryptionKey(cfg.Security.SecretEncryptionKey); err != nil {
+			return Config{}, err
+		}
+		if err := validateProdJWTSecret("AGENT_BOOTSTRAP_SECRET", cfg.Agent.BootstrapSecret, defaultAgentBootstrapToken); err != nil {
+			return Config{}, err
+		}
+		if err := validateProdJWTSecret("BOOTSTRAP_ADMIN_PASSWORD", cfg.Bootstrap.AdminPassword, defaultAdminPassword); err != nil {
+			return Config{}, err
+		}
+		if err := validateProdAllowOrigin(cfg.HTTP.AllowOrigin); err != nil {
+			return Config{}, err
+		}
+		if err := validateProdDatabaseDSN(cfg.Database.DSN); err != nil {
 			return Config{}, err
 		}
 	}
@@ -332,13 +347,41 @@ func validateProdSecretEncryptionKey(value string) error {
 	switch {
 	case value == "":
 		return errors.New("SECRET_ENCRYPTION_KEY cannot be empty in prod")
-	case value == "dev-secret-encryption-key-change-me":
+	case value == defaultSecretEncryptionKey:
 		return errors.New("SECRET_ENCRYPTION_KEY cannot use the default development value in prod")
 	case len(value) < minJWTSecretLength:
 		return errors.New("SECRET_ENCRYPTION_KEY must be at least 32 characters in prod")
 	default:
 		return nil
 	}
+}
+
+func validateProdAllowOrigin(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("HTTP_ALLOW_ORIGIN cannot be empty in prod")
+	}
+	origins := strings.Split(value, ",")
+	for _, origin := range origins {
+		item := strings.ToLower(strings.TrimSpace(origin))
+		if item == "" {
+			continue
+		}
+		if strings.Contains(item, "localhost") || strings.Contains(item, "127.0.0.1") || strings.Contains(item, "::1") {
+			return errors.New("HTTP_ALLOW_ORIGIN cannot contain local loopback origins in prod")
+		}
+	}
+	return nil
+}
+
+func validateProdDatabaseDSN(value string) error {
+	dsn := strings.TrimSpace(value)
+	if dsn == "" {
+		return errors.New("DATABASE_DSN cannot be empty in prod")
+	}
+	if !strings.Contains(strings.ToLower(dsn), "parsetime=true") {
+		return errors.New("DATABASE_DSN must include parseTime=True in prod")
+	}
+	return nil
 }
 
 func getEnvInt(key string, fallback int) int {

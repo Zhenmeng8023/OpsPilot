@@ -26,6 +26,10 @@ type ServiceContract interface {
 	ListAlerts(context.Context, ListAlertsInput) ([]AlertSummary, *apperror.Error)
 	ListAlertEvents(context.Context, string, string) ([]AlertEventSummary, *apperror.Error)
 	ListAlertHistory(context.Context, AlertHistoryInput) ([]AlertHistoryPoint, *apperror.Error)
+	ListNoisyRules(context.Context, NoisyRuleInput) ([]NoisyRuleSummary, *apperror.Error)
+	SuppressionDryRun(context.Context, SuppressionDryRunInput) (SuppressionDryRunResult, *apperror.Error)
+	RoutingDryRun(context.Context, RoutingDryRunInput) (RoutingDryRunResult, *apperror.Error)
+	ListNoiseTrends(context.Context, NoiseTrendInput) ([]NoiseTrendPoint, *apperror.Error)
 	Acknowledge(context.Context, string, AuditContext) *apperror.Error
 	Silence(context.Context, string, SilenceInput) *apperror.Error
 	Unsilence(context.Context, string, AuditContext) *apperror.Error
@@ -73,6 +77,14 @@ type routingPolicyRequest struct {
 	Status      string `json:"status"`
 }
 
+type alertDryRunRequest struct {
+	RuleID      string `json:"ruleId"`
+	HostID      string `json:"hostId"`
+	HostGroupID string `json:"hostGroupId"`
+	Severity    string `json:"severity"`
+	ChannelID   string `json:"channelId"`
+}
+
 func NewHandler(service ServiceContract) *Handler {
 	return &Handler{service: service}
 }
@@ -95,6 +107,10 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.GET("/alert-groups", requirePermission("alert:read"), h.listAlertGroups)
 	protected.GET("/alerts", requirePermission("alert:read"), h.listAlerts)
 	protected.GET("/alerts/history", requirePermission("alert:read"), h.listAlertHistory)
+	protected.GET("/alerts/noisy-rules", requirePermission("alert:read"), h.listNoisyRules)
+	protected.GET("/alerts/noise-trends", requirePermission("alert:read"), h.listNoiseTrends)
+	protected.POST("/alerts/suppression-dry-run", requirePermission("alert:read"), h.suppressionDryRun)
+	protected.POST("/alerts/routing-dry-run", requirePermission("alert:read"), h.routingDryRun)
 	protected.GET("/alerts/:id/events", requirePermission("alert:read"), h.listAlertEvents)
 	protected.POST("/alerts/:id/ack", requirePermission("alert:write"), h.acknowledge)
 	protected.POST("/alerts/:id/silence", requirePermission("alert:write"), h.silence)
@@ -198,6 +214,68 @@ func (h *Handler) listAlertHistory(c *gin.Context) {
 		return
 	}
 	response.Success(c, items)
+}
+
+func (h *Handler) listNoisyRules(c *gin.Context) {
+	items, appErr := h.service.ListNoisyRules(c.Request.Context(), NoisyRuleInput{
+		Hours: parseInt(c.DefaultQuery("hours", "24")),
+		Limit: parseInt(c.DefaultQuery("limit", "10")),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) listNoiseTrends(c *gin.Context) {
+	items, appErr := h.service.ListNoiseTrends(c.Request.Context(), NoiseTrendInput{
+		Hours: parseInt(c.DefaultQuery("hours", "24")),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) suppressionDryRun(c *gin.Context) {
+	var req alertDryRunRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	result, appErr := h.service.SuppressionDryRun(c.Request.Context(), SuppressionDryRunInput{
+		RuleID:      req.RuleID,
+		HostID:      req.HostID,
+		HostGroupID: req.HostGroupID,
+		Severity:    req.Severity,
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *Handler) routingDryRun(c *gin.Context) {
+	var req alertDryRunRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	result, appErr := h.service.RoutingDryRun(c.Request.Context(), RoutingDryRunInput{
+		RuleID:      req.RuleID,
+		HostID:      req.HostID,
+		HostGroupID: req.HostGroupID,
+		Severity:    req.Severity,
+		ChannelID:   req.ChannelID,
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
 }
 
 func (h *Handler) listAlertEvents(c *gin.Context) {
@@ -392,7 +470,7 @@ func auditContext(c *gin.Context) AuditContext {
 }
 
 func writeAppError(c *gin.Context, appErr *apperror.Error) {
-	response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+	response.FailAppError(c, appErr)
 }
 
 func parseInt(value string) int {

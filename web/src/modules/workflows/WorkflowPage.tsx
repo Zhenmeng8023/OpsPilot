@@ -8,6 +8,9 @@ import {
   copyWorkflow,
   createWorkflow,
   disableWorkflow,
+  getWorkflowActionHistory,
+  getWorkflowDefinitionDiff,
+  getWorkflowRetryPlan,
   getWorkflow,
   getWorkflowRun,
   listWorkflowVersions,
@@ -78,6 +81,7 @@ export function WorkflowPage() {
   const [runPage, setRunPage] = useState(1);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
+  const [previewNodeId, setPreviewNodeId] = useState("");
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [form, setForm] = useState(() => ({ name: "", description: "", definition: buildSampleDefinition(t) }));
   const [runInput, setRunInput] = useState("{}");
@@ -108,10 +112,34 @@ export function WorkflowPage() {
     enabled: Boolean(selectedRunId),
     queryFn: () => getWorkflowRun(selectedRunId)
   });
+  const retryPlanQuery = useQuery({
+    queryKey: ["workflowRetryPlan", selectedRunId],
+    enabled: Boolean(selectedRunId),
+    queryFn: () => getWorkflowRetryPlan(selectedRunId)
+  });
+  const nodeRetryPlanQuery = useQuery({
+    queryKey: ["workflowRetryPlanNode", selectedRunId, previewNodeId],
+    enabled: Boolean(selectedRunId && previewNodeId),
+    queryFn: () => getWorkflowRetryPlan(selectedRunId, previewNodeId)
+  });
+  const actionHistoryQuery = useQuery({
+    queryKey: ["workflowActionHistory", selectedRunId],
+    enabled: Boolean(selectedRunId),
+    queryFn: () => getWorkflowActionHistory(selectedRunId)
+  });
+  const definitionDiffQuery = useQuery({
+    queryKey: ["workflowDefinitionDiff", selectedRunId],
+    enabled: Boolean(selectedRunId),
+    queryFn: () => getWorkflowDefinitionDiff(selectedRunId)
+  });
   const workflows = useMemo(() => workflowQuery.data?.items ?? [], [workflowQuery.data]);
   const runs = useMemo(() => runsQuery.data?.items ?? [], [runsQuery.data]);
   const selectedWorkflow = selectedWorkflowQuery.data;
   const selectedRun = selectedRunQuery.data;
+  const retryPlan = retryPlanQuery.data;
+  const nodeRetryPlan = nodeRetryPlanQuery.data;
+  const actionHistory = actionHistoryQuery.data ?? [];
+  const definitionDiff = definitionDiffQuery.data;
   const statusText = (value: string) => t(`common.status.${value}`);
 
   useEffect(() => {
@@ -123,6 +151,10 @@ export function WorkflowPage() {
       });
     }
   }, [selectedWorkflow]);
+
+  useEffect(() => {
+    setPreviewNodeId("");
+  }, [selectedRunId]);
 
   const saveMutation = useMutation({
     mutationFn: () => selectedWorkflowId ? updateWorkflow(selectedWorkflowId, form) : createWorkflow(form),
@@ -413,6 +445,7 @@ export function WorkflowPage() {
                           <td><span className={`status-chip status-${node.status}`}>{statusText(node.status)}</span></td>
                           <td className="action-cell">
                             {node.taskRunId ? <Link to={`/tasks/${node.taskRunId}`}>{node.taskRunId}</Link> : "-"}
+                            {canExecute && retryableNode(node.status) ? <button type="button" onClick={() => setPreviewNodeId(node.nodeId)}>{t("workflows.retryPreview")}</button> : null}
                             {canExecute && retryableNode(node.status) ? <button type="button" disabled={retryNodeMutation.isPending} onClick={() => setPendingAction({ type: "retryNode", runId: selectedRun.id, nodeId: node.nodeId })}>{t("workflows.retryNode")}</button> : null}
                             {canExecute && node.nodeType === "approval" && node.status === "running" ? <button type="button" onClick={() => setPendingAction({ type: "approve", runId: selectedRun.id, nodeId: node.nodeId })}>{t("incidents.acknowledge")}</button> : null}
                             {canExecute && node.nodeType === "approval" && node.status === "running" ? <button type="button" onClick={() => setPendingAction({ type: "reject", runId: selectedRun.id, nodeId: node.nodeId })}>{t("common.cancel")}</button> : null}
@@ -422,6 +455,20 @@ export function WorkflowPage() {
                     </tbody>
                   </table>
                 </DataTable>
+                {retryPlan ? (
+                  <div className="event-payload">
+                    <strong>{t("workflows.retryPreview")}</strong>
+                    <small>{retryPlan.retryable ? t("workflows.retryable") : t("workflows.notRetryable")}</small>
+                    <p>{t("workflows.retryPreviewSummary", { rerun: retryPlan.rerunNodeIds.length, skipped: retryPlan.skipNodeIds.length })}</p>
+                  </div>
+                ) : null}
+                {nodeRetryPlan ? (
+                  <div className="event-payload">
+                    <strong>{t("workflows.nodeRetryPreview", { nodeId: nodeRetryPlan.nodeId || previewNodeId })}</strong>
+                    <p>{t("workflows.retryPreviewSummary", { rerun: nodeRetryPlan.rerunNodeIds.length, skipped: nodeRetryPlan.skipNodeIds.length })}</p>
+                    <JsonViewer value={JSON.stringify(nodeRetryPlan.nodes, null, 2)} emptyLabel="-" />
+                  </div>
+                ) : null}
                 <Timeline
                   items={selectedRun.events.map((event): TimelineItem => ({
                     id: event.id,
@@ -450,6 +497,42 @@ export function WorkflowPage() {
                       <JsonViewer value={event.payload} emptyLabel="-" />
                     </div>
                   ))}
+                  <div className="event-payload">
+                    <strong>{t("workflows.actionHistory")}</strong>
+                    <DataTable loading={actionHistoryQuery.isLoading} empty={actionHistory.length === 0} emptyMessage={t("common.empty")} error={actionHistoryQuery.isError ? actionHistoryQuery.error.message : null}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{t("common.createdAt")}</th>
+                            <th>{t("common.action")}</th>
+                            <th>{t("common.status")}</th>
+                            <th>{t("common.description")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {actionHistory.map((item) => (
+                            <tr key={item.id}>
+                              <td>{item.createdAt}</td>
+                              <td><strong>{item.action}</strong><small>{item.actor || "-"}</small></td>
+                              <td>{item.result || "-"}</td>
+                              <td><small>{item.detail || item.traceId || "-"}</small></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </DataTable>
+                  </div>
+                  <div className="event-payload">
+                    <strong>{t("workflows.definitionDiff")}</strong>
+                    {definitionDiffQuery.isLoading ? <p>{t("common.loading")}</p> : null}
+                    {definitionDiff ? (
+                      <>
+                        <p>{definitionDiff.changed ? t("workflows.definitionChanged") : t("workflows.definitionUnchanged")}</p>
+                        {definitionDiff.changed ? <pre className="code-input">{definitionDiff.diff.join("\n")}</pre> : null}
+                      </>
+                    ) : null}
+                    {definitionDiffQuery.isError ? <p className="form-error">{definitionDiffQuery.error.message}</p> : null}
+                  </div>
                 </div>
               </>
             ) : <p className="empty-state">{t("workflows.selectRunHint")}</p>}

@@ -8,7 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -240,6 +242,70 @@ type HostGroupBatchResult struct {
 	GroupName      string `json:"groupName"`
 	AffectedAgents int64  `json:"affectedAgents"`
 	AffectedHosts  int64  `json:"affectedHosts"`
+}
+
+type VersionDistributionItem struct {
+	Version string `json:"version"`
+	Count   int    `json:"count"`
+}
+
+type StaleReasonItem struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
+}
+
+type FleetDistributionResult struct {
+	SnapshotAt   string                    `json:"snapshotAt"`
+	TotalAgents  int                       `json:"totalAgents"`
+	Versions     []VersionDistributionItem `json:"versions"`
+	StaleReasons []StaleReasonItem         `json:"staleReasons"`
+}
+
+type DiagnosticFieldDiff struct {
+	Field string `json:"field"`
+	Left  string `json:"left"`
+	Right string `json:"right"`
+}
+
+type DiagnosticSnapshot struct {
+	ID         string `json:"id"`
+	AgentID    string `json:"agentId"`
+	AgentName  string `json:"agentName"`
+	HostID     string `json:"hostId,omitempty"`
+	HostName   string `json:"hostName,omitempty"`
+	ReportedAt string `json:"reportedAt"`
+}
+
+type DiagnosticDiffResult struct {
+	Left        DiagnosticSnapshot   `json:"left"`
+	Right       DiagnosticSnapshot   `json:"right"`
+	Differences []DiagnosticFieldDiff `json:"differences"`
+}
+
+type BatchPlanInput struct {
+	BatchSize     int  `json:"batchSize"`
+	MaxBatches    int  `json:"maxBatches"`
+	StopOnFailure bool `json:"stopOnFailure"`
+}
+
+type BatchPlanBatch struct {
+	Index      int      `json:"index"`
+	AgentCount int      `json:"agentCount"`
+	HostCount  int      `json:"hostCount"`
+	AgentIDs   []string `json:"agentIds"`
+}
+
+type HostGroupBatchPlan struct {
+	GroupID        string           `json:"groupId"`
+	GroupName      string           `json:"groupName"`
+	BatchSize      int              `json:"batchSize"`
+	MaxBatches     int              `json:"maxBatches"`
+	StopOnFailure  bool             `json:"stopOnFailure"`
+	TotalAgents    int              `json:"totalAgents"`
+	TotalHosts     int              `json:"totalHosts"`
+	Truncated      bool             `json:"truncated"`
+	RemainingAgents int             `json:"remainingAgents,omitempty"`
+	Batches        []BatchPlanBatch `json:"batches"`
 }
 
 type TagSummary struct {
@@ -522,7 +588,7 @@ func (s *Service) Heartbeat(ctx context.Context, identity AgentIdentity, input H
 
 		host, err := s.ensureHost(ctx, tx, identity.WorkspaceID, input.HostInfoInput, uint64(agent.HostID.Int64))
 		if err != nil {
-			return err
+			return fmt.Errorf("ensure host for heartbeat failed: %w", err)
 		}
 		res := tx.WithContext(ctx).Exec(
 			`UPDATE agents
@@ -531,24 +597,24 @@ func (s *Service) Heartbeat(ctx context.Context, identity AgentIdentity, input H
 			host.ID, nullString(input.Version), status, nullString(input.OSType), nullString(input.Arch), nullString(input.IP), jsonNull(input.Metadata), agent.ID,
 		)
 		if res.Error != nil {
-			return res.Error
+			return fmt.Errorf("update agent heartbeat state failed: %w", res.Error)
 		}
 		if res.RowsAffected == 0 {
 			return apperror.New(http.StatusForbidden, 403101, "agent is disabled")
 		}
 		if err := s.writeHeartbeat(ctx, tx, agent.ID, host.ID, status, input.HostInfoInput); err != nil {
-			return err
+			return fmt.Errorf("insert agent heartbeat record failed: %w", err)
 		}
 		if err := s.writeDiagnostic(ctx, tx, identity.WorkspaceID, agent.ID, host.ID, input.HostInfoInput); err != nil {
-			return err
+			return fmt.Errorf("insert agent diagnostic record failed: %w", err)
 		}
 		summary, err := s.agentSummaryByID(ctx, tx, agent.ID)
 		if err != nil {
-			return err
+			return fmt.Errorf("load heartbeat agent summary failed: %w", err)
 		}
 		hostSummary, err := s.hostSummaryByID(ctx, tx, host.ID)
 		if err != nil {
-			return err
+			return fmt.Errorf("load heartbeat host summary failed: %w", err)
 		}
 		result = HeartbeatResult{
 			Agent:      summary,
@@ -773,6 +839,168 @@ func (s *Service) ListDiagnostics(ctx context.Context) ([]AgentDiagnosticSummary
 	return out, nil
 }
 
+func (s *Service) FleetDistribution(ctx context.Context) (FleetDistributionResult, *apperror.Error) {
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return FleetDistributionResult{}, appErr
+	}
+
+	result := FleetDistributionResult{
+		SnapshotAt: time.Now().Format(time.RFC3339),
+	}
+
+	var versionRows []struct {
+		Version string
+		Count   int
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT COALESCE(NULLIF(TRIM(version), ''), 'unknown') AS version, COUNT(*) AS count
+		   FROM agents
+		  WHERE workspace_id = ? AND deleted_at IS NULL
+		  GROUP BY COALESCE(NULLIF(TRIM(version), ''), 'unknown')`,
+		workspace.ID,
+	).Scan(&versionRows).Error; err != nil {
+		return FleetDistributionResult{}, apperror.Wrap(http.StatusInternalServerError, 500129, "load fleet version distribution failed", err)
+	}
+	for _, row := range versionRows {
+		result.Versions = append(result.Versions, VersionDistributionItem{
+			Version: row.Version,
+			Count:   row.Count,
+		})
+		result.TotalAgents += row.Count
+	}
+	sort.Slice(result.Versions, func(i, j int) bool {
+		if result.Versions[i].Count == result.Versions[j].Count {
+			return result.Versions[i].Version < result.Versions[j].Version
+		}
+		return result.Versions[i].Count > result.Versions[j].Count
+	})
+
+	var staleRows []struct {
+		Reason string
+		Count  int
+	}
+	thresholdSeconds := int(s.offlineThreshold().Seconds())
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT reason, COUNT(*) AS count
+		   FROM (
+		     SELECT CASE
+		              WHEN a.status = 'disabled' THEN 'disabled'
+		              WHEN a.last_heartbeat_at IS NULL THEN 'never_heartbeat'
+		              WHEN a.last_heartbeat_at < DATE_SUB(NOW(3), INTERVAL ? SECOND) THEN 'heartbeat_timeout'
+		              WHEN h.status = 'offline' THEN 'host_offline'
+		              WHEN a.status = 'upgrading' THEN 'upgrading'
+		              ELSE 'healthy'
+		            END AS reason
+		       FROM agents a
+		       LEFT JOIN hosts h ON h.id = a.host_id
+		      WHERE a.workspace_id = ? AND a.deleted_at IS NULL
+		   ) t
+		  GROUP BY reason`,
+		thresholdSeconds, workspace.ID,
+	).Scan(&staleRows).Error; err != nil {
+		return FleetDistributionResult{}, apperror.Wrap(http.StatusInternalServerError, 500130, "load fleet stale reasons failed", err)
+	}
+	for _, row := range staleRows {
+		result.StaleReasons = append(result.StaleReasons, StaleReasonItem{
+			Reason: row.Reason,
+			Count:  row.Count,
+		})
+	}
+	sort.Slice(result.StaleReasons, func(i, j int) bool {
+		if result.StaleReasons[i].Count == result.StaleReasons[j].Count {
+			return result.StaleReasons[i].Reason < result.StaleReasons[j].Reason
+		}
+		return result.StaleReasons[i].Count > result.StaleReasons[j].Count
+	})
+
+	return result, nil
+}
+
+func (s *Service) DiagnosticDiff(ctx context.Context, leftID, rightID string) (DiagnosticDiffResult, *apperror.Error) {
+	leftID = strings.TrimSpace(leftID)
+	rightID = strings.TrimSpace(rightID)
+	if leftID == "" || rightID == "" {
+		return DiagnosticDiffResult{}, apperror.New(http.StatusBadRequest, 400124, "left and right diagnostic ids are required")
+	}
+
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return DiagnosticDiffResult{}, appErr
+	}
+
+	left, appErr := s.diagnosticByUID(ctx, workspace.ID, leftID)
+	if appErr != nil {
+		return DiagnosticDiffResult{}, appErr
+	}
+	right, appErr := s.diagnosticByUID(ctx, workspace.ID, rightID)
+	if appErr != nil {
+		return DiagnosticDiffResult{}, appErr
+	}
+
+	leftFlat := flattenDiagnosticPayload(left.Payload)
+	rightFlat := flattenDiagnosticPayload(right.Payload)
+	leftFlat["version"] = left.Version.String
+	leftFlat["osName"] = left.OSName.String
+	leftFlat["osVersion"] = left.OSVersion.String
+	leftFlat["arch"] = left.Arch.String
+	leftFlat["ip"] = left.IP.String
+	leftFlat["runningTasks"] = fmt.Sprintf("%d", left.RunningTasks.Int64)
+	rightFlat["version"] = right.Version.String
+	rightFlat["osName"] = right.OSName.String
+	rightFlat["osVersion"] = right.OSVersion.String
+	rightFlat["arch"] = right.Arch.String
+	rightFlat["ip"] = right.IP.String
+	rightFlat["runningTasks"] = fmt.Sprintf("%d", right.RunningTasks.Int64)
+
+	keysSet := map[string]struct{}{}
+	for key := range leftFlat {
+		keysSet[key] = struct{}{}
+	}
+	for key := range rightFlat {
+		keysSet[key] = struct{}{}
+	}
+	keys := make([]string, 0, len(keysSet))
+	for key := range keysSet {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	diffs := make([]DiagnosticFieldDiff, 0, len(keys))
+	for _, key := range keys {
+		leftValue := leftFlat[key]
+		rightValue := rightFlat[key]
+		if leftValue == rightValue {
+			continue
+		}
+		diffs = append(diffs, DiagnosticFieldDiff{
+			Field: key,
+			Left:  leftValue,
+			Right: rightValue,
+		})
+	}
+
+	return DiagnosticDiffResult{
+		Left: DiagnosticSnapshot{
+			ID:         left.UID,
+			AgentID:    left.AgentUID,
+			AgentName:  left.AgentName,
+			HostID:     left.HostUID.String,
+			HostName:   left.HostName.String,
+			ReportedAt: left.ReportedAt,
+		},
+		Right: DiagnosticSnapshot{
+			ID:         right.UID,
+			AgentID:    right.AgentUID,
+			AgentName:  right.AgentName,
+			HostID:     right.HostUID.String,
+			HostName:   right.HostName.String,
+			ReportedAt: right.ReportedAt,
+		},
+		Differences: diffs,
+	}, nil
+}
+
 func (s *Service) latestDiagnostics(ctx context.Context, db *gorm.DB, workspaceID uint64, hostGroupID uint64) ([]AgentDiagnosticSummary, error) {
 	args := []interface{}{workspaceID, workspaceID}
 	where := "WHERE d.workspace_id = ?"
@@ -834,6 +1062,113 @@ func (s *Service) latestDiagnostics(ctx context.Context, db *gorm.DB, workspaceI
 		})
 	}
 	return out, nil
+}
+
+func (s *Service) diagnosticByUID(ctx context.Context, workspaceID uint64, diagnosticUID string) (struct {
+	UID          string
+	AgentUID     string
+	AgentName    string
+	HostUID      sql.NullString
+	HostName     sql.NullString
+	Version      sql.NullString
+	OSName       sql.NullString
+	OSVersion    sql.NullString
+	Arch         sql.NullString
+	IP           sql.NullString
+	RunningTasks sql.NullInt64
+	Payload      sql.NullString
+	ReportedAt   string
+}, *apperror.Error) {
+	var row struct {
+		UID          string
+		AgentUID     string
+		AgentName    string
+		HostUID      sql.NullString
+		HostName     sql.NullString
+		Version      sql.NullString
+		OSName       sql.NullString
+		OSVersion    sql.NullString
+		Arch         sql.NullString
+		IP           sql.NullString
+		RunningTasks sql.NullInt64
+		Payload      sql.NullString
+		ReportedAt   string
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT d.uid, a.uid AS agent_uid, a.name AS agent_name, h.uid AS host_uid, h.name AS host_name,
+		        d.version, d.os_name, d.os_version, d.arch, d.ip, d.running_tasks, d.payload,
+		        DATE_FORMAT(d.reported_at, '%Y-%m-%d %H:%i:%s') AS reported_at
+		   FROM agent_diagnostics d
+		   JOIN agents a ON a.id = d.agent_id
+		   LEFT JOIN hosts h ON h.id = d.host_id
+		  WHERE d.workspace_id = ? AND d.uid = ?
+		  LIMIT 1`,
+		workspaceID, diagnosticUID,
+	).Scan(&row).Error; err != nil {
+		return row, apperror.Wrap(http.StatusInternalServerError, 500131, "load diagnostic snapshot failed", err)
+	}
+	if row.UID == "" {
+		return row, apperror.New(http.StatusNotFound, 404117, "diagnostic snapshot not found")
+	}
+	return row, nil
+}
+
+func flattenDiagnosticPayload(raw sql.NullString) map[string]string {
+	out := map[string]string{}
+	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return out
+	}
+	var payload interface{}
+	if err := json.Unmarshal([]byte(raw.String), &payload); err != nil {
+		out["payload"] = strings.TrimSpace(raw.String)
+		return out
+	}
+	flattenJSONMap("", payload, out)
+	return out
+}
+
+func flattenJSONMap(prefix string, value interface{}, out map[string]string) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			next := key
+			if prefix != "" {
+				next = prefix + "." + key
+			}
+			flattenJSONMap(next, typed[key], out)
+		}
+	case []interface{}:
+		for index, item := range typed {
+			next := fmt.Sprintf("%s[%d]", prefix, index)
+			if prefix == "" {
+				next = fmt.Sprintf("[%d]", index)
+			}
+			flattenJSONMap(next, item, out)
+		}
+	default:
+		key := prefix
+		if key == "" {
+			key = "value"
+		}
+		switch typed := value.(type) {
+		case nil:
+			out[key] = "null"
+		case string:
+			out[key] = typed
+		default:
+			bytes, err := json.Marshal(typed)
+			if err != nil {
+				out[key] = fmt.Sprint(typed)
+			} else {
+				out[key] = string(bytes)
+			}
+		}
+	}
 }
 
 func (s *Service) ListMaintenanceWindows(ctx context.Context) ([]MaintenanceWindowSummary, *apperror.Error) {
@@ -1141,6 +1476,101 @@ func (s *Service) DisableHostGroupAgents(ctx context.Context, groupUID string, i
 		return HostGroupBatchResult{}, apperror.Wrap(http.StatusInternalServerError, 500126, "disable host group agents failed", txErr)
 	}
 	return result, nil
+}
+
+func (s *Service) DisableHostGroupAgentsPlan(ctx context.Context, groupUID string, input BatchPlanInput) (HostGroupBatchPlan, *apperror.Error) {
+	groupUID = strings.TrimSpace(groupUID)
+	if groupUID == "" {
+		return HostGroupBatchPlan{}, apperror.New(http.StatusBadRequest, 400120, "host group id is required")
+	}
+	input = normalizeBatchPlanInput(input)
+
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return HostGroupBatchPlan{}, appErr
+	}
+	group, err := s.hostGroupByUID(ctx, s.db, workspace.ID, groupUID)
+	if err != nil {
+		if appErr, ok := err.(*apperror.Error); ok {
+			return HostGroupBatchPlan{}, appErr
+		}
+		return HostGroupBatchPlan{}, apperror.Wrap(http.StatusInternalServerError, 500132, "load host group failed", err)
+	}
+
+	var rows []struct {
+		AgentUID string
+		HostUID  sql.NullString
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT a.uid AS agent_uid, h.uid AS host_uid
+		   FROM agents a
+		   JOIN host_group_members hgm ON hgm.host_id = a.host_id
+		   LEFT JOIN hosts h ON h.id = a.host_id
+		  WHERE a.workspace_id = ?
+		    AND hgm.host_group_id = ?
+		    AND a.deleted_at IS NULL
+		    AND a.status <> 'disabled'
+		  ORDER BY a.last_heartbeat_at DESC, a.id ASC`,
+		workspace.ID, group.ID,
+	).Scan(&rows).Error; err != nil {
+		return HostGroupBatchPlan{}, apperror.Wrap(http.StatusInternalServerError, 500133, "load host group planner snapshot failed", err)
+	}
+
+	agentIDs := make([]string, 0, len(rows))
+	hostSet := map[string]struct{}{}
+	agentHost := map[string]string{}
+	for _, row := range rows {
+		agentIDs = append(agentIDs, row.AgentUID)
+		if row.HostUID.Valid && strings.TrimSpace(row.HostUID.String) != "" {
+			hostSet[row.HostUID.String] = struct{}{}
+			agentHost[row.AgentUID] = row.HostUID.String
+		}
+	}
+
+	plan := HostGroupBatchPlan{
+		GroupID:        group.UID,
+		GroupName:      group.Name,
+		BatchSize:      input.BatchSize,
+		MaxBatches:     input.MaxBatches,
+		StopOnFailure:  input.StopOnFailure,
+		TotalAgents:    len(agentIDs),
+		TotalHosts:     len(hostSet),
+		Batches:        make([]BatchPlanBatch, 0),
+	}
+	if len(agentIDs) == 0 {
+		return plan, nil
+	}
+
+	maxAgents := len(agentIDs)
+	if input.MaxBatches > 0 {
+		limit := input.MaxBatches * input.BatchSize
+		if limit < maxAgents {
+			maxAgents = limit
+			plan.Truncated = true
+			plan.RemainingAgents = len(agentIDs) - maxAgents
+		}
+	}
+
+	for start, index := 0, 1; start < maxAgents; start, index = start+input.BatchSize, index+1 {
+		end := start + input.BatchSize
+		if end > maxAgents {
+			end = maxAgents
+		}
+		chunk := append([]string{}, agentIDs[start:end]...)
+		chunkHosts := map[string]struct{}{}
+		for _, agentUID := range chunk {
+			if hostUID := strings.TrimSpace(agentHost[agentUID]); hostUID != "" {
+				chunkHosts[hostUID] = struct{}{}
+			}
+		}
+		plan.Batches = append(plan.Batches, BatchPlanBatch{
+			Index:      index,
+			AgentCount: len(chunk),
+			HostCount:  len(chunkHosts),
+			AgentIDs:   chunk,
+		})
+	}
+	return plan, nil
 }
 
 func (s *Service) ListHostGroupDiagnostics(ctx context.Context, groupUID string) ([]AgentDiagnosticSummary, *apperror.Error) {
@@ -2291,6 +2721,22 @@ func normalizeListInput(input ListInput) ListInput {
 	}
 	input.Keyword = strings.TrimSpace(input.Keyword)
 	input.Status = strings.TrimSpace(input.Status)
+	return input
+}
+
+func normalizeBatchPlanInput(input BatchPlanInput) BatchPlanInput {
+	if input.BatchSize <= 0 {
+		input.BatchSize = 50
+	}
+	if input.BatchSize > 500 {
+		input.BatchSize = 500
+	}
+	if input.MaxBatches <= 0 {
+		input.MaxBatches = 20
+	}
+	if input.MaxBatches > 200 {
+		input.MaxBatches = 200
+	}
 	return input
 }
 

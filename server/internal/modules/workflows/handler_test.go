@@ -86,12 +86,32 @@ func TestRetryApproveAndRejectHandlersPassNodeContext(t *testing.T) {
 	}
 }
 
+func TestRetryPlanHandlerPassesScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	service := &captureWorkflowService{}
+	router := gin.New()
+	NewHandler(service).RegisterRoutes(router.Group("/api/v1"), passThroughWorkflowAuth, passThroughWorkflowPermission)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workflow-runs/run-9/retry-plan?nodeId=gate", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected retry plan 200, got %d", resp.Code)
+	}
+	if service.retryPlan.RunID != "run-9" || service.retryPlan.NodeID != "gate" {
+		t.Fatalf("unexpected retry plan input: %#v", service.retryPlan)
+	}
+}
+
 type captureWorkflowService struct {
 	runInput      RunInput
 	retryInput    RetryInput
 	retryNode     RetryNodeInput
 	approvalInput ApprovalInput
 	rejectInput   ApprovalInput
+	retryPlan     RetryPlanInput
 }
 
 func (s *captureWorkflowService) List(context.Context, ListInput) (DefinitionListResult, *apperror.Error) {
@@ -137,6 +157,19 @@ func (s *captureWorkflowService) ListRuns(context.Context, ListInput) (RunListRe
 
 func (s *captureWorkflowService) GetRun(context.Context, string) (RunDetail, *apperror.Error) {
 	return RunDetail{}, nil
+}
+
+func (s *captureWorkflowService) RetryPlan(_ context.Context, input RetryPlanInput) (RetryPlanResult, *apperror.Error) {
+	s.retryPlan = input
+	return RetryPlanResult{RunID: input.RunID, NodeID: input.NodeID, Scope: "run", Retryable: true}, nil
+}
+
+func (s *captureWorkflowService) ActionHistory(context.Context, string) ([]ActionHistoryItem, *apperror.Error) {
+	return []ActionHistoryItem{}, nil
+}
+
+func (s *captureWorkflowService) DefinitionDiff(context.Context, string) (DefinitionDiffResult, *apperror.Error) {
+	return DefinitionDiffResult{}, nil
 }
 
 func (s *captureWorkflowService) CancelRun(context.Context, CancelInput) (RunDetail, *apperror.Error) {

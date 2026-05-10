@@ -12,6 +12,7 @@ Release/security documents:
 - [V1.0 UI 规范](./docs/version/v1.0/ui-guidelines.md) / [V1.0 UI Guidelines](./docs/version/v1.0/ui-guidelines.en.md)
 - [中长期软件开发设计规划](./docs/version/product-development-roadmap.md)
 - [V1.1 下一版本设计](./docs/version/v1.1/product-development-design.md)
+- [V1.1 运维加固演练手册](./docs/version/v1.1/operations-hardening.md)
 
 > 语言：简体中文（当前） | [English](./README.en.md)
 
@@ -86,7 +87,15 @@ root password=opspilot_root
 
 ## 数据库迁移
 
-按顺序执行：
+推荐一键脚本（包含 schema_migrations 记录与校验）：
+
+```powershell
+cd D:\+\1108026_rust_go\OpsPilot
+.\scripts\migrations.ps1 -Mode apply -HostName 127.0.0.1 -Port 3306 -Database opspilot -User opspilot -Password opspilot
+.\scripts\migrations.ps1 -Mode verify -HostName 127.0.0.1 -Port 3306 -Database opspilot -User opspilot -Password opspilot
+```
+
+如需手工按顺序执行：
 
 ```powershell
 cd D:\+\1108026_rust_go\OpsPilot
@@ -135,7 +144,10 @@ NOTIFICATION_HTTP_TIMEOUT_SECONDS=10
 
 - `APP_ENV=prod` 时，`/auth/register` 默认关闭，只有显式设置 `AUTH_PUBLIC_REGISTRATION_ENABLED=true` 才允许公开注册。
 - `APP_ENV=prod` 时，`JWT_ACCESS_SECRET` 和 `JWT_REFRESH_SECRET` 不能为空、不能使用默认开发值、长度至少 32 字符。
+- `APP_ENV=prod` 时，`AGENT_BOOTSTRAP_SECRET`、`BOOTSTRAP_ADMIN_PASSWORD`、`SECRET_ENCRYPTION_KEY` 同样不能为空、不能使用默认开发值、长度至少 32 字符。
 - `HTTP_ALLOW_ORIGIN` 支持逗号分隔白名单；不匹配的 `Origin` 不会返回 CORS allow header。
+- `APP_ENV=prod` 时，`HTTP_ALLOW_ORIGIN` 不能包含 `localhost`、`127.0.0.1`、`::1`。
+- `APP_ENV=prod` 时，`DATABASE_DSN` 必须包含 `parseTime=True`。
 
 ## 启动前端
 
@@ -189,6 +201,15 @@ npm run build
 ```powershell
 cd D:\+\1108026_rust_go\OpsPilot
 .\scripts\migration-check.ps1 -SkipExecution
+.\scripts\openapi-router-check.ps1
+.\scripts\govulncheck.ps1
+```
+
+npm 漏洞检查（High/Critical 门禁）：
+
+```powershell
+cd D:\+\1108026_rust_go\OpsPilot\web
+npm audit --audit-level=high --omit=dev --registry=https://registry.npmjs.org
 ```
 
 版本接口：

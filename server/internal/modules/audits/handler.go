@@ -50,7 +50,7 @@ func (h *Handler) list(c *gin.Context) {
 		PageSize:     parseInt(c.DefaultQuery("pageSize", "20")),
 	})
 	if appErr != nil {
-		response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+		response.FailAppError(c, appErr)
 		return
 	}
 	response.Success(c, logs)
@@ -70,7 +70,7 @@ func (h *Handler) export(c *gin.Context) {
 		CreatedTo:    c.Query("createdTo"),
 	}, c.DefaultQuery("format", "csv"), auditContext(c))
 	if appErr != nil {
-		response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+		response.FailAppError(c, appErr)
 		return
 	}
 	c.Header("Content-Type", result.ContentType)
@@ -90,7 +90,7 @@ func (h *Handler) runRetention(c *gin.Context) {
 		Audit:  auditContext(c),
 	})
 	if appErr != nil {
-		response.Fail(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+		response.FailAppError(c, appErr)
 		return
 	}
 	response.Success(c, result)

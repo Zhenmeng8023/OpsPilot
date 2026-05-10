@@ -55,9 +55,34 @@ services:
       - -c
       - |
         set -eu
+        mysql -hmysql -u"$${MYSQL_USER}" -p"$${MYSQL_PASSWORD}" "$${MYSQL_DATABASE}" <<'SQL'
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          version VARCHAR(128) NOT NULL,
+          checksum CHAR(64) NULL,
+          status VARCHAR(16) NOT NULL DEFAULT 'applied',
+          execution_ms INT UNSIGNED NOT NULL DEFAULT 0,
+          notes VARCHAR(255) NULL,
+          applied_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_schema_migrations_version (version),
+          KEY idx_schema_migrations_applied_at (applied_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+SQL
         for file in /migrations/*.up.sql; do
-          echo "applying $${file}"
+          version="$$(basename "$${file}")"
+          applied="$$(mysql -hmysql -u"$${MYSQL_USER}" -p"$${MYSQL_PASSWORD}" "$${MYSQL_DATABASE}" -Nse "SELECT COUNT(*) FROM schema_migrations WHERE version = '$${version}'")"
+          if [ "$${applied}" -gt 0 ]; then
+            echo "skipping $${version} (already recorded)"
+            continue
+          fi
+          echo "applying $${version}"
+          checksum="$$(sha256sum "$${file}" | awk '{print $$1}')"
+          started_ms="$$(date +%s%3N)"
           mysql -hmysql -u"$${MYSQL_USER}" -p"$${MYSQL_PASSWORD}" "$${MYSQL_DATABASE}" < "$${file}"
+          finished_ms="$$(date +%s%3N)"
+          elapsed_ms="$$(($${finished_ms}-$${started_ms}))"
+          mysql -hmysql -u"$${MYSQL_USER}" -p"$${MYSQL_PASSWORD}" "$${MYSQL_DATABASE}" -e "INSERT INTO schema_migrations(version, checksum, status, execution_ms, notes) VALUES ('$${version}', '$${checksum}', 'applied', $${elapsed_ms}, 'applied by docker-compose migrate service') ON DUPLICATE KEY UPDATE checksum = VALUES(checksum), status = VALUES(status), execution_ms = VALUES(execution_ms), notes = VALUES(notes), applied_at = NOW(3)"
         done
 
   api:
