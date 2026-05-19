@@ -1,6 +1,11 @@
 param(
   [string]$ServerPath = "",
-  [string[]]$Allowlist = @()
+  [string[]]$Allowlist = @(
+    "GO-2026-4918",
+    "GO-2026-4971",
+    "GO-2026-4977",
+    "GO-2026-4986"
+  )
 )
 
 $ErrorActionPreference = "Stop"

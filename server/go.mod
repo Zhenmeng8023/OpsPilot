@@ -1,6 +1,6 @@
 module opspilot/server
 
-go 1.26.3
+go 1.26.2
 
 require (
 	github.com/gin-gonic/gin v1.12.0
