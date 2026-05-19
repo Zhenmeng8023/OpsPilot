@@ -51,7 +51,7 @@ OpsPilot 是一个基于 Go + Gin + React + TypeScript 的自动化运维平台�
 
 ## 环境要求
 
-- Go 1.26.2
+- Go 1.26.3
 - Node.js 24.x
 - npm 11.x
 - MySQL 8.0.39

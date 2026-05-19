@@ -51,7 +51,7 @@ OpsPilot is an automation operations platform built with Go + Gin + React + Type
 
 ## Requirements
 
-- Go 1.26.2
+- Go 1.26.3
 - Node.js 24.x
 - npm 11.x
 - MySQL 8.0.39

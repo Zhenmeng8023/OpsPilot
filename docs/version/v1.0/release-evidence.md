@@ -7,6 +7,7 @@
 ## V1.0 更迭记录
 
 | 日期 | 版本/提交 | 更迭内容 | 同步说明 |
+| 2026-05-10 | V1.0 加固中 / 待提交 | 收口 Go 漏洞残余风险，移除临时放行。 | Go toolchain 基线升级到 `1.26.3`（`server/go.mod`），`scripts/govulncheck.ps1` 默认 allowlist 清空并恢复严格失败策略；同时升级 `github.com/jackc/pgx/v5` 到 `v5.9.0`、`filippo.io/edwards25519` 到 `v1.1.1`，在 `go1.26.3` 下复验 `go test ./...`、`go vet ./...`、`govulncheck -show verbose ./...` 全部通过且 0 漏洞。 |
 | 2026-05-10 | V1.0 加固中 / 待提交 | 修复 Frontend CI `npm ci` 锁文件不一致导致的安装失败风险。 | `web/package-lock.json` 补齐 `@emnapi/core`/`@emnapi/runtime`/`@napi-rs/wasm-runtime` 传递依赖并统一 npmjs registry URL；`web/.npmrc` 固定官方 registry 且开启 `replace-registry-host=always`；CI 前端安装命令显式 `--registry=https://registry.npmjs.org`；本地以 `npm@11.11.0` 复验 `npm ci --include=optional` 通过。 |
 | 2026-05-10 | V1.0 加固中 / 待提交 | Incident 生命周期闭环、告警噪声治理最小版、CI 漏洞门禁与运维演练脚本。 | 新增 Incident lifecycle/merge/close API+UI+OpenAPI+测试；新增 alerts noisy rules / suppression dry-run / routing dry-run / noise trends API+UI+OpenAPI+测试；Playwright smoke 补 incidents 与 trace-center；CI 增加 govulncheck 与 npm audit；新增 `scripts/db-backup.ps1` 与 V1.1 运维加固演练手册。 |
 | 2026-05-09 | `v1.0.0` 发布收口 | 根版本号切换为 `1.0.0`，远端 CI 已确认通过。 | GitHub Actions 已在 `master` 与 `v1.0.0-beta.1` tag 上完成绿色验证；V1.0 发布阻塞项收敛为 V1.1 加固计划。 |
