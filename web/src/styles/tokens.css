@@ -1,25 +1,145 @@
+/* ===== OpsPilot Design Tokens v2 ===== */
 :root {
-  color-scheme: light;
-  --bg: #edf3f6;
+  /* ---- Color Scheme ---- */
+  color-scheme: light dark;
+
+  /* Brand */
+  --brand-50: #e8f4f9;
+  --brand-100: #c5e3ef;
+  --brand-200: #9ed0e3;
+  --brand-300: #77bdd7;
+  --brand-400: #5aaecf;
+  --brand: #1c556f;
+  --brand-600: #184a61;
+  --brand-700: #12394c;
+  --brand-800: #0d2a38;
+  --brand-900: #081c26;
+
+  /* Accent (Amber/Gold) */
+  --accent-50: #fff8e6;
+  --accent-100: #ffedbf;
+  --accent-200: #ffe095;
+  --accent-300: #ffd46b;
+  --accent-400: #f0be38;
+  --accent: #d79c2f;
+  --accent-600: #b8831a;
+  --accent-700: #8f650f;
+  --accent-800: #664708;
+  --accent-900: #3d2a03;
+
+  /* Semantic */
+  --success-50: #e6f7f1;
+  --success: #1f8a70;
+  --success-700: #156b55;
+  --danger-50: #fef0ee;
+  --danger: #c94f3a;
+  --danger-700: #a63b29;
+  --warning-50: #fff8e6;
+  --warning: #d79c2f;
+  --info-50: #e8f4f9;
+  --info: #1c556f;
+
+  /* Surfaces */
+  --bg-app: #edf3f6;
   --bg-elevated: #f7fafc;
   --bg-strong: #112c3a;
   --surface: #ffffff;
   --surface-soft: #f6fafc;
+  --surface-hover: #eef4f7;
   --surface-tint: rgb(255 255 255 / 84%);
+
+  /* Lines */
   --line: #d5dfe5;
   --line-strong: #b9c9d2;
+  --line-soft: #e8eef1;
+
+  /* Text */
   --text: #152630;
+  --text-secondary: #445a66;
   --muted: #687d88;
-  --brand: #1c556f;
-  --brand-strong: #12394c;
-  --accent: #d79c2f;
-  --accent-soft: #fff1cf;
-  --success: #1f8a70;
-  --danger: #c94f3a;
-  --shadow: 0 24px 70px rgb(15 47 63 / 12%);
-  --shadow-soft: 0 10px 30px rgb(15 47 63 / 8%);
-  --radius-lg: 8px;
-  --radius-md: 8px;
+  --text-on-brand: #ffffff;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgb(15 47 63 / 4%);
+  --shadow-sm: 0 2px 8px rgb(15 47 63 / 6%);
+  --shadow-md: 0 8px 24px rgb(15 47 63 / 9%);
+  --shadow-lg: 0 16px 48px rgb(15 47 63 / 12%);
+  --shadow-xl: 0 24px 70px rgb(15 47 63 / 14%);
+
+  /* Radii */
+  --radius-xs: 4px;
   --radius-sm: 6px;
-  font-family: "Aptos", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 999px;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Typography */
+  --font-sans: "Inter", "SF Pro Display", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.825rem;
+  --text-base: 0.95rem;
+  --text-lg: 1.1rem;
+  --text-xl: 1.35rem;
+  --text-2xl: 1.7rem;
+  --text-3xl: 2.2rem;
+  --leading-tight: 1.15;
+  --leading-normal: 1.6;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+
+  /* Transitions */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+
+  /* Sidebar */
+  --sidebar-width: 16rem;
+  --topbar-height: 4rem;
+
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== Dark Mode ===== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-app: #0d1a21;
+    --bg-elevated: #12222b;
+    --surface: #162833;
+    --surface-soft: #1a2e3a;
+    --surface-hover: #1e3542;
+    --surface-tint: rgb(22 40 51 / 90%);
+    --line: #243642;
+    --line-strong: #2e4250;
+    --line-soft: #1e323f;
+    --text: #e2e8ec;
+    --text-secondary: #b0bec5;
+    --muted: #78909c;
+    --shadow-xs: 0 1px 2px rgb(0 0 0 / 20%);
+    --shadow-sm: 0 2px 8px rgb(0 0 0 / 25%);
+    --shadow-md: 0 8px 24px rgb(0 0 0 / 30%);
+    --shadow-lg: 0 16px 48px rgb(0 0 0 / 35%);
+    --shadow-xl: 0 24px 70px rgb(0 0 0 / 40%);
+  }
 }

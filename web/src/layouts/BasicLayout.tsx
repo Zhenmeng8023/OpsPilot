@@ -6,22 +6,52 @@ import { useLanguageStore } from "../i18n/language";
 import { hasPermissionCode } from "../modules/auth/permissions";
 import { useAuthStore } from "../modules/auth/store";
 
-const navItems = [
-  { to: "/dashboard", labelKey: "nav.dashboard", permission: "workspace.read" },
-  { to: "/users", labelKey: "nav.users", permission: "user.read" },
-  { to: "/roles", labelKey: "nav.roles", permission: "role.read" },
-  { to: "/agents", labelKey: "nav.agents", permission: "agent:read" },
-  { to: "/scripts", labelKey: "nav.scripts", permission: "script:read" },
-  { to: "/tasks", labelKey: "nav.tasks", permission: "task:read" },
-  { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read" },
-  { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read" },
-  { to: "/workflows", labelKey: "nav.workflows", permission: "workflow:read" },
-  { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read" },
-  { to: "/incidents", labelKey: "nav.incidents", permission: "alert:read" },
-  { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read" },
-  { to: "/trace-center", labelKey: "nav.traceCenter", permission: "audit.read" },
-  { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read" }
-] as const;
+type NavGroup = {
+  labelKey: MessageKey;
+  items: { to: string; labelKey: MessageKey; permission: string; icon: string }[];
+};
+
+const navGroups: NavGroup[] = [
+  {
+    labelKey: "nav.group.control",
+    items: [
+      { to: "/dashboard", labelKey: "nav.dashboard", permission: "workspace.read", icon: "?" },
+      { to: "/users", labelKey: "nav.users", permission: "user.read", icon: "??" },
+      { to: "/roles", labelKey: "nav.roles", permission: "role.read", icon: "??" },
+    ]
+  },
+  {
+    labelKey: "nav.group.execution",
+    items: [
+      { to: "/agents", labelKey: "nav.agents", permission: "agent:read", icon: "??" },
+      { to: "/scripts", labelKey: "nav.scripts", permission: "script:read", icon: "??" },
+      { to: "/tasks", labelKey: "nav.tasks", permission: "task:read", icon: "?" },
+      { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read", icon: "?" },
+    ]
+  },
+  {
+    labelKey: "nav.group.automation",
+    items: [
+      { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read", icon: "??" },
+      { to: "/workflows", labelKey: "nav.workflows", permission: "workflow:read", icon: "??" },
+    ]
+  },
+  {
+    labelKey: "nav.group.monitoring",
+    items: [
+      { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read", icon: "??" },
+      { to: "/incidents", labelKey: "nav.incidents", permission: "alert:read", icon: "??" },
+      { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read", icon: "??" },
+    ]
+  },
+  {
+    labelKey: "nav.group.audit",
+    items: [
+      { to: "/trace-center", labelKey: "nav.traceCenter", permission: "audit.read", icon: "??" },
+      { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read", icon: "??" },
+    ]
+  }
+];
 
 type LayoutHandle = {
   meta?: {
@@ -43,10 +73,10 @@ export function BasicLayout() {
     .find((meta) => meta?.titleKey);
   const pageTitle = currentMeta?.titleKey ? t(currentMeta.titleKey) : user?.workspace.name ?? "OpsPilot";
   const sectionTitle = currentMeta?.sectionKey ? t(currentMeta.sectionKey) : t("layout.controlPlane");
-  const roleSummary = (user?.roles ?? []).join(" · ") || t("layout.controlPlane");
+  const roleSummary = (user?.roles ?? []).join(" ? ") || t("layout.controlPlane");
 
   useEffect(() => {
-    document.title = `${pageTitle} · OpsPilot`;
+    document.title = `${pageTitle} ? OpsPilot`;
   }, [pageTitle]);
 
   return (
@@ -60,14 +90,26 @@ export function BasicLayout() {
               <small>{t("layout.controlPlane")}</small>
             </div>
           </div>
-          <nav className="nav-list">
-            {navItems
-              .filter((item) => hasPermissionCode(user?.permissions, item.permission))
-              .map((item) => (
-                <NavLink key={item.to} to={item.to}>
-                  {t(item.labelKey)}
-                </NavLink>
-              ))}
+          <nav>
+            {navGroups.map((group) => {
+              const visibleItems = group.items.filter((item) =>
+                hasPermissionCode(user?.permissions, item.permission)
+              );
+              if (visibleItems.length === 0) return null;
+              return (
+                <div className="nav-group" key={group.labelKey}>
+                  <div className="nav-group-label">{t(group.labelKey)}</div>
+                  <div className="nav-list">
+                    {visibleItems.map((item) => (
+                      <NavLink key={item.to} to={item.to}>
+                        <span className="nav-icon" aria-hidden="true">{item.icon}</span>
+                        {t(item.labelKey)}
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </nav>
         </div>
         <div className="sidebar-footer">
@@ -81,14 +123,18 @@ export function BasicLayout() {
           <div className="topbar-context">
             <p className="eyebrow">{sectionTitle}</p>
             <h2>{pageTitle}</h2>
-            <p className="topbar-subtitle">{user?.workspace.slug ?? user?.workspace.name ?? "OpsPilot"}</p>
           </div>
           <div className="user-box">
             <div className="user-meta">
               <strong>{user?.username ?? "guest"}</strong>
               <span>{roleSummary}</span>
             </div>
-            <button type="button" className="language-button" aria-label={t("language.label")} onClick={toggleLanguage}>
+            <button
+              type="button"
+              className="language-button"
+              aria-label={t("language.label")}
+              onClick={toggleLanguage}
+            >
               {t("language.toggle")}
             </button>
             <button

@@ -1,26 +1,72 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
 import { request } from "../../api/request";
 import type { HealthData, VersionInfo } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { StatusBadge } from "../../shared/components/StatusBadge";
 
+interface CountResponse { total: number }
+
 export function DashboardPage() {
   const t = useLanguageStore((state) => state.t);
-  const healthQuery = useQuery({
-    queryKey: ["health"],
-    queryFn: () => request<HealthData>("/health", { skipAuth: true })
-  });
-  const versionQuery = useQuery({
-    queryKey: ["version"],
-    queryFn: () => request<VersionInfo>("/api/v1/version", { skipAuth: true })
+  const navigate = useNavigate();
+
+  const results = useQueries({
+    queries: [
+      { queryKey: ["health"], queryFn: () => request<HealthData>("/health", { skipAuth: true }), staleTime: 30000 },
+      { queryKey: ["version"], queryFn: () => request<VersionInfo>("/api/v1/version", { skipAuth: true }), staleTime: 60000 },
+      { queryKey: ["dashboard-agents"], queryFn: () => request<CountResponse>("/api/v1/agents"), staleTime: 15000 },
+      { queryKey: ["dashboard-tasks"], queryFn: () => request<CountResponse>("/api/v1/tasks?limit=1"), staleTime: 15000 },
+      { queryKey: ["dashboard-schedules"], queryFn: () => request<CountResponse>("/api/v1/schedules?limit=1"), staleTime: 15000 },
+      { queryKey: ["dashboard-incidents"], queryFn: () => request<CountResponse>("/api/v1/incidents?limit=1"), staleTime: 15000 },
+      { queryKey: ["dashboard-workflows"], queryFn: () => request<CountResponse>("/api/v1/workflows?limit=1"), staleTime: 15000 },
+    ]
   });
 
-  const cards = [
-    { label: t("dashboard.onlineAgents"), value: "0", hint: t("dashboard.agentHint") },
-    { label: t("dashboard.todayTasks"), value: "0", hint: t("dashboard.taskHint") },
-    { label: t("dashboard.failedTasks"), value: "0", hint: t("dashboard.failedHint") },
-    { label: t("dashboard.recentAlerts"), value: "0", hint: t("dashboard.alertHint") }
+  const [healthQuery, versionQuery, agentsQuery, tasksQuery, schedulesQuery, incidentsQuery, workflowsQuery] = results;
+  const isLoading = results.some((r) => r.isLoading);
+
+  const statCards = [
+    {
+      label: t("dashboard.onlineAgents"),
+      value: agentsQuery.data?.total ?? (agentsQuery.data as any)?.length ?? "-",
+      hint: t("dashboard.agentHint"),
+      icon: "??",
+      className: "stat-card-info",
+      onClick: () => navigate("/agents")
+    },
+    {
+      label: t("dashboard.todayTasks"),
+      value: tasksQuery.data?.total ?? "-",
+      hint: t("dashboard.taskHint"),
+      icon: "?",
+      className: "stat-card-accent",
+      onClick: () => navigate("/tasks")
+    },
+    {
+      label: t("dashboard.schedules"),
+      value: schedulesQuery.data?.total ?? "-",
+      hint: t("dashboard.scheduleHint"),
+      icon: "?",
+      className: "",
+      onClick: () => navigate("/schedules")
+    },
+    {
+      label: t("dashboard.workflows"),
+      value: workflowsQuery.data?.total ?? "-",
+      hint: t("dashboard.workflowHint"),
+      icon: "??",
+      className: "",
+      onClick: () => navigate("/workflows")
+    },
+  ];
+
+  const quickActions = [
+    { label: t("tasks.createAction"), to: "/tasks/new", icon: "?" },
+    { label: t("scripts.createAction"), to: "/scripts/new", icon: "??" },
+    { label: t("schedules.createAction"), to: "/schedules", icon: "?" },
+    { label: t("webhooks.createSource"), to: "/webhooks", icon: "??" },
   ];
 
   return (
@@ -34,16 +80,48 @@ export function DashboardPage() {
       </section>
 
       <section className="metrics-grid">
-        {cards.map((card) => (
-          <article className="metric-card" key={card.label}>
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
-            <small>{card.hint}</small>
+        {statCards.map((card) => (
+          <article
+            className={`stat-card ${card.className}`}
+            key={card.label}
+            onClick={card.onClick}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter") card.onClick(); }}
+          >
+            <div className="stat-card-label">
+              <span className="stat-card-icon">{card.icon}</span>
+              {card.label}
+            </div>
+            <div className="stat-card-value">
+              {isLoading ? <span className="skeleton" style={{ display: "inline-block", width: "3rem", height: "1.5em" }} /> : card.value}
+            </div>
+            <span className="stat-card-hint">{card.hint}</span>
           </article>
         ))}
       </section>
 
       <section className="panel-grid">
+        <article className="panel">
+          <div className="panel-title">
+            <h3>{t("dashboard.quickActions")}</h3>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.5rem" }}>
+            {quickActions.map((action) => (
+              <button
+                key={action.to}
+                type="button"
+                className="ghost-button"
+                onClick={() => navigate(action.to)}
+                style={{ justifyContent: "center", padding: "0.85rem 1rem" }}
+              >
+                <span>{action.icon}</span>
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </article>
+
         <article className="panel">
           <div className="panel-title">
             <h3>{t("dashboard.apiHealth")}</h3>
@@ -67,11 +145,7 @@ export function DashboardPage() {
               </div>
               <div>
                 <dt>Commit</dt>
-                <dd>{versionQuery.data?.commit || "-"}</dd>
-              </div>
-              <div>
-                <dt>Build time</dt>
-                <dd>{versionQuery.data?.buildTime || "-"}</dd>
+                <dd style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)" }}>{versionQuery.data?.commit?.substring(0, 8) || "-"}</dd>
               </div>
               <div>
                 <dt>Go</dt>
@@ -79,19 +153,10 @@ export function DashboardPage() {
               </div>
               <div>
                 <dt>{t("dashboard.time")}</dt>
-                <dd>{healthQuery.data?.time ?? "-"}</dd>
+                <dd style={{ fontSize: "0.72rem" }}>{healthQuery.data?.time ?? "-"}</dd>
               </div>
             </dl>
           )}
-        </article>
-
-        <article className="panel terminal-panel">
-          <div className="panel-title">
-            <h3>{t("dashboard.devFlow")}</h3>
-            <span>MVP</span>
-          </div>
-          <pre>{`login -> agent register -> script template
-task create -> run -> stream logs -> result audit`}</pre>
         </article>
       </section>
     </main>
