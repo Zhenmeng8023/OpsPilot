@@ -1659,6 +1659,408 @@ select {
   transition: all var(--duration-fast) var(--ease-out);
 }
 
+
+
+/* ================================================================
+   CHECKBOX & RADIO ? Custom styled
+   ================================================================ */
+input[type="checkbox"],
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  min-width: 1.1rem;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  transition: all var(--duration-fast) var(--ease-out);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input[type="checkbox"]:hover,
+input[type="radio"]:hover {
+  border-color: var(--brand-300);
+  background: var(--brand-50);
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgb(28 85 111 / 12%);
+  outline: none;
+}
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  border-color: var(--brand);
+  background: var(--brand);
+}
+
+/* Checkmark via pseudo-element */
+input[type="checkbox"]::after {
+  content: "";
+  display: block;
+  width: 0.35rem;
+  height: 0.55rem;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+input[type="checkbox"]:checked::after {
+  opacity: 1;
+}
+
+input[type="radio"]::after {
+  content: "";
+  display: block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: white;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+input[type="radio"]:checked::after {
+  opacity: 1;
+}
+
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--line-soft);
+}
+
+/* ================================================================
+   GLOBAL BUTTONS ? Every <button> gets base styling
+   ================================================================ */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+button:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* Primary / submit buttons (default for form buttons) */
+button[type="submit"],
+button.primary {
+  border-color: var(--brand);
+  color: white;
+  background: var(--brand);
+  font-weight: var(--weight-bold);
+}
+
+button[type="submit"]:hover,
+button.primary:hover {
+  background: var(--brand-700);
+  border-color: var(--brand-700);
+  box-shadow: 0 2px 8px rgb(28 85 111 / 25%);
+}
+
+/* Override for login-card / auth-mode / user-box which have their own styles */
+.login-card button[type="submit"] {
+  width: 100%;
+  margin-top: 1.4rem;
+  padding: 0.9rem 1.2rem;
+  font-size: var(--text-base);
+  border-radius: var(--radius-full);
+}
+
+.auth-mode button {
+  width: 100%;
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius-full);
+  color: var(--muted);
+  background: transparent;
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+  border: 1px solid transparent;
+}
+
+.auth-mode button.active {
+  color: white;
+  background: var(--brand);
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-footer button,
+.user-box button {
+  border: 0;
+  border-radius: var(--radius-full);
+  color: white;
+  background: var(--brand);
+  font-weight: var(--weight-bold);
+}
+
+.user-box button:hover,
+.sidebar-footer button:hover {
+  background: var(--brand-700);
+  box-shadow: 0 4px 12px rgb(28 85 111 / 30%);
+}
+
+.language-button {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--line) !important;
+  font-weight: var(--weight-medium) !important;
+}
+
+.language-button:hover {
+  color: var(--text) !important;
+  border-color: var(--line-strong) !important;
+  background: var(--surface-hover) !important;
+  box-shadow: none !important;
+}
+
+/* Danger variant overrides */
+button.danger,
+button.danger-button {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+  background: transparent !important;
+}
+
+button.danger:hover,
+button.danger-button:hover {
+  color: white !important;
+  background: var(--danger) !important;
+  border-color: var(--danger) !important;
+}
+
+/* Disabled state */
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ================================================================
+   ROLE CARDS & PERMISSION CATALOG
+   ================================================================ */
+.role-list {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.role-card .panel-title p {
+  margin: 0.2rem 0 0;
+  font-size: var(--text-sm);
+}
+
+.role-card .panel-title small {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  margin-left: 0.5rem;
+}
+
+.permission-catalog {
+  min-width: 0;
+}
+
+.permission-groups {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.permission-groups > div {
+  padding: var(--space-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.permission-groups > div > strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--brand);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-extrabold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.permission-groups > div > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.permission-groups span {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* ================================================================
+   MANAGEMENT FORM ? Submit button & layout
+   ================================================================ */
+.management-form button[type="submit"] {
+  margin-top: var(--space-2);
+  width: 100%;
+  padding: 0.8rem;
+}
+
+.management-form label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.management-form label > span:first-child,
+.management-form label > :first-child:not(input):not(select):not(textarea) {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+/* ================================================================
+   PERMISSION CHECKS ? Checkbox label grid
+   ================================================================ */
+.permission-checks label {
+  display: flex !important;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  background: var(--surface);
+  width: auto !important;
+  margin: 0 !important;
+}
+
+.permission-checks label:hover {
+  background: var(--surface-hover);
+  border-color: var(--line);
+}
+
+.permission-checks label:has(input:checked) {
+  border-color: var(--brand-300);
+  background: var(--brand-50);
+}
+
+.permission-checks label span {
+  color: var(--text) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: var(--weight-normal) !important;
+  font-family: var(--font-mono);
+}
+
+/* ================================================================
+   JSON VIEWER
+   ================================================================ */
+.json-viewer {
+  margin: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-strong);
+  color: #b8c5cc;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+/* ================================================================
+   SECTION TOOLBAR ? Bottom spacing for form sections
+   ================================================================ */
+.section-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line-soft);
+}
+
+/* ================================================================
+   EDITOR FORM ? Incident / detailed editing layouts
+   ================================================================ */
+.editor-form {
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.editor-form + .editor-form {
+  margin-top: var(--space-3);
+}
+
+.editor-form h4 {
+  margin: 0 0 0.25rem;
+  font-size: var(--text-base);
+}
+
+.editor-form > p {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.editor-form label {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: var(--space-3);
+}
+
+.editor-form label > span:first-child {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
 /* ================================================================
    RESPONSIVE
    ================================================================ */
