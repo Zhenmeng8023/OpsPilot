@@ -5,50 +5,55 @@ import type { MessageKey } from "../i18n/language";
 import { useLanguageStore } from "../i18n/language";
 import { hasPermissionCode } from "../modules/auth/permissions";
 import { useAuthStore } from "../modules/auth/store";
+import {
+  IconDashboard, IconUsers, IconRoles, IconAgents, IconScripts,
+  IconTasks, IconSchedules, IconWebhooks, IconWorkflows, IconMetrics,
+  IconIncidents, IconNotifications, IconTrace, IconAudit,
+} from "../shared/components/Icons";
 
 type NavGroup = {
   labelKey: MessageKey;
-  items: { to: string; labelKey: MessageKey; permission: string; icon: string }[];
+  items: { to: string; labelKey: MessageKey; permission: string; icon: React.ReactNode }[];
 };
 
 const navGroups: NavGroup[] = [
   {
     labelKey: "nav.group.control",
     items: [
-      { to: "/dashboard", labelKey: "nav.dashboard", permission: "workspace.read", icon: "?" },
-      { to: "/users", labelKey: "nav.users", permission: "user.read", icon: "??" },
-      { to: "/roles", labelKey: "nav.roles", permission: "role.read", icon: "??" },
+      { to: "/dashboard", labelKey: "nav.dashboard", permission: "workspace.read", icon: <IconDashboard /> },
+      { to: "/users", labelKey: "nav.users", permission: "user.read", icon: <IconUsers /> },
+      { to: "/roles", labelKey: "nav.roles", permission: "role.read", icon: <IconUsers /> },
     ]
   },
   {
     labelKey: "nav.group.execution",
     items: [
-      { to: "/agents", labelKey: "nav.agents", permission: "agent:read", icon: "??" },
-      { to: "/scripts", labelKey: "nav.scripts", permission: "script:read", icon: "??" },
-      { to: "/tasks", labelKey: "nav.tasks", permission: "task:read", icon: "?" },
-      { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read", icon: "?" },
+      { to: "/agents", labelKey: "nav.agents", permission: "agent:read", icon: <IconUsers /> },
+      { to: "/scripts", labelKey: "nav.scripts", permission: "script:read", icon: <IconUsers /> },
+      { to: "/tasks", labelKey: "nav.tasks", permission: "task:read", icon: <IconDashboard /> },
+      { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read", icon: <IconDashboard /> },
     ]
   },
   {
     labelKey: "nav.group.automation",
     items: [
-      { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read", icon: "??" },
-      { to: "/workflows", labelKey: "nav.workflows", permission: "workflow:read", icon: "??" },
+      { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read", icon: <IconUsers /> },
+      { to: "/workflows", labelKey: "nav.workflows", permission: "workflow:read", icon: <IconUsers /> },
     ]
   },
   {
     labelKey: "nav.group.monitoring",
     items: [
-      { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read", icon: "??" },
-      { to: "/incidents", labelKey: "nav.incidents", permission: "alert:read", icon: "??" },
-      { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read", icon: "??" },
+      { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read", icon: <IconUsers /> },
+      { to: "/incidents", labelKey: "nav.incidents", permission: "alert:read", icon: <IconUsers /> },
+      { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read", icon: <IconUsers /> },
     ]
   },
   {
     labelKey: "nav.group.audit",
     items: [
-      { to: "/trace-center", labelKey: "nav.traceCenter", permission: "audit.read", icon: "??" },
-      { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read", icon: "??" },
+      { to: "/trace-center", labelKey: "nav.traceCenter", permission: "audit.read", icon: <IconUsers /> },
+      { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read", icon: <IconUsers /> },
     ]
   }
 ];

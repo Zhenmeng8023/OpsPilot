@@ -5,6 +5,7 @@ import { request } from "../../api/request";
 import type { HealthData, VersionInfo } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { StatusBadge } from "../../shared/components/StatusBadge";
+import { IconAgents, IconTasks, IconSchedules, IconWorkflows, IconPlus, IconEdit, IconClock, IconWebhooks } from "../../shared/components/Icons";
 
 interface CountResponse { total: number }
 
@@ -32,7 +33,7 @@ export function DashboardPage() {
       label: t("dashboard.onlineAgents"),
       value: agentsQuery.data?.total ?? (agentsQuery.data as any)?.length ?? "-",
       hint: t("dashboard.agentHint"),
-      icon: "??",
+      icon: <IconAgents />,
       className: "stat-card-info",
       onClick: () => navigate("/agents")
     },
@@ -40,7 +41,7 @@ export function DashboardPage() {
       label: t("dashboard.todayTasks"),
       value: tasksQuery.data?.total ?? "-",
       hint: t("dashboard.taskHint"),
-      icon: "?",
+      icon: <IconTasks />,
       className: "stat-card-accent",
       onClick: () => navigate("/tasks")
     },
@@ -48,7 +49,7 @@ export function DashboardPage() {
       label: t("dashboard.schedules"),
       value: schedulesQuery.data?.total ?? "-",
       hint: t("dashboard.scheduleHint"),
-      icon: "?",
+      icon: <IconTasks />,
       className: "",
       onClick: () => navigate("/schedules")
     },
@@ -56,17 +57,17 @@ export function DashboardPage() {
       label: t("dashboard.workflows"),
       value: workflowsQuery.data?.total ?? "-",
       hint: t("dashboard.workflowHint"),
-      icon: "??",
+      icon: <IconAgents />,
       className: "",
       onClick: () => navigate("/workflows")
     },
   ];
 
   const quickActions = [
-    { label: t("tasks.createAction"), to: "/tasks/new", icon: "?" },
-    { label: t("scripts.createAction"), to: "/scripts/new", icon: "??" },
-    { label: t("schedules.createAction"), to: "/schedules", icon: "?" },
-    { label: t("webhooks.createSource"), to: "/webhooks", icon: "??" },
+    { label: t("tasks.createAction"), to: "/tasks/new", icon: <IconTasks /> },
+    { label: t("scripts.createAction"), to: "/scripts/new", icon: <IconAgents /> },
+    { label: t("schedules.createAction"), to: "/schedules", icon: <IconTasks /> },
+    { label: t("webhooks.createSource"), to: "/webhooks", icon: <IconAgents /> },
   ];
 
   return (

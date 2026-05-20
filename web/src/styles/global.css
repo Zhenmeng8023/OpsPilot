@@ -182,26 +182,85 @@ a { color: inherit; text-decoration: none; }
   font-weight: var(--weight-semibold);
 }
 
+/* ================================================================
+   FORM ELEMENTS ? Polished inputs, selects, textareas
+   ================================================================ */
+
+/* Universal base for all text-like inputs */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="search"],
+input[type="number"],
+input[type="url"],
+input:not([type]),
+textarea,
+select {
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/* Hover: subtle border highlight */
+input[type="text"]:hover,
+input[type="password"]:hover,
+input[type="email"]:hover,
+input[type="search"]:hover,
+input[type="number"]:hover,
+input:not([type]):hover,
+textarea:hover,
+select:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+}
+
+/* Focus: brand ring + border */
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+input:not([type]):focus,
+textarea:focus,
+select:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgb(28 85 111 / 10%), 0 1px 2px rgb(28 85 111 / 6%);
+  outline: none;
+  background: var(--surface);
+}
+
+/* Select: custom arrow */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23687d88' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  padding-right: 2.2rem;
+  cursor: pointer;
+}
+
+/* Placeholder styling */
+::placeholder {
+  color: var(--muted);
+  opacity: 0.65;
+}
+
+/* Login card overrides ? slightly larger */
 .login-card input,
 .management-form input,
 .management-form select,
 .data-table select {
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
   padding: 0.8rem 0.9rem;
-  color: var(--text);
-  background: var(--surface);
-  transition: border-color var(--duration-fast) var(--ease-out),
-              box-shadow var(--duration-fast) var(--ease-out);
-}
-
-.login-card input:focus,
-.management-form input:focus,
-.management-form select:focus {
-  border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgb(28 85 111 / 12%);
-  outline: none;
+  font-size: var(--text-base);
 }
 
 .login-card button,
@@ -800,15 +859,29 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: var(--space-4);
 }
 
+.toolbar-row input[type="text"],
+.toolbar-row input[type="search"],
+.toolbar-row input:not([type]) {
+  width: auto;
+  min-width: 10rem;
+}
+
 .toolbar-row select {
-  padding: 0.45rem 0.75rem;
-  border: 1px solid var(--line);
+  width: auto;
+  padding: 0.45rem 2rem 0.45rem 0.75rem;
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   color: var(--text);
   background: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23687d88' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
   font-size: var(--text-sm);
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out);
+  transition: border-color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .toolbar-row select:hover { border-color: var(--line-strong); }
@@ -818,8 +891,8 @@ a { color: inherit; text-decoration: none; }
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--line);
+  padding: 0.45rem 0.9rem;
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   color: var(--text);
   background: var(--surface);
@@ -828,6 +901,7 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
   white-space: nowrap;
+  user-select: none;
 }
 
 .toolbar-row button:hover,
