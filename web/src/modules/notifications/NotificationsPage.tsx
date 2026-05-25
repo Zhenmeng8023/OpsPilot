@@ -27,6 +27,7 @@ export function NotificationsPage() {
   const t = useLanguageStore((state) => state.t);
   const queryClient = useQueryClient();
   const canWrite = hasPermission(user, "notification:write");
+  const [tab, setTab] = useState<"inbox" | "deliveries" | "channels" | "templates">(canWrite ? "inbox" : "deliveries");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [form, setForm] = useState({ name: "", channelType: "site", target: "", signingSecret: "" });
   const [templateForm, setTemplateForm] = useState({ name: "", category: "alert", channelType: "any", titleTemplate: "{{title}}", contentTemplate: "{{content}}", status: "active" });
@@ -157,9 +158,25 @@ export function NotificationsPage() {
           <p className="eyebrow">{t("monitoring.eyebrow")}</p>
           <h1>{t("notifications.title")}</h1>
         </div>
+        <div className="segmented">
+          <button type="button" className={tab === "inbox" ? "active" : ""} onClick={() => setTab("inbox")}>
+            {t("notifications.title")}
+          </button>
+          <button type="button" className={tab === "deliveries" ? "active" : ""} onClick={() => setTab("deliveries")}>
+            {t("notifications.deliveries")}
+          </button>
+          <button type="button" className={tab === "channels" ? "active" : ""} onClick={() => setTab("channels")}>
+            {t("notifications.channels")}
+          </button>
+          {canWrite ? (
+            <button type="button" className={tab === "templates" ? "active" : ""} onClick={() => setTab("templates")}>
+              {t("notifications.templates")}
+            </button>
+          ) : null}
+        </div>
       </section>
 
-      {canWrite ? (
+      {tab === "channels" && canWrite ? (
         <section className="panel form-panel">
           <div className="panel-title">
             <h3>{editingChannel ? t("notifications.updateChannel") : t("notifications.createChannel")}</h3>
@@ -226,7 +243,7 @@ export function NotificationsPage() {
         </section>
       ) : null}
 
-      {canWrite ? (
+      {tab === "templates" && canWrite ? (
         <section className="panel table-panel">
           <div className="panel-title">
             <h3>{t("notifications.templates")}</h3>
@@ -300,6 +317,7 @@ export function NotificationsPage() {
         </section>
       ) : null}
 
+      {tab === "deliveries" ? (
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("notifications.deliveries")}</h3><span>{deliveries.length} {t("common.items")}</span></div>
         <FilterToolbar>
@@ -347,7 +365,9 @@ export function NotificationsPage() {
         {bulkRetryMutation.data ? <p className="empty-state">{t("notifications.bulkRetryResult", { count: bulkRetryMutation.data.retriedCount })}</p> : null}
         {bulkRetryMutation.isError ? <p className="form-error">{bulkRetryMutation.error.message}</p> : null}
       </section>
+      ) : null}
 
+      {tab === "inbox" ? (
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("notifications.title")}</h3><span>{notifications.length} {t("common.items")}</span></div>
         <FilterToolbar>
@@ -378,7 +398,9 @@ export function NotificationsPage() {
         </DataTable>
         {readMutation.isError ? <p className="form-error">{readMutation.error.message}</p> : null}
       </section>
+      ) : null}
 
+      {tab === "channels" ? (
       <section className="panel table-panel">
         <div className="panel-title"><h3>{t("notifications.channels")}</h3><span>{channels.length} {t("common.total")}</span></div>
         <DataTable loading={channelsQuery.isLoading} empty={channels.length === 0} emptyMessage={t("notifications.emptyChannels")} error={channelsQuery.isError ? channelsQuery.error.message : null}>
@@ -407,6 +429,7 @@ export function NotificationsPage() {
         </DataTable>
         {testChannelMutation.isError ? <p className="form-error">{testChannelMutation.error.message}</p> : null}
       </section>
+      ) : null}
     </main>
   );
 }

@@ -9,6 +9,7 @@
   --brand-200: #9ed0e3;
   --brand-300: #77bdd7;
   --brand-400: #5aaecf;
+  --brand-500: #2f6f8d;
   --brand: #1c556f;
   --brand-600: #184a61;
   --brand-700: #12394c;
@@ -40,12 +41,13 @@
   --info: #1c556f;
 
   /* Surfaces */
-  --bg-app: #edf3f6;
-  --bg-elevated: #f7fafc;
+  --bg-app: #edf4f6;
+  --bg-elevated: #f8fbfc;
   --bg-strong: #112c3a;
   --surface: #ffffff;
-  --surface-soft: #f6fafc;
-  --surface-hover: #eef4f7;
+  --surface-raised: #f9fcfd;
+  --surface-soft: #f4f8fa;
+  --surface-hover: #edf4f7;
   --surface-tint: rgb(255 255 255 / 84%);
 
   /* Lines */
@@ -61,10 +63,10 @@
 
   /* Shadows */
   --shadow-xs: 0 1px 2px rgb(15 47 63 / 4%);
-  --shadow-sm: 0 2px 8px rgb(15 47 63 / 6%);
-  --shadow-md: 0 8px 24px rgb(15 47 63 / 9%);
-  --shadow-lg: 0 16px 48px rgb(15 47 63 / 12%);
-  --shadow-xl: 0 24px 70px rgb(15 47 63 / 14%);
+  --shadow-sm: 0 6px 18px rgb(15 47 63 / 7%);
+  --shadow-md: 0 14px 34px rgb(15 47 63 / 10%);
+  --shadow-lg: 0 24px 56px rgb(15 47 63 / 14%);
+  --shadow-xl: 0 32px 84px rgb(15 47 63 / 18%);
 
   /* Radii */
   --radius-xs: 4px;
@@ -86,8 +88,8 @@
   --space-12: 3rem;
 
   /* Typography */
-  --font-sans: "Inter", "SF Pro Display", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --font-sans: "IBM Plex Sans", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
   --text-xs: 0.75rem;
   --text-sm: 0.825rem;
   --text-base: 0.95rem;
@@ -113,6 +115,7 @@
   /* Sidebar */
   --sidebar-width: 16rem;
   --topbar-height: 4rem;
+  --content-max-width: 104rem;
 
   font-family: var(--font-sans);
   font-size: 15px;
@@ -124,22 +127,23 @@
 /* ===== Dark Mode ===== */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-app: #0d1a21;
-    --bg-elevated: #12222b;
-    --surface: #162833;
-    --surface-soft: #1a2e3a;
-    --surface-hover: #1e3542;
-    --surface-tint: rgb(22 40 51 / 90%);
-    --line: #243642;
-    --line-strong: #2e4250;
-    --line-soft: #1e323f;
-    --text: #e2e8ec;
-    --text-secondary: #b0bec5;
-    --muted: #78909c;
-    --shadow-xs: 0 1px 2px rgb(0 0 0 / 20%);
-    --shadow-sm: 0 2px 8px rgb(0 0 0 / 25%);
-    --shadow-md: 0 8px 24px rgb(0 0 0 / 30%);
-    --shadow-lg: 0 16px 48px rgb(0 0 0 / 35%);
-    --shadow-xl: 0 24px 70px rgb(0 0 0 / 40%);
+    --bg-app: #0a151b;
+    --bg-elevated: #10222c;
+    --surface: #162a35;
+    --surface-raised: #1b3340;
+    --surface-soft: #1a303d;
+    --surface-hover: #1f3847;
+    --surface-tint: rgb(16 34 44 / 86%);
+    --line: #24404d;
+    --line-strong: #2f5060;
+    --line-soft: #1c3340;
+    --text: #e4edf1;
+    --text-secondary: #b5c4cb;
+    --muted: #7f949f;
+    --shadow-xs: 0 1px 2px rgb(0 0 0 / 18%);
+    --shadow-sm: 0 8px 22px rgb(0 0 0 / 24%);
+    --shadow-md: 0 18px 42px rgb(0 0 0 / 30%);
+    --shadow-lg: 0 28px 60px rgb(0 0 0 / 36%);
+    --shadow-xl: 0 36px 90px rgb(0 0 0 / 42%);
   }
 }

@@ -96,7 +96,7 @@ export function getWorkflowRetryPlan(id: string, nodeId?: string) {
 }
 
 export function getWorkflowActionHistory(id: string) {
-  return request<WorkflowActionHistoryItem[]>(`/api/v1/workflow-runs/${id}/actions`);
+  return request<WorkflowActionHistoryItem[]>(`/api/v1/workflow-runs/${id}/action-history`);
 }
 
 export function getWorkflowDefinitionDiff(id: string) {
@@ -110,9 +110,16 @@ export function cancelWorkflowRun(id: string, reason?: string) {
   });
 }
 
-export function retryWorkflowRun(id: string) {
+export function getWorkflowCancelReport(id: string) {
+  return request<{ runId: string; status: string; reason?: string; propagation: Record<string, string>[]; unableToCancel: Record<string, string>[]; createdAt?: string }>(
+    `/api/v1/workflow-runs/${id}/cancel-report`
+  );
+}
+
+export function retryWorkflowRun(id: string, payload: { idempotencyKey?: string } = {}) {
   return request<WorkflowRunDetail>(`/api/v1/workflow-runs/${id}/retry`, {
-    method: "POST"
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }
 

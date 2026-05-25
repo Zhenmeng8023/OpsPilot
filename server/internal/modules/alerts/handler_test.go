@@ -405,6 +405,15 @@ func (s *captureAlertService) ListNoisyRules(_ context.Context, input NoisyRuleI
 	return nil, nil
 }
 
+func (s *captureAlertService) NoiseReport(_ context.Context, input NoisyRuleInput) (NoiseReportResult, *apperror.Error) {
+	s.noisyInput = input
+	return NoiseReportResult{}, nil
+}
+
+func (s *captureAlertService) RoutingExplanation(context.Context, string) (RoutingExplanationResult, *apperror.Error) {
+	return RoutingExplanationResult{}, nil
+}
+
 func (s *captureAlertService) SuppressionDryRun(_ context.Context, input SuppressionDryRunInput) (SuppressionDryRunResult, *apperror.Error) {
 	s.suppressionDryRunInput = input
 	return SuppressionDryRunResult{}, nil

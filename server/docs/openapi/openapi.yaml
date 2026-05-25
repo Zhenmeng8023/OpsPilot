@@ -161,6 +161,12 @@ paths:
       description: Requires `agent:read`.
       responses:
         "200": { description: Fleet distribution summary }
+  /api/v1/agents/version-distribution:
+    get:
+      summary: List Agent version distribution and stale reasons
+      description: Requires `agent:read`. Alias for Fleet distribution summary.
+      responses:
+        "200": { description: Fleet distribution summary }
   /api/v1/agents/diagnostics/diff:
     get:
       summary: Compare two Agent diagnostic snapshots
@@ -174,6 +180,14 @@ paths:
           in: query
           required: true
           schema: { type: string }
+      responses:
+        "200": { description: Diagnostic diff result }
+  /api/v1/agents/{id}/diagnostics/diff:
+    get:
+      summary: Compare latest two Agent diagnostic snapshots
+      description: Requires `agent:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Diagnostic diff result }
   /api/v1/agents/offline-scan:
@@ -1202,6 +1216,19 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/NoisyRuleSummary"
+  /api/v1/alerts/noise-report:
+    get:
+      summary: Get alert noise report
+      description: Requires `alert:read`. Combines noisy rules and host-group/severity trend data.
+      parameters:
+        - name: hours
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 336, default: 24 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        "200": { description: Alert noise report }
   /api/v1/alerts/noise-trends:
     get:
       summary: List host-group/severity noise trends
@@ -1262,6 +1289,14 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: Alert event list }
+  /api/v1/alerts/{id}/routing-explanation:
+    get:
+      summary: Explain alert routing and suppression
+      description: Requires `alert:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Alert routing explanation }
   /api/v1/alerts/{id}/ack:
     post:
       summary: Acknowledge alert
@@ -1353,6 +1388,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IncidentDetail"
+  /api/v1/incidents/{id}/timeline:
+    get:
+      summary: List incident timeline
+      description: Requires `alert:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Incident timeline events }
+  /api/v1/incidents/{id}/alert-groups:
+    post:
+      summary: Link alert group to incident
+      description: Requires `alert:write`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alertGroupId: { type: string }
+                alertIds:
+                  type: array
+                  items: { type: string }
+                reason: { type: string }
+      responses:
+        "200": { description: Incident detail }
   /api/v1/incidents/{id}/merge:
     post:
       summary: Merge incident
@@ -1567,6 +1629,14 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Workflow action history }
+  /api/v1/workflow-runs/{id}/action-history:
+    get:
+      summary: List workflow action history
+      description: Requires `workflow:read`. Alias for `/actions` aligned with the V1.1 plan.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Workflow action history }
   /api/v1/workflow-runs/{id}/definition-diff:
     get:
       summary: Compare run snapshot definition with current workflow definition
@@ -1575,6 +1645,14 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200": { description: Workflow definition diff }
+  /api/v1/workflow-runs/{id}/cancel-report:
+    get:
+      summary: Get workflow cancel propagation report
+      description: Requires `workflow:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Workflow cancel propagation report }
   /api/v1/workflow-runs/{id}/cancel:
     post:
       summary: Cancel workflow run
@@ -1817,7 +1895,7 @@ paths:
   /api/v1/trace-center:
     get:
       summary: Search trace center timeline
-      description: Requires `audit.read`. Correlates trace/workflow/task/webhook into a single troubleshooting timeline.
+      description: Requires `traces:read`. Correlates trace/workflow/task/webhook into a single troubleshooting timeline.
       parameters:
         - name: traceId
           in: query
@@ -1833,6 +1911,49 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: Trace center timeline result }
+  /api/v1/traces/lookup:
+    get:
+      summary: Lookup trace by entity
+      description: Requires `traces:read`.
+      parameters:
+        - name: entityType
+          in: query
+          schema: { type: string, enum: [trace, workflow_run, task_run, webhook_event] }
+        - name: entityId
+          in: query
+          schema: { type: string }
+        - name: traceId
+          in: query
+          schema: { type: string }
+        - name: taskRunId
+          in: query
+          schema: { type: string }
+        - name: workflowRunId
+          in: query
+          schema: { type: string }
+        - name: webhookEventId
+          in: query
+          schema: { type: string }
+      responses:
+        "200": { description: Trace center timeline result }
+  /api/v1/traces/{id}:
+    get:
+      summary: Get trace summary
+      description: Requires `traces:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Trace center timeline result }
+  /api/v1/traces/{id}/events:
+    get:
+      summary: List trace timeline events
+      description: Requires `traces:read`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": { description: Paged trace timeline events }
   /api/v1/audit-logs/export:
     get:
       summary: Export audit logs
@@ -1885,6 +2006,28 @@ paths:
                 days: { type: integer, minimum: 1 }
       responses:
         "200": { description: Retention execution result }
+  /api/v1/security/permissions/diff:
+    get:
+      summary: Preview role permission diff
+      description: Requires `security:review`.
+      parameters:
+        - name: roleId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: permissionCodes
+          in: query
+          schema: { type: string, description: Comma-separated permission codes }
+      responses:
+        "200": { description: Permission diff preview }
+  /api/v1/security/secrets/{id}/rotation-history:
+    get:
+      summary: List secret rotation history
+      description: Requires `security:review`.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Secret rotation audit timeline }
 components:
   securitySchemes:
     bearerAuth:

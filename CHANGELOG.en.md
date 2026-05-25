@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- Converged the V1.1 P0 scope: added the planned `/api/v1/traces/:id`, `/api/v1/traces/:id/events`, and `/api/v1/traces/lookup` APIs, added Workflow `action-history`, `cancel-report`, retry idempotency keys, and aligned Playwright smoke artifacts under `artifacts/ui-smoke/latest`.
+- Completed V1.1 P1 hardening entry points: Agent version distribution/diagnostics diff aliases, Alert routing explanation/noise report, Incident timeline/alert-group linking, Security permission diff/secret rotation history, and audit export hash headers.
+- Added `docs/version/v1.1/release-evidence.md` with P0/P1 scope, validation commands, UI smoke artifact paths, and implementation deviations.
+
 ## V1.0.0 - 2026-05-09
 
 - Upgraded CI to `actions/checkout@v5`, `actions/setup-node@v6`, and `actions/setup-go@v6` so the workflow uses the native Node 24 action runtime instead of the deprecated Node 20 line.

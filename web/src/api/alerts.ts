@@ -154,6 +154,15 @@ export function listNoisyRules(params: { hours?: number; limit?: number } = {}) 
   return request<NoisyRuleSummary[]>(`/api/v1/alerts/noisy-rules${search.toString() ? `?${search}` : ""}`);
 }
 
+export function getAlertNoiseReport(params: { hours?: number; limit?: number } = {}) {
+  const search = new URLSearchParams();
+  if (params.hours) search.set("hours", String(params.hours));
+  if (params.limit) search.set("limit", String(params.limit));
+  return request<{ hours: number; noisyRules: NoisyRuleSummary[]; trends: AlertNoiseTrendPoint[] }>(
+    `/api/v1/alerts/noise-report${search.toString() ? `?${search}` : ""}`
+  );
+}
+
 export function listAlertNoiseTrends(params: { hours?: number } = {}) {
   const search = new URLSearchParams();
   if (params.hours) search.set("hours", String(params.hours));
@@ -189,6 +198,17 @@ export function listAlertEvents(id: string, params: { eventType?: string } = {})
   const search = new URLSearchParams();
   if (params.eventType) search.set("eventType", params.eventType);
   return request<AlertEventSummary[]>(`/api/v1/alerts/${id}/events${search.toString() ? `?${search}` : ""}`);
+}
+
+export function getAlertRoutingExplanation(id: string) {
+  return request<{
+    alert: AlertSummary;
+    events: AlertEventSummary[];
+    suppression?: string;
+    routing: string;
+    policyIds: string[];
+    explanations: { dimension: string; value?: string; matched: boolean; reason?: string }[];
+  }>(`/api/v1/alerts/${id}/routing-explanation`);
 }
 
 export function resolveAlert(id: string) {

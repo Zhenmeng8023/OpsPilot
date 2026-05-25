@@ -51,7 +51,7 @@ export function listAgentDiagnostics() {
 }
 
 export function getFleetDistribution() {
-  return request<FleetDistributionResult>("/api/v1/agents/fleet-distribution");
+  return request<FleetDistributionResult>("/api/v1/agents/version-distribution");
 }
 
 export function compareDiagnostics(left: string, right: string) {
@@ -59,6 +59,10 @@ export function compareDiagnostics(left: string, right: string) {
   search.set("left", left);
   search.set("right", right);
   return request<DiagnosticDiffResult>(`/api/v1/agents/diagnostics/diff?${search.toString()}`);
+}
+
+export function compareLatestAgentDiagnostics(agentId: string) {
+  return request<DiagnosticDiffResult>(`/api/v1/agents/${agentId}/diagnostics/diff`);
 }
 
 export function listMaintenanceWindows() {

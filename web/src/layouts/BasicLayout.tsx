@@ -22,38 +22,39 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/dashboard", labelKey: "nav.dashboard", permission: "workspace.read", icon: <IconDashboard /> },
       { to: "/users", labelKey: "nav.users", permission: "user.read", icon: <IconUsers /> },
-      { to: "/roles", labelKey: "nav.roles", permission: "role.read", icon: <IconUsers /> },
+      { to: "/roles", labelKey: "nav.roles", permission: "role.read", icon: <IconRoles /> },
     ]
   },
   {
     labelKey: "nav.group.execution",
     items: [
-      { to: "/agents", labelKey: "nav.agents", permission: "agent:read", icon: <IconUsers /> },
-      { to: "/scripts", labelKey: "nav.scripts", permission: "script:read", icon: <IconUsers /> },
-      { to: "/tasks", labelKey: "nav.tasks", permission: "task:read", icon: <IconDashboard /> },
-      { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read", icon: <IconDashboard /> },
+      { to: "/agents", labelKey: "nav.agents", permission: "agent:read", icon: <IconAgents /> },
+      { to: "/scripts", labelKey: "nav.scripts", permission: "script:read", icon: <IconScripts /> },
+      { to: "/tasks", labelKey: "nav.tasks", permission: "task:read", icon: <IconTasks /> },
+      { to: "/schedules", labelKey: "nav.schedules", permission: "schedule:read", icon: <IconSchedules /> },
     ]
   },
   {
     labelKey: "nav.group.automation",
     items: [
-      { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read", icon: <IconUsers /> },
-      { to: "/workflows", labelKey: "nav.workflows", permission: "workflow:read", icon: <IconUsers /> },
+      { to: "/webhooks", labelKey: "nav.webhooks", permission: "webhook:read", icon: <IconWebhooks /> },
+      { to: "/workflows", labelKey: "nav.workflows", permission: "workflow:read", icon: <IconWorkflows /> },
     ]
   },
   {
     labelKey: "nav.group.monitoring",
     items: [
-      { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read", icon: <IconUsers /> },
-      { to: "/incidents", labelKey: "nav.incidents", permission: "alert:read", icon: <IconUsers /> },
-      { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read", icon: <IconUsers /> },
+      { to: "/metrics", labelKey: "nav.metrics", permission: "metric:read", icon: <IconMetrics /> },
+      { to: "/incidents", labelKey: "nav.incidents", permission: "alert:read", icon: <IconIncidents /> },
+      { to: "/notifications", labelKey: "nav.notifications", permission: "notification:read", icon: <IconNotifications /> },
     ]
   },
   {
     labelKey: "nav.group.audit",
     items: [
-      { to: "/trace-center", labelKey: "nav.traceCenter", permission: "audit.read", icon: <IconUsers /> },
-      { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read", icon: <IconUsers /> },
+      { to: "/trace-center", labelKey: "nav.traceCenter", permission: "traces:read", icon: <IconTrace /> },
+      { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read", icon: <IconAudit /> },
+      { to: "/security-review", labelKey: "nav.securityReview", permission: "security:review", icon: <IconRoles /> },
     ]
   }
 ];
@@ -78,10 +79,10 @@ export function BasicLayout() {
     .find((meta) => meta?.titleKey);
   const pageTitle = currentMeta?.titleKey ? t(currentMeta.titleKey) : user?.workspace.name ?? "OpsPilot";
   const sectionTitle = currentMeta?.sectionKey ? t(currentMeta.sectionKey) : t("layout.controlPlane");
-  const roleSummary = (user?.roles ?? []).join(" ? ") || t("layout.controlPlane");
+  const roleSummary = (user?.roles ?? []).join(" / ") || t("layout.controlPlane");
 
   useEffect(() => {
-    document.title = `${pageTitle} ? OpsPilot`;
+    document.title = `${pageTitle} - OpsPilot`;
   }, [pageTitle]);
 
   return (
@@ -125,32 +126,35 @@ export function BasicLayout() {
       </aside>
       <div className="main-area">
         <header className="topbar">
-          <div className="topbar-context">
-            <p className="eyebrow">{sectionTitle}</p>
-            <h2>{pageTitle}</h2>
-          </div>
-          <div className="user-box">
-            <div className="user-meta">
-              <strong>{user?.username ?? "guest"}</strong>
-              <span>{roleSummary}</span>
+          <div className="topbar-shell">
+            <div className="topbar-context">
+              <span className="topbar-kicker">{user?.workspace.name ?? "OpsPilot"}</span>
+              <strong>{pageTitle}</strong>
+              <p>{sectionTitle}</p>
             </div>
-            <button
-              type="button"
-              className="language-button"
-              aria-label={t("language.label")}
-              onClick={toggleLanguage}
-            >
-              {t("language.toggle")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void logout();
-                navigate("/login", { replace: true });
-              }}
-            >
-              {t("common.logout")}
-            </button>
+            <div className="user-box">
+              <div className="user-meta">
+                <strong>{user?.username ?? "guest"}</strong>
+                <span>{roleSummary}</span>
+              </div>
+              <button
+                type="button"
+                className="language-button"
+                aria-label={t("language.label")}
+                onClick={toggleLanguage}
+              >
+                {t("language.toggle")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void logout();
+                  navigate("/login", { replace: true });
+                }}
+              >
+                {t("common.logout")}
+              </button>
+            </div>
           </div>
         </header>
         <Outlet />

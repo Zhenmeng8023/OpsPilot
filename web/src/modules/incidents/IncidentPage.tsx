@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { closeIncident, getIncident, listIncidents, mergeIncident, updateIncidentLifecycle } from "../../api/incidents";
+import { listAlertGroups } from "../../api/alerts";
+import { closeIncident, getIncident, linkIncidentAlertGroup, listIncidents, listIncidentTimeline, mergeIncident, updateIncidentLifecycle } from "../../api/incidents";
 import type { IncidentDetail } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { Button } from "../../shared/components/Button";
@@ -31,6 +32,7 @@ export function IncidentPage() {
     postmortem: ""
   });
   const [mergeForm, setMergeForm] = useState({ targetIncidentId: "", reason: "" });
+  const [alertGroupForm, setAlertGroupForm] = useState({ alertGroupId: "", reason: "" });
   const [closeReason, setCloseReason] = useState("");
   const canWrite = hasPermission(user, "alert:write");
 
@@ -42,6 +44,16 @@ export function IncidentPage() {
     queryKey: ["incident", selectedId],
     enabled: Boolean(selectedId),
     queryFn: () => getIncident(selectedId)
+  });
+  const timelineQuery = useQuery({
+    queryKey: ["incidentTimeline", selectedId],
+    enabled: Boolean(selectedId),
+    queryFn: () => listIncidentTimeline(selectedId)
+  });
+  const alertGroupsQuery = useQuery({
+    queryKey: ["incidentAlertGroups"],
+    enabled: Boolean(selectedId),
+    queryFn: () => listAlertGroups({ status: "firing" })
   });
   const incidents = useMemo(() => incidentsQuery.data ?? [], [incidentsQuery.data]);
   const detail = detailQuery.data;
@@ -61,6 +73,7 @@ export function IncidentPage() {
 
   useEffect(() => {
     setMergeForm({ targetIncidentId: "", reason: "" });
+    setAlertGroupForm({ alertGroupId: "", reason: "" });
     setCloseReason("");
   }, [selectedId]);
 
@@ -68,6 +81,7 @@ export function IncidentPage() {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
     if (selectedId) {
       queryClient.invalidateQueries({ queryKey: ["incident", selectedId] });
+      queryClient.invalidateQueries({ queryKey: ["incidentTimeline", selectedId] });
     }
   };
 
@@ -98,6 +112,23 @@ export function IncidentPage() {
     }
   });
 
+  const linkAlertGroupMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedId) throw new Error("incident id is required");
+      const alertGroupId = alertGroupForm.alertGroupId.trim();
+      if (!alertGroupId) throw new Error(t("incidents.alertGroupRequired"));
+      return linkIncidentAlertGroup(selectedId, {
+        alertGroupId,
+        reason: alertGroupForm.reason.trim()
+      });
+    },
+    onSuccess: () => {
+      notify(t("incidents.alertGroupLinkedToast"), "success");
+      setAlertGroupForm({ alertGroupId: "", reason: "" });
+      refreshIncidentData();
+    }
+  });
+
   const closeMutation = useMutation({
     mutationFn: async () => {
       if (!selectedId) throw new Error("incident id is required");
@@ -122,6 +153,14 @@ export function IncidentPage() {
     { value: "critical", label: "critical" },
     { value: "warning", label: "warning" },
     { value: "info", label: "info" }
+  ];
+  const timelineEvents = timelineQuery.data ?? detail?.events ?? [];
+  const alertGroupOptions = [
+    { value: "", label: t("incidents.selectAlertGroup") },
+    ...(alertGroupsQuery.data ?? []).map((group) => ({
+      value: group.id,
+      label: `${group.title} (${group.id})`
+    }))
   ];
 
   return (
@@ -203,7 +242,7 @@ export function IncidentPage() {
                 </div>
               ) : null}
               <Timeline
-                items={detail.events.map((event): TimelineItem => ({
+                items={timelineEvents.map((event): TimelineItem => ({
                   id: event.id,
                   title: eventLabel(event.eventType, t),
                   time: event.createdAt,
@@ -211,7 +250,8 @@ export function IncidentPage() {
                   tone: eventTone(event.eventType)
                 }))}
               />
-              {detail.events.map((event) => event.payload ? (
+              {timelineQuery.isError ? <p className="form-error">{timelineQuery.error.message}</p> : null}
+              {timelineEvents.map((event) => event.payload ? (
                 <div className="event-payload" key={`payload-${event.id}`}>
                   <strong>{eventLabel(event.eventType, t)}</strong>
                   <JsonViewer value={event.payload} />
@@ -267,6 +307,31 @@ export function IncidentPage() {
                 className="editor-form"
                 onSubmit={(event) => {
                   event.preventDefault();
+                  linkAlertGroupMutation.mutate();
+                }}
+              >
+                <h4>{t("incidents.linkAlertGroup")}</h4>
+                <p>{t("incidents.linkAlertGroupHint")}</p>
+                <SelectField
+                  label={t("metrics.alertGroup")}
+                  value={alertGroupForm.alertGroupId}
+                  options={alertGroupOptions}
+                  onChange={(event) => setAlertGroupForm((current) => ({ ...current, alertGroupId: event.target.value }))}
+                />
+                <TextField
+                  label={t("common.reason")}
+                  value={alertGroupForm.reason}
+                  onChange={(event) => setAlertGroupForm((current) => ({ ...current, reason: event.target.value }))}
+                />
+                <SectionToolbar className="incident-toolbar">
+                  <Button type="submit" disabled={linkAlertGroupMutation.isPending}>{t("incidents.linkAlertGroupAction")}</Button>
+                </SectionToolbar>
+              </form>
+
+              <form
+                className="editor-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
                   mergeMutation.mutate();
                 }}
               >
@@ -309,6 +374,7 @@ export function IncidentPage() {
           ) : null}
           {lifecycleMutation.isError ? <p className="form-error">{lifecycleMutation.error.message}</p> : null}
           {mergeMutation.isError ? <p className="form-error">{mergeMutation.error.message}</p> : null}
+          {linkAlertGroupMutation.isError ? <p className="form-error">{linkAlertGroupMutation.error.message}</p> : null}
           {closeMutation.isError ? <p className="form-error">{closeMutation.error.message}</p> : null}
         </PagePanel>
       ) : null}
@@ -337,4 +403,3 @@ function eventLabel(eventType: string, t: (key: string) => string) {
       return t(`common.status.${eventType}`);
   }
 }
-

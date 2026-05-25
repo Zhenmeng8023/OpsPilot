@@ -16,6 +16,7 @@ export function MetricsPage() {
   const user = useAuthStore((state) => state.user);
   const t = useLanguageStore((state) => state.t);
   const queryClient = useQueryClient();
+  const [tab, setTab] = useState<"metrics" | "alerts" | "rules" | "ops">("metrics");
   const [metricCode, setMetricCode] = useState("");
   const [trendHours, setTrendHours] = useState(24);
   const [trendGranularity, setTrendGranularity] = useState("auto");
@@ -431,8 +432,29 @@ export function MetricsPage() {
           <p className="eyebrow">{t("monitoring.eyebrow")}</p>
           <h1>{t("metrics.title")}</h1>
         </div>
+        <div className="segmented">
+          <button type="button" className={tab === "metrics" ? "active" : ""} onClick={() => setTab("metrics")}>
+            {t("metrics.overview")}
+          </button>
+          {canReadAlerts ? (
+            <button type="button" className={tab === "alerts" ? "active" : ""} onClick={() => setTab("alerts")}>
+              {t("metrics.alertActivity")}
+            </button>
+          ) : null}
+          {canReadAlerts ? (
+            <button type="button" className={tab === "rules" ? "active" : ""} onClick={() => setTab("rules")}>
+              {t("metrics.alertRules")}
+            </button>
+          ) : null}
+          {canWriteMetrics ? (
+            <button type="button" className={tab === "ops" ? "active" : ""} onClick={() => setTab("ops")}>
+              {t("metrics.lifecycle")}
+            </button>
+          ) : null}
+        </div>
       </section>
 
+      {tab === "metrics" ? (
       <section className="panel">
         <div className="panel-title">
           <h3>{t("metrics.savedDashboards")}</h3>
@@ -514,8 +536,9 @@ export function MetricsPage() {
         {createDashboardMutation.isError ? <p className="form-error">{createDashboardMutation.error.message}</p> : null}
         {updateDashboardMutation.isError ? <p className="form-error">{updateDashboardMutation.error.message}</p> : null}
       </section>
+      ) : null}
 
-      {canWriteMetrics ? (
+      {tab === "ops" && canWriteMetrics ? (
         <section className="panel">
           <div className="panel-title">
             <h3>{t("metrics.lifecycle")}</h3>
@@ -543,7 +566,7 @@ export function MetricsPage() {
         </section>
       ) : null}
 
-      {canWriteAlerts ? (
+      {tab === "rules" && canWriteAlerts ? (
         <section className="panel form-panel">
           <div className="panel-title">
             <h3>{t("metrics.createRule")}</h3>
@@ -615,7 +638,7 @@ export function MetricsPage() {
         </section>
       ) : null}
 
-      {canReadAlerts ? (
+      {tab === "rules" && canReadAlerts ? (
         <section className="panel">
           <div className="panel-title">
             <h3>{t("metrics.alertOperations")}</h3>
@@ -670,6 +693,7 @@ export function MetricsPage() {
         </section>
       ) : null}
 
+      {tab === "metrics" ? (
       <section className="panel">
         <div className="panel-title">
           <h3>{t("metrics.overview")}</h3>
@@ -723,8 +747,9 @@ export function MetricsPage() {
           </div>
         ) : null}
       </section>
+      ) : null}
 
-      {canReadAlerts ? (
+      {tab === "alerts" && canReadAlerts ? (
         <section className="panel">
           <div className="panel-title">
             <h3>{t("metrics.alertActivity")}</h3>
@@ -777,7 +802,7 @@ export function MetricsPage() {
         </section>
       ) : null}
 
-      {canReadAlerts ? (
+      {tab === "alerts" && canReadAlerts ? (
         <section className="panel table-panel">
           <div className="panel-title">
             <h3>{t("metrics.alertGroups")}</h3>
@@ -846,7 +871,7 @@ export function MetricsPage() {
         </section>
       ) : null}
 
-      {canReadAlerts ? (
+      {tab === "alerts" && canReadAlerts ? (
         <section className="panel table-panel">
           <div className="panel-title">
             <h3>{t("metrics.firingAlerts")}</h3>
@@ -976,7 +1001,7 @@ export function MetricsPage() {
         </section>
       ) : null}
 
-      {canReadAlerts ? (
+      {tab === "rules" && canReadAlerts ? (
         <section className="panel table-panel">
           <div className="panel-title">
             <h3>{t("metrics.alertRules")}</h3>
@@ -1032,8 +1057,9 @@ export function MetricsPage() {
         </section>
       ) : null}
 
-      {canReadAlerts ? <AlertNoiseGovernancePanel /> : null}
+      {tab === "rules" && canReadAlerts ? <AlertNoiseGovernancePanel /> : null}
 
+      {tab === "metrics" ? (
       <section className="panel">
         <div className="panel-title">
           <h3>{t("metrics.trends")}</h3>
@@ -1130,7 +1156,9 @@ export function MetricsPage() {
         ) : null}
         {trendQuery.isError ? <p className="form-error">{trendQuery.error.message}</p> : null}
       </section>
+      ) : null}
 
+      {tab === "metrics" ? (
       <section className="panel table-panel">
         <div className="panel-title">
           <h3>{t("metrics.latestSnapshots")}</h3>
@@ -1170,6 +1198,7 @@ export function MetricsPage() {
         {!metricsQuery.isLoading && latest.length === 0 ? <p className="empty-state">{t("metrics.emptyMetrics")}</p> : null}
         {metricsQuery.isError ? <p className="form-error">{metricsQuery.error.message}</p> : null}
       </section>
+      ) : null}
     </main>
   );
 }

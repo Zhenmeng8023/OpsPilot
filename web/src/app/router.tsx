@@ -17,6 +17,7 @@ const IncidentPage = lazyNamed(() => import("../modules/incidents/IncidentPage")
 const MetricsPage = lazyNamed(() => import("../modules/metrics/MetricsPage"), "MetricsPage");
 const NotificationsPage = lazyNamed(() => import("../modules/notifications/NotificationsPage"), "NotificationsPage");
 const RoleManagementPage = lazyNamed(() => import("../modules/roles/RoleManagementPage"), "RoleManagementPage");
+const SecurityReviewPage = lazyNamed(() => import("../modules/security/SecurityReviewPage"), "SecurityReviewPage");
 const UserManagementPage = lazyNamed(() => import("../modules/users/UserManagementPage"), "UserManagementPage");
 const ScriptEditorPage = lazyNamed(() => import("../modules/scripts/ScriptEditorPage"), "ScriptEditorPage");
 const ScriptListPage = lazyNamed(() => import("../modules/scripts/ScriptListPage"), "ScriptListPage");
@@ -177,9 +178,14 @@ export const router = createBrowserRouter([
             handle: { meta: { permission: "audit.read", titleKey: "audit.title", sectionKey: "audit.eyebrow" } }
           },
           {
+            path: "security-review",
+            element: <LazyRoute><SecurityReviewPage /></LazyRoute>,
+            handle: { meta: { permission: "security:review", titleKey: "security.title", sectionKey: "audit.eyebrow" } }
+          },
+          {
             path: "trace-center",
             element: <LazyRoute><TraceCenterPage /></LazyRoute>,
-            handle: { meta: { permission: "audit.read", titleKey: "traceCenter.title", sectionKey: "audit.eyebrow" } }
+            handle: { meta: { permission: "traces:read", titleKey: "traceCenter.title", sectionKey: "audit.eyebrow" } }
           }
         ]
       }

@@ -27,6 +27,8 @@ type ServiceContract interface {
 	ListAlertEvents(context.Context, string, string) ([]AlertEventSummary, *apperror.Error)
 	ListAlertHistory(context.Context, AlertHistoryInput) ([]AlertHistoryPoint, *apperror.Error)
 	ListNoisyRules(context.Context, NoisyRuleInput) ([]NoisyRuleSummary, *apperror.Error)
+	NoiseReport(context.Context, NoisyRuleInput) (NoiseReportResult, *apperror.Error)
+	RoutingExplanation(context.Context, string) (RoutingExplanationResult, *apperror.Error)
 	SuppressionDryRun(context.Context, SuppressionDryRunInput) (SuppressionDryRunResult, *apperror.Error)
 	RoutingDryRun(context.Context, RoutingDryRunInput) (RoutingDryRunResult, *apperror.Error)
 	ListNoiseTrends(context.Context, NoiseTrendInput) ([]NoiseTrendPoint, *apperror.Error)
@@ -108,10 +110,12 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.GET("/alerts", requirePermission("alert:read"), h.listAlerts)
 	protected.GET("/alerts/history", requirePermission("alert:read"), h.listAlertHistory)
 	protected.GET("/alerts/noisy-rules", requirePermission("alert:read"), h.listNoisyRules)
+	protected.GET("/alerts/noise-report", requirePermission("alert:read"), h.noiseReport)
 	protected.GET("/alerts/noise-trends", requirePermission("alert:read"), h.listNoiseTrends)
 	protected.POST("/alerts/suppression-dry-run", requirePermission("alert:read"), h.suppressionDryRun)
 	protected.POST("/alerts/routing-dry-run", requirePermission("alert:read"), h.routingDryRun)
 	protected.GET("/alerts/:id/events", requirePermission("alert:read"), h.listAlertEvents)
+	protected.GET("/alerts/:id/routing-explanation", requirePermission("alert:read"), h.routingExplanation)
 	protected.POST("/alerts/:id/ack", requirePermission("alert:write"), h.acknowledge)
 	protected.POST("/alerts/:id/silence", requirePermission("alert:write"), h.silence)
 	protected.POST("/alerts/:id/unsilence", requirePermission("alert:write"), h.unsilence)
@@ -228,6 +232,18 @@ func (h *Handler) listNoisyRules(c *gin.Context) {
 	response.Success(c, items)
 }
 
+func (h *Handler) noiseReport(c *gin.Context) {
+	item, appErr := h.service.NoiseReport(c.Request.Context(), NoisyRuleInput{
+		Hours: parseInt(c.DefaultQuery("hours", "24")),
+		Limit: parseInt(c.DefaultQuery("limit", "10")),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
 func (h *Handler) listNoiseTrends(c *gin.Context) {
 	items, appErr := h.service.ListNoiseTrends(c.Request.Context(), NoiseTrendInput{
 		Hours: parseInt(c.DefaultQuery("hours", "24")),
@@ -285,6 +301,15 @@ func (h *Handler) listAlertEvents(c *gin.Context) {
 		return
 	}
 	response.Success(c, events)
+}
+
+func (h *Handler) routingExplanation(c *gin.Context) {
+	item, appErr := h.service.RoutingExplanation(c.Request.Context(), c.Param("id"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
 }
 
 func (h *Handler) pauseRule(c *gin.Context) {

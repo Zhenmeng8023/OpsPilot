@@ -77,8 +77,9 @@ type CancelInput struct {
 }
 
 type RetryInput struct {
-	ID    string
-	Audit AuditContext
+	ID             string
+	IdempotencyKey string
+	Audit          AuditContext
 }
 
 type ApprovalInput struct {
@@ -129,17 +130,26 @@ type ActionHistoryItem struct {
 }
 
 type DefinitionDiffResult struct {
-	RunID             string   `json:"runId"`
-	WorkflowID        string   `json:"workflowId"`
-	WorkflowName      string   `json:"workflowName"`
-	RunVersion        uint     `json:"runVersion"`
-	CurrentVersion    uint     `json:"currentVersion"`
-	Changed           bool     `json:"changed"`
-	SnapshotHash      string   `json:"snapshotHash"`
-	CurrentHash       string   `json:"currentHash"`
-	Diff              []string `json:"diff"`
-	SnapshotDefinition string  `json:"snapshotDefinition"`
-	CurrentDefinition  string  `json:"currentDefinition"`
+	RunID              string   `json:"runId"`
+	WorkflowID         string   `json:"workflowId"`
+	WorkflowName       string   `json:"workflowName"`
+	RunVersion         uint     `json:"runVersion"`
+	CurrentVersion     uint     `json:"currentVersion"`
+	Changed            bool     `json:"changed"`
+	SnapshotHash       string   `json:"snapshotHash"`
+	CurrentHash        string   `json:"currentHash"`
+	Diff               []string `json:"diff"`
+	SnapshotDefinition string   `json:"snapshotDefinition"`
+	CurrentDefinition  string   `json:"currentDefinition"`
+}
+
+type CancelReportResult struct {
+	RunID          string              `json:"runId"`
+	Status         string              `json:"status"`
+	Reason         string              `json:"reason,omitempty"`
+	Propagation    []map[string]string `json:"propagation"`
+	UnableToCancel []map[string]string `json:"unableToCancel"`
+	CreatedAt      string              `json:"createdAt,omitempty"`
 }
 
 type DefinitionSummary struct {
@@ -836,7 +846,7 @@ func (s *Service) RetryRun(ctx context.Context, input RetryInput) (RunDetail, *a
 			run.WorkflowVersion,
 			run.DefinitionSnapshot,
 			"retry",
-			"",
+			retryIdempotencyKey(input.IdempotencyKey, run.UID),
 			run.Input.String,
 			actorID,
 			map[string]interface{}{"sourceRunId": run.UID},
@@ -871,6 +881,64 @@ func (s *Service) RetryRun(ctx context.Context, input RetryInput) (RunDetail, *a
 		return RunDetail{}, wrapAppError(txErr, 501016, "retry workflow run failed")
 	}
 	return retried, nil
+}
+
+func (s *Service) CancelReport(ctx context.Context, runUID string) (CancelReportResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return CancelReportResult{}, appErr
+	}
+	runUID = strings.TrimSpace(runUID)
+	run, err := runByUID(ctx, s.db, workspace.ID, runUID)
+	if err != nil {
+		return CancelReportResult{}, apperror.Wrap(http.StatusInternalServerError, 501029, "load workflow run failed", err)
+	}
+	if run.ID == 0 {
+		return CancelReportResult{}, apperror.New(http.StatusNotFound, 404002, "workflow run not found")
+	}
+	report := CancelReportResult{
+		RunID:       run.UID,
+		Status:      run.Status,
+		Reason:      run.ErrorMessage.String,
+		Propagation: []map[string]string{},
+	}
+	if run.Status != "canceled" && run.Status != "canceling" {
+		return report, nil
+	}
+	var row struct {
+		Payload   sql.NullString `gorm:"column:payload"`
+		CreatedAt string         `gorm:"column:created_at"`
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT CAST(payload AS CHAR) AS payload, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM workflow_run_events
+		  WHERE run_id = ? AND event_type = 'canceled'
+		  ORDER BY id DESC
+		  LIMIT 1`,
+		run.ID,
+	).Scan(&row).Error; err != nil {
+		return CancelReportResult{}, apperror.Wrap(http.StatusInternalServerError, 501030, "load workflow cancel report failed", err)
+	}
+	report.CreatedAt = row.CreatedAt
+	if row.Payload.Valid && strings.TrimSpace(row.Payload.String) != "" {
+		var payload struct {
+			Reason         string              `json:"reason"`
+			Propagation    []map[string]string `json:"propagation"`
+			UnableToCancel []map[string]string `json:"unableToCancel"`
+		}
+		if err := json.Unmarshal([]byte(row.Payload.String), &payload); err == nil {
+			report.Reason = payload.Reason
+			report.Propagation = payload.Propagation
+			report.UnableToCancel = payload.UnableToCancel
+		}
+	}
+	if report.Propagation == nil {
+		report.Propagation = []map[string]string{}
+	}
+	if report.UnableToCancel == nil {
+		report.UnableToCancel = filterCancelFailures(report.Propagation)
+	}
+	return report, nil
 }
 
 func (s *Service) RetryNode(ctx context.Context, input RetryNodeInput) (RunDetail, *apperror.Error) {
@@ -1267,10 +1335,10 @@ func (s *Service) CancelRun(ctx context.Context, input CancelInput) (RunDetail, 
 			`INSERT INTO workflow_run_events(run_id, event_type, message, actor_id, payload)
 			 VALUES (?, 'canceled', 'Workflow run canceled', ?, ?)`,
 			run.ID, actorID, jsonNull(map[string]interface{}{
-				"reason":          reason,
-				"taskRunCount":    len(taskRunIDs),
-				"propagation":     cancelResults,
-				"unableToCancel":  filterCancelFailures(cancelResults),
+				"reason":         reason,
+				"taskRunCount":   len(taskRunIDs),
+				"propagation":    cancelResults,
+				"unableToCancel": filterCancelFailures(cancelResults),
 			}),
 		).Error; err != nil {
 			return err
@@ -1546,6 +1614,18 @@ func filterCancelFailures(items []map[string]string) []map[string]string {
 		}
 	}
 	return out
+}
+
+func retryIdempotencyKey(value, sourceRunUID string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return limitString(value, 128)
+	}
+	sourceRunUID = strings.TrimSpace(sourceRunUID)
+	if sourceRunUID == "" {
+		return ""
+	}
+	return limitString("retry:"+sourceRunUID, 128)
 }
 
 func prettyJSON(value string) string {

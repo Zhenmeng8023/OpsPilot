@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test:smoke": "playwright test"
+    "test:smoke": "playwright test",
+    "test:ui-smoke": "playwright test",
+    "test:trace-e2e": "node scripts/trace-center-e2e.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.100.8",

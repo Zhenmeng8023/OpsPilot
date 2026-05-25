@@ -14,6 +14,10 @@ const permissionAliases: Record<string, string[]> = {
   "alert:write": ["alert:write", "alert.write"],
   "webhook:manage": ["webhook:manage", "webhook.manage"],
   "notification:write": ["notification:write", "notification.write"],
+  "traces:read": ["traces:read", "trace.read"],
+  "traces:read_sensitive": ["traces:read_sensitive", "trace.read_sensitive"],
+  "ui_smoke:read": ["ui_smoke:read", "ui-smoke.read"],
+  "security:review": ["security:review", "security.review"],
   "workflow:read": ["workflow:read", "workflow.read"],
   "workflow:manage": ["workflow:manage", "workflow:write", "workflow.write", "workflow:cancel", "workflow.cancel"],
   "workflow:execute": ["workflow:execute", "workflow.execute"],
@@ -28,6 +32,8 @@ export function hasPermission(user: UserProfile | null | undefined, permission: 
 }
 
 export function hasPermissionCode(permissions: string[] | undefined, permission: string) {
-  const permissionSet = new Set((permissions ?? []).map((value) => permissionCanonical[value] ?? value));
-  return permissionSet.has(permissionCanonical[permission] ?? permission);
+  const permissionSet = new Set(permissions ?? []);
+  const canonical = permissionCanonical[permission] ?? permission;
+  const aliases = permissionAliases[canonical] ?? [canonical];
+  return aliases.some((alias) => permissionSet.has(alias));
 }

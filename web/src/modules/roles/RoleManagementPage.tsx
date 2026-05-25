@@ -103,17 +103,28 @@ export function RoleManagementPage() {
             <span>{createRole.isPending ? t("common.saving") : t("common.custom")}</span>
           </div>
           <label>
-            {t("roles.code")}
-            <input value={newRole.code} onChange={(event) => setNewRole({ ...newRole, code: event.target.value })} />
+            <span>{t("roles.code")}</span>
+            <input
+              value={newRole.code}
+              placeholder="ops.viewer"
+              onChange={(event) => setNewRole({ ...newRole, code: event.target.value })}
+              required
+            />
           </label>
           <label>
-            {t("roles.name")}
-            <input value={newRole.name} onChange={(event) => setNewRole({ ...newRole, name: event.target.value })} />
+            <span>{t("roles.name")}</span>
+            <input
+              value={newRole.name}
+              placeholder={t("roles.name")}
+              onChange={(event) => setNewRole({ ...newRole, name: event.target.value })}
+              required
+            />
           </label>
           <label>
-            {t("roles.description")}
+            <span>{t("roles.description")}</span>
             <input
               value={newRole.description}
+              placeholder={t("roles.description")}
               onChange={(event) => setNewRole({ ...newRole, description: event.target.value })}
             />
           </label>

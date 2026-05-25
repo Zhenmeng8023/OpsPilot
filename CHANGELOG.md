@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- 收敛 V1.1 P0：补齐规划中的 `/api/v1/traces/:id`、`/api/v1/traces/:id/events`、`/api/v1/traces/lookup`，为 Workflow 增加 `action-history` 别名、`cancel-report`、retry 幂等键，并将 Playwright smoke artifact 对齐到 `artifacts/ui-smoke/latest`。
+- 完成 V1.1 P1 加固入口：Agent version distribution/diagnostics diff 别名、Alert routing explanation/noise report、Incident timeline/alert-group 关联、Security permission diff/secret rotation history，以及 audit export hash header。
+- 新增 `docs/version/v1.1/release-evidence.md`，记录 P0/P1 完成项、验证命令、UI smoke artifact 路径和设计偏差。
+
 ## V1.0.0 - 2026-05-09
 
 - 将 CI 升级到 `actions/checkout@v5`、`actions/setup-node@v6`、`actions/setup-go@v6`，让 workflow 直接使用原生 Node 24 action runtime，而不是继续停留在已弃用的 Node 20 版本线。

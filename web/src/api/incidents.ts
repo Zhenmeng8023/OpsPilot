@@ -1,5 +1,5 @@
 import { request } from "./request";
-import type { IncidentDetail, IncidentSummary } from "./types";
+import type { IncidentDetail, IncidentEvent, IncidentSummary } from "./types";
 
 export function listIncidents(params: { status?: string; severity?: string } = {}) {
   const search = new URLSearchParams();
@@ -20,6 +20,17 @@ export function updateIncidentLifecycle(id: string, payload: {
 }) {
   return request<IncidentDetail>(`/api/v1/incidents/${id}/lifecycle`, {
     method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function listIncidentTimeline(id: string) {
+  return request<IncidentEvent[]>(`/api/v1/incidents/${id}/timeline`);
+}
+
+export function linkIncidentAlertGroup(id: string, payload: { alertGroupId?: string; alertIds?: string[]; reason?: string }) {
+  return request<IncidentDetail>(`/api/v1/incidents/${id}/alert-groups`, {
+    method: "POST",
     body: JSON.stringify(payload)
   });
 }

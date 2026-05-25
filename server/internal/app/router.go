@@ -23,6 +23,7 @@ import (
 	"opspilot/server/internal/modules/notifications"
 	"opspilot/server/internal/modules/schedules"
 	"opspilot/server/internal/modules/scripts"
+	"opspilot/server/internal/modules/security"
 	"opspilot/server/internal/modules/tasks"
 	"opspilot/server/internal/modules/tracecenter"
 	"opspilot/server/internal/modules/webhooks"
@@ -89,6 +90,7 @@ func NewRouterWithDependencies(cfg config.Config, log *slog.Logger, deps Depende
 		notifications.NewHandler(notifications.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 		audits.NewHandler(audits.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 		tracecenter.NewHandler(tracecenter.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
+		security.NewHandler(security.NewService(deps.DB, cfg)).RegisterRoutes(api, userAuth, authHandler.RequirePermission)
 	}
 
 	router.NoRoute(func(c *gin.Context) {

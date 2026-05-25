@@ -13,6 +13,7 @@ Release/security documents:
 - [中长期软件开发设计规划](./docs/version/product-development-roadmap.md)
 - [V1.1 下一版本设计](./docs/version/v1.1/product-development-design.md)
 - [V1.1 运维加固演练手册](./docs/version/v1.1/operations-hardening.md)
+- [V1.1 发布验收证据](./docs/version/v1.1/release-evidence.md)
 
 > 语言：简体中文（当前） | [English](./README.en.md)
 

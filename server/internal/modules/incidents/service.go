@@ -2,8 +2,11 @@ package incidents
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -52,6 +55,13 @@ type CloseInput struct {
 	Audit  AuditContext
 }
 
+type LinkAlertGroupInput struct {
+	AlertGroupID string
+	AlertIDs     []string
+	Reason       string
+	Audit        AuditContext
+}
+
 type Summary struct {
 	ID          string `json:"id"`
 	AlertID     string `json:"alertId,omitempty"`
@@ -85,7 +95,7 @@ type Event struct {
 type Detail struct {
 	Summary
 	Postmortem string  `json:"postmortem,omitempty"`
-	Events []Event `json:"events"`
+	Events     []Event `json:"events"`
 }
 
 type workspaceRecord struct {
@@ -180,6 +190,103 @@ func (s *Service) Get(ctx context.Context, incidentID string) (Detail, *apperror
 	}
 	meta := parseIncidentMetadata(rows[0].Metadata)
 	return Detail{Summary: summary(rows[0]), Postmortem: meta.Postmortem, Events: events}, nil
+}
+
+func (s *Service) Timeline(ctx context.Context, incidentID string) ([]Event, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	rows, err := s.queryIncidents(ctx, "WHERE i.workspace_id = ? AND i.uid = ? AND i.deleted_at IS NULL", workspace.ID, strings.TrimSpace(incidentID))
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500916, "load incident failed", err)
+	}
+	if len(rows) == 0 {
+		return nil, apperror.New(http.StatusNotFound, 404901, "incident not found")
+	}
+	events, err := s.events(ctx, rows[0].ID)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 500917, "load incident timeline failed", err)
+	}
+	return events, nil
+}
+
+func (s *Service) LinkAlertGroup(ctx context.Context, incidentID string, input LinkAlertGroupInput) (Detail, *apperror.Error) {
+	var detail Detail
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workspace, err := defaultWorkspace(ctx, tx, s.cfg.Bootstrap.WorkspaceSlug)
+		if err != nil {
+			return err
+		}
+		incident, err := incidentByUID(ctx, tx, workspace.ID, strings.TrimSpace(incidentID))
+		if err != nil {
+			return err
+		}
+		if incident.ID == 0 {
+			return apperror.New(http.StatusNotFound, 404901, "incident not found")
+		}
+		alertIDs, err := alertIDsForGroupInput(ctx, tx, workspace.ID, input)
+		if err != nil {
+			return err
+		}
+		if len(alertIDs) == 0 {
+			return apperror.New(http.StatusNotFound, 404903, "no alerts matched alert group")
+		}
+		for _, alertID := range alertIDs {
+			if err := tx.WithContext(ctx).Exec(
+				`INSERT IGNORE INTO incident_alerts(incident_id, alert_id, created_at)
+				 VALUES (?, ?, NOW(3))`,
+				incident.ID, alertID,
+			).Error; err != nil {
+				return err
+			}
+		}
+		actorID, err := audit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		if err != nil {
+			return err
+		}
+		payload := map[string]interface{}{
+			"alertGroupId": input.AlertGroupID,
+			"alertCount":   len(alertIDs),
+			"reason":       strings.TrimSpace(input.Reason),
+		}
+		if err := tx.WithContext(ctx).Exec(
+			`INSERT INTO incident_events(incident_id, event_type, message, actor_id, payload)
+			 VALUES (?, 'alert_group_linked', 'Alert group linked to incident', ?, ?)`,
+			incident.ID, actorID, jsonNull(payload),
+		).Error; err != nil {
+			return err
+		}
+		rows, err := (&Service{db: tx, cfg: s.cfg}).queryIncidents(ctx, "i.workspace_id = ? AND i.uid = ?", workspace.ID, incident.UID)
+		if err != nil {
+			return err
+		}
+		events, err := (&Service{db: tx, cfg: s.cfg}).events(ctx, incident.ID)
+		if err != nil {
+			return err
+		}
+		if len(rows) > 0 {
+			detail = Detail{Summary: summary(rows[0]), Postmortem: parseIncidentMetadata(rows[0].Metadata).Postmortem, Events: events}
+		}
+		audit.Write(ctx, tx, audit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "incident.alert_group_link",
+			ResourceType:  "incident",
+			ResourceID:    sql.NullInt64{Int64: int64(incident.ID), Valid: true},
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			After:         payload,
+		})
+		return nil
+	})
+	if txErr != nil {
+		return Detail{}, wrapAppError(txErr, 500918, "link alert group failed")
+	}
+	return detail, nil
 }
 
 func (s *Service) UpdateLifecycle(ctx context.Context, incidentID string, input LifecycleUpdateInput) (Detail, *apperror.Error) {
@@ -475,6 +582,81 @@ func (s *Service) workspace(ctx context.Context) (workspaceRecord, *apperror.Err
 		return workspaceRecord{}, apperror.New(http.StatusInternalServerError, 500905, "default workspace is not initialized")
 	}
 	return workspace, nil
+}
+
+func defaultWorkspace(ctx context.Context, tx *gorm.DB, slug string) (workspaceRecord, error) {
+	var workspace workspaceRecord
+	if err := tx.WithContext(ctx).Raw("SELECT id FROM workspaces WHERE slug = ? AND status = 'active' LIMIT 1", slug).Scan(&workspace).Error; err != nil {
+		return workspaceRecord{}, err
+	}
+	if workspace.ID == 0 {
+		return workspaceRecord{}, apperror.New(http.StatusInternalServerError, 500905, "default workspace is not initialized")
+	}
+	return workspace, nil
+}
+
+func incidentByUID(ctx context.Context, tx *gorm.DB, workspaceID uint64, incidentUID string) (incidentRecord, error) {
+	service := &Service{db: tx}
+	rows, err := service.queryIncidents(ctx, "i.workspace_id = ? AND i.uid = ?", workspaceID, strings.TrimSpace(incidentUID))
+	if err != nil || len(rows) == 0 {
+		return incidentRecord{}, err
+	}
+	return rows[0], nil
+}
+
+func alertIDsForGroupInput(ctx context.Context, tx *gorm.DB, workspaceID uint64, input LinkAlertGroupInput) ([]uint64, error) {
+	if len(input.AlertIDs) > 0 {
+		var ids []uint64
+		if err := tx.WithContext(ctx).Raw(
+			`SELECT id FROM alerts WHERE workspace_id = ? AND uid IN ?`,
+			workspaceID, input.AlertIDs,
+		).Scan(&ids).Error; err != nil {
+			return nil, err
+		}
+		return ids, nil
+	}
+	groupID := strings.TrimSpace(input.AlertGroupID)
+	if groupID == "" {
+		return nil, nil
+	}
+	var rows []struct {
+		ID           uint64         `gorm:"column:id"`
+		RuleUID      sql.NullString `gorm:"column:rule_uid"`
+		HostGroupUID sql.NullString `gorm:"column:host_group_uid"`
+		Severity     string         `gorm:"column:severity"`
+		Fingerprint  string         `gorm:"column:fingerprint"`
+	}
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT a.id, ar.uid AS rule_uid, hg.uid AS host_group_uid, a.severity, a.fingerprint
+		   FROM alerts a
+		   LEFT JOIN alert_rules ar ON ar.id = a.alert_rule_id
+		   LEFT JOIN hosts h ON a.resource_type = 'host' AND h.id = a.resource_id
+		   LEFT JOIN host_group_members hgm ON hgm.host_id = h.id
+		   LEFT JOIN host_groups hg ON hg.id = hgm.host_group_id
+		  WHERE a.workspace_id = ?`,
+		workspaceID,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]uint64, 0)
+	for _, row := range rows {
+		if incidentAlertGroupID(row.RuleUID.String, row.HostGroupUID.String, row.Severity, row.Fingerprint) == groupID {
+			ids = append(ids, row.ID)
+		}
+	}
+	return ids, nil
+}
+
+func incidentAlertGroupID(ruleID, hostGroupID, severity, fingerprint string) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%s", ruleID, hostGroupID, severity, fingerprint)))
+	return hex.EncodeToString(sum[:])
+}
+
+func wrapAppError(err error, code int, message string) *apperror.Error {
+	if appErr, ok := err.(*apperror.Error); ok {
+		return appErr
+	}
+	return apperror.Wrap(http.StatusInternalServerError, code, message, err)
 }
 
 func summary(row incidentRecord) Summary {

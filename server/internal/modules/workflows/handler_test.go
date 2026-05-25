@@ -172,6 +172,10 @@ func (s *captureWorkflowService) DefinitionDiff(context.Context, string) (Defini
 	return DefinitionDiffResult{}, nil
 }
 
+func (s *captureWorkflowService) CancelReport(context.Context, string) (CancelReportResult, *apperror.Error) {
+	return CancelReportResult{}, nil
+}
+
 func (s *captureWorkflowService) CancelRun(context.Context, CancelInput) (RunDetail, *apperror.Error) {
 	return RunDetail{}, nil
 }

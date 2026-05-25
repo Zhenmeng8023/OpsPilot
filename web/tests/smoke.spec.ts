@@ -12,6 +12,7 @@ const routes = [
   "/workflows",
   "/notifications",
   "/trace-center",
+  "/security-review",
   "/audit-logs"
 ];
 

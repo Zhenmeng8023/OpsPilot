@@ -38,6 +38,25 @@ func TestPermissionMatchCodesIncludesLegacyAliases(t *testing.T) {
 	}
 }
 
+func TestAuditPermissionIsNotCanonicalizedToFeaturePermission(t *testing.T) {
+	permissions := normalizePermissionCodes([]string{
+		"audit.read",
+		"role.read",
+		"trace.read",
+		"security.review",
+	})
+
+	expected := []string{"audit.read", "role.read", "security:review", "traces:read"}
+	if len(permissions) != len(expected) {
+		t.Fatalf("expected %d permissions, got %d: %#v", len(expected), len(permissions), permissions)
+	}
+	for index, value := range expected {
+		if permissions[index] != value {
+			t.Fatalf("expected permission %q at index %d, got %q", value, index, permissions[index])
+		}
+	}
+}
+
 func TestCanonicalizePermissionSummariesPrefersCanonicalCode(t *testing.T) {
 	permissions := canonicalizePermissionSummaries([]PermissionSummary{
 		{Code: "metric.read", Module: "metric", Name: "Read metrics", Description: "legacy"},

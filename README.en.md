@@ -12,6 +12,7 @@ Release/security documents:
 - [V1.0 UI Guidelines](./docs/version/v1.0/ui-guidelines.en.md) / [简体中文](./docs/version/v1.0/ui-guidelines.md)
 - [Product Development Roadmap](./docs/version/product-development-roadmap.md)
 - [V1.1 Next Version Design](./docs/version/v1.1/product-development-design.md)
+- [V1.1 Release Evidence](./docs/version/v1.1/release-evidence.md)
 
 OpsPilot is an automation operations platform built with Go + Gin + React + TypeScript. The project now covers Agent onboarding, script templates, task execution, live logs, Cron scheduling, Webhook triggering, basic metrics, alerts, notifications, RBAC, and audit logs.
 

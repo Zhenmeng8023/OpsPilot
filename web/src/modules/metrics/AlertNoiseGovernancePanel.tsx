@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-import { listAlertNoiseTrends, listAlertRules, listNoisyRules, runAlertRoutingDryRun, runAlertSuppressionDryRun } from "../../api/alerts";
+import { getAlertNoiseReport, getAlertRoutingExplanation, listAlertRules, listAlerts, runAlertRoutingDryRun, runAlertSuppressionDryRun } from "../../api/alerts";
 import type { AlertRoutingDryRunResult, AlertSuppressionDryRunResult } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { Button } from "../../shared/components/Button";
@@ -20,20 +20,27 @@ export function AlertNoiseGovernancePanel() {
     severity: "",
     channelId: ""
   });
+  const [routingAlertId, setRoutingAlertId] = useState("");
+  const [submittedRoutingAlertId, setSubmittedRoutingAlertId] = useState("");
   const [suppressionResult, setSuppressionResult] = useState<AlertSuppressionDryRunResult | null>(null);
   const [routingResult, setRoutingResult] = useState<AlertRoutingDryRunResult | null>(null);
 
-  const noisyRulesQuery = useQuery({
-    queryKey: ["alertNoisyRules", hours, limit],
-    queryFn: () => listNoisyRules({ hours, limit })
-  });
-  const noiseTrendsQuery = useQuery({
-    queryKey: ["alertNoiseTrends", hours],
-    queryFn: () => listAlertNoiseTrends({ hours })
+  const noiseReportQuery = useQuery({
+    queryKey: ["alertNoiseReport", hours, limit],
+    queryFn: () => getAlertNoiseReport({ hours, limit })
   });
   const rulesQuery = useQuery({
     queryKey: ["alertRules", "noiseGovernance"],
     queryFn: listAlertRules
+  });
+  const alertsQuery = useQuery({
+    queryKey: ["alerts", "routingExplanation"],
+    queryFn: () => listAlerts({ status: "firing" })
+  });
+  const routingExplanationQuery = useQuery({
+    queryKey: ["alertRoutingExplanation", submittedRoutingAlertId],
+    queryFn: () => getAlertRoutingExplanation(submittedRoutingAlertId),
+    enabled: submittedRoutingAlertId !== ""
   });
 
   const suppressionDryRun = useMutation({
@@ -58,7 +65,7 @@ export function AlertNoiseGovernancePanel() {
   });
 
   const trendSummary = useMemo(() => {
-    const rows = noiseTrendsQuery.data ?? [];
+    const rows = noiseReportQuery.data?.trends ?? [];
     const map = new Map<string, { hostGroupName: string; severity: string; count: number }>();
     for (const row of rows) {
       const key = `${row.hostGroupName}:${row.severity}`;
@@ -70,13 +77,17 @@ export function AlertNoiseGovernancePanel() {
       }
     }
     return Array.from(map.values()).sort((left, right) => right.count - left.count).slice(0, 12);
-  }, [noiseTrendsQuery.data]);
+  }, [noiseReportQuery.data]);
 
   const ruleOptions = useMemo(() => {
     const base = [{ value: "", label: t("metrics.allRules") }];
     const rules = rulesQuery.data ?? [];
     return base.concat(rules.map((rule) => ({ value: rule.id, label: `${rule.name} (${rule.id})` })));
   }, [rulesQuery.data, t]);
+  const alertOptions = useMemo(() => {
+    const base = [{ value: "", label: t("metrics.selectAlert") }];
+    return base.concat((alertsQuery.data ?? []).map((alert) => ({ value: alert.id, label: `${alert.title} (${alert.id})` })));
+  }, [alertsQuery.data, t]);
 
   return (
     <section className="panel table-panel">
@@ -96,8 +107,7 @@ export function AlertNoiseGovernancePanel() {
           ))}
         </select>
         <Button type="button" onClick={() => {
-          noisyRulesQuery.refetch();
-          noiseTrendsQuery.refetch();
+          noiseReportQuery.refetch();
         }}>{t("common.refresh")}</Button>
       </div>
 
@@ -115,7 +125,7 @@ export function AlertNoiseGovernancePanel() {
               </tr>
             </thead>
             <tbody>
-              {(noisyRulesQuery.data ?? []).map((row) => (
+              {(noiseReportQuery.data?.noisyRules ?? []).map((row) => (
                 <tr key={`${row.ruleId || row.ruleName}:${row.lastSeenAt}`}>
                   <td><strong>{row.ruleName}</strong><small>{row.ruleId || "-"}</small></td>
                   <td>{row.severity}</td>
@@ -127,8 +137,8 @@ export function AlertNoiseGovernancePanel() {
               ))}
             </tbody>
           </table>
-          {!noisyRulesQuery.isLoading && (noisyRulesQuery.data ?? []).length === 0 ? <p className="empty-state">{t("common.empty")}</p> : null}
-          {noisyRulesQuery.isError ? <p className="form-error">{noisyRulesQuery.error.message}</p> : null}
+          {!noiseReportQuery.isLoading && (noiseReportQuery.data?.noisyRules ?? []).length === 0 ? <p className="empty-state">{t("common.empty")}</p> : null}
+          {noiseReportQuery.isError ? <p className="form-error">{noiseReportQuery.error.message}</p> : null}
         </div>
 
         <div className="data-table">
@@ -150,8 +160,7 @@ export function AlertNoiseGovernancePanel() {
               ))}
             </tbody>
           </table>
-          {!noiseTrendsQuery.isLoading && trendSummary.length === 0 ? <p className="empty-state">{t("common.empty")}</p> : null}
-          {noiseTrendsQuery.isError ? <p className="form-error">{noiseTrendsQuery.error.message}</p> : null}
+          {!noiseReportQuery.isLoading && trendSummary.length === 0 ? <p className="empty-state">{t("common.empty")}</p> : null}
         </div>
       </div>
 
@@ -227,6 +236,77 @@ export function AlertNoiseGovernancePanel() {
       </div>
       {suppressionDryRun.isError ? <p className="form-error">{suppressionDryRun.error.message}</p> : null}
       {routingDryRun.isError ? <p className="form-error">{routingDryRun.error.message}</p> : null}
+
+      <form
+        className="editor-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSubmittedRoutingAlertId(routingAlertId.trim());
+        }}
+      >
+        <h4>{t("metrics.routingExplanation")}</h4>
+        <FormGrid columns={2}>
+          <SelectField
+            label={t("metrics.alert")}
+            value={routingAlertId}
+            options={alertOptions}
+            onChange={(event) => setRoutingAlertId(event.target.value)}
+          />
+          <TextField
+            label={t("metrics.alertId")}
+            value={routingAlertId}
+            onChange={(event) => setRoutingAlertId(event.target.value)}
+            placeholder="alert_xxx"
+          />
+        </FormGrid>
+        <div className="toolbar-row">
+          <Button type="submit" disabled={!routingAlertId.trim() || routingExplanationQuery.isFetching}>{t("metrics.explainRouting")}</Button>
+        </div>
+      </form>
+
+      {routingExplanationQuery.data ? (
+        <div className="summary-grid">
+          <div className="summary-card">
+            <strong>{t("metrics.routing")}</strong>
+            <small>{routingExplanationQuery.data.routing || "-"}</small>
+          </div>
+          <div className="summary-card">
+            <strong>{t("metrics.suppression")}</strong>
+            <small>{routingExplanationQuery.data.suppression || "-"}</small>
+          </div>
+          <div className="summary-card">
+            <strong>{t("metrics.matchedPolicies")}</strong>
+            <small>{renderIDs(routingExplanationQuery.data.policyIds)}</small>
+          </div>
+          <div className="summary-card">
+            <strong>{t("metrics.sampleAlerts")}</strong>
+            <small>{routingExplanationQuery.data.alert.id}</small>
+          </div>
+        </div>
+      ) : null}
+      {routingExplanationQuery.data?.explanations.length ? (
+        <div className="data-table">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("common.category")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("common.reason")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {routingExplanationQuery.data.explanations.map((item) => (
+                <tr key={`${item.dimension}:${item.value ?? ""}:${item.reason ?? ""}`}>
+                  <td><strong>{item.dimension}</strong><small>{item.value || "-"}</small></td>
+                  <td><span className={`status-chip status-${item.matched ? "matched" : "disabled"}`}>{item.matched ? "matched" : "skipped"}</span></td>
+                  <td>{item.reason || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {routingExplanationQuery.isError ? <p className="form-error">{routingExplanationQuery.error.message}</p> : null}
     </section>
   );
 }

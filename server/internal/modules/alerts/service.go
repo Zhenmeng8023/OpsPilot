@@ -236,6 +236,21 @@ type NoisyRuleSummary struct {
 	LastSeenAt  string `json:"lastSeenAt"`
 }
 
+type NoiseReportResult struct {
+	Hours      int                `json:"hours"`
+	NoisyRules []NoisyRuleSummary `json:"noisyRules"`
+	Trends     []NoiseTrendPoint  `json:"trends"`
+}
+
+type RoutingExplanationResult struct {
+	Alert        AlertSummary        `json:"alert"`
+	Events       []AlertEventSummary `json:"events"`
+	Suppression  string              `json:"suppression,omitempty"`
+	Routing      string              `json:"routing"`
+	PolicyIDs    []string            `json:"policyIds"`
+	Explanations []DryRunExplanation `json:"explanations"`
+}
+
 type SuppressionDryRunInput struct {
 	RuleID      string `json:"ruleId"`
 	HostID      string `json:"hostId"`
@@ -817,6 +832,27 @@ func (s *Service) ListAlerts(ctx context.Context, input ListAlertsInput) ([]Aler
 	return out, nil
 }
 
+func (s *Service) alertByUID(ctx context.Context, workspaceID uint64, alertUID string) (alertRecord, error) {
+	var row alertRecord
+	err := s.db.WithContext(ctx).Raw(
+		`SELECT a.id, a.uid, a.workspace_id, ar.uid AS rule_uid, ar.name AS rule_name,
+		        ar.expression AS rule_expression, a.resource_type, a.resource_id,
+		        h.uid AS host_uid, h.name AS host_name, a.title, a.message, a.severity, a.status,
+		        CAST(a.metadata AS CHAR) AS metadata,
+		        DATE_FORMAT(a.first_seen_at, '%Y-%m-%d %H:%i:%s') AS first_seen_at,
+		        DATE_FORMAT(a.last_seen_at, '%Y-%m-%d %H:%i:%s') AS last_seen_at,
+		        DATE_FORMAT(a.resolved_at, '%Y-%m-%d %H:%i:%s') AS resolved_at,
+		        DATE_FORMAT(a.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		   FROM alerts a
+		   LEFT JOIN alert_rules ar ON ar.id = a.alert_rule_id
+		   LEFT JOIN hosts h ON a.resource_type = 'host' AND h.id = a.resource_id
+		  WHERE a.workspace_id = ? AND a.uid = ?
+		  LIMIT 1`,
+		workspaceID, strings.TrimSpace(alertUID),
+	).Scan(&row).Error
+	return row, err
+}
+
 func (s *Service) ListAlertGroups(ctx context.Context, input ListAlertGroupsInput) ([]AlertGroupSummary, *apperror.Error) {
 	workspace, appErr := s.workspace(ctx)
 	if appErr != nil {
@@ -1010,6 +1046,74 @@ func (s *Service) ListNoisyRules(ctx context.Context, input NoisyRuleInput) ([]N
 		})
 	}
 	return result, nil
+}
+
+func (s *Service) NoiseReport(ctx context.Context, input NoisyRuleInput) (NoiseReportResult, *apperror.Error) {
+	rules, appErr := s.ListNoisyRules(ctx, input)
+	if appErr != nil {
+		return NoiseReportResult{}, appErr
+	}
+	trends, appErr := s.ListNoiseTrends(ctx, NoiseTrendInput{Hours: input.Hours})
+	if appErr != nil {
+		return NoiseReportResult{}, appErr
+	}
+	return NoiseReportResult{
+		Hours:      normalizeHistoryHours(input.Hours),
+		NoisyRules: rules,
+		Trends:     trends,
+	}, nil
+}
+
+func (s *Service) RoutingExplanation(ctx context.Context, alertUID string) (RoutingExplanationResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return RoutingExplanationResult{}, appErr
+	}
+	alertUID = strings.TrimSpace(alertUID)
+	alert, err := s.alertByUID(ctx, workspace.ID, alertUID)
+	if err != nil {
+		return RoutingExplanationResult{}, apperror.Wrap(http.StatusInternalServerError, 500747, "load alert failed", err)
+	}
+	if alert.ID == 0 {
+		return RoutingExplanationResult{}, apperror.New(http.StatusNotFound, 404707, "alert not found")
+	}
+	events, appErr := s.ListAlertEvents(ctx, alertUID, "")
+	if appErr != nil {
+		return RoutingExplanationResult{}, appErr
+	}
+	metadata := parseAlertMetadata(alert.Metadata)
+	filters := normalizedDryRunFilter{RuleID: alert.RuleUID.String, HostID: alert.HostUID.String, Severity: alert.Severity}
+	var policies []dryRunPolicyRecord
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT rp.uid
+		   FROM alert_routing_policies rp
+		   LEFT JOIN alert_rules ar ON ar.id = rp.rule_id
+		   LEFT JOIN hosts h ON h.id = rp.host_id
+		  WHERE rp.workspace_id = ?
+		    AND rp.status = 'active'
+		    AND (rp.rule_id IS NULL OR ar.uid = ?)
+		    AND (rp.host_id IS NULL OR h.uid = ?)
+		    AND (rp.severity IS NULL OR rp.severity = ?)`,
+		workspace.ID, filters.RuleID, filters.HostID, filters.Severity,
+	).Scan(&policies).Error; err != nil {
+		return RoutingExplanationResult{}, apperror.Wrap(http.StatusInternalServerError, 500748, "load alert routing policies failed", err)
+	}
+	policyIDs := make([]string, 0, len(policies))
+	for _, policy := range policies {
+		policyIDs = append(policyIDs, policy.UID)
+	}
+	message := routingPolicyExplanation(len(policyIDs))
+	if len(policyIDs) == 0 {
+		message = "no active routing policy matched; default notification behavior applies"
+	}
+	return RoutingExplanationResult{
+		Alert:        alertSummary(alert),
+		Events:       events,
+		Suppression:  strings.TrimSpace(metadata.SuppressedBy + " " + metadata.SuppressionReason),
+		Routing:      message,
+		PolicyIDs:    policyIDs,
+		Explanations: dryRunExplanations(filters, len(policyIDs) > 0),
+	}, nil
 }
 
 func (s *Service) SuppressionDryRun(ctx context.Context, input SuppressionDryRunInput) (SuppressionDryRunResult, *apperror.Error) {

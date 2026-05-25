@@ -5,7 +5,7 @@ import { request } from "../../api/request";
 import type { HealthData, VersionInfo } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { StatusBadge } from "../../shared/components/StatusBadge";
-import { IconAgents, IconTasks, IconSchedules, IconWorkflows, IconPlus, IconEdit, IconClock, IconWebhooks } from "../../shared/components/Icons";
+import { IconAgents, IconTasks, IconSchedules, IconWorkflows, IconScripts, IconWebhooks } from "../../shared/components/Icons";
 
 interface CountResponse { total: number }
 
@@ -49,25 +49,25 @@ export function DashboardPage() {
       label: t("dashboard.schedules"),
       value: schedulesQuery.data?.total ?? "-",
       hint: t("dashboard.scheduleHint"),
-      icon: <IconTasks />,
-      className: "",
+      icon: <IconSchedules />,
+      className: "stat-card-accent",
       onClick: () => navigate("/schedules")
     },
     {
       label: t("dashboard.workflows"),
       value: workflowsQuery.data?.total ?? "-",
       hint: t("dashboard.workflowHint"),
-      icon: <IconAgents />,
-      className: "",
+      icon: <IconWorkflows />,
+      className: "stat-card-info",
       onClick: () => navigate("/workflows")
     },
   ];
 
   const quickActions = [
     { label: t("tasks.createAction"), to: "/tasks/new", icon: <IconTasks /> },
-    { label: t("scripts.createAction"), to: "/scripts/new", icon: <IconAgents /> },
-    { label: t("schedules.createAction"), to: "/schedules", icon: <IconTasks /> },
-    { label: t("webhooks.createSource"), to: "/webhooks", icon: <IconAgents /> },
+    { label: t("scripts.createAction"), to: "/scripts/new", icon: <IconScripts /> },
+    { label: t("schedules.createAction"), to: "/schedules", icon: <IconSchedules /> },
+    { label: t("webhooks.createSource"), to: "/webhooks", icon: <IconWebhooks /> },
   ];
 
   return (
@@ -88,7 +88,12 @@ export function DashboardPage() {
             onClick={card.onClick}
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => { if (e.key === "Enter") card.onClick(); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                card.onClick();
+              }
+            }}
           >
             <div className="stat-card-label">
               <span className="stat-card-icon">{card.icon}</span>
@@ -107,17 +112,16 @@ export function DashboardPage() {
           <div className="panel-title">
             <h3>{t("dashboard.quickActions")}</h3>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.5rem" }}>
+          <div className="quick-actions-grid">
             {quickActions.map((action) => (
               <button
                 key={action.to}
                 type="button"
-                className="ghost-button"
+                className="quick-action"
                 onClick={() => navigate(action.to)}
-                style={{ justifyContent: "center", padding: "0.85rem 1rem" }}
               >
-                <span>{action.icon}</span>
-                {action.label}
+                <span className="quick-action-icon">{action.icon}</span>
+                <span className="quick-action-label">{action.label}</span>
               </button>
             ))}
           </div>

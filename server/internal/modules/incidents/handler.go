@@ -17,6 +17,8 @@ type ServiceContract interface {
 	UpdateLifecycle(context.Context, string, LifecycleUpdateInput) (Detail, *apperror.Error)
 	Merge(context.Context, string, MergeInput) (Detail, *apperror.Error)
 	Close(context.Context, string, CloseInput) (Detail, *apperror.Error)
+	Timeline(context.Context, string) ([]Event, *apperror.Error)
+	LinkAlertGroup(context.Context, string, LinkAlertGroupInput) (Detail, *apperror.Error)
 }
 
 type Handler struct {
@@ -32,7 +34,9 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.Use(userAuth)
 	protected.GET("", requirePermission("alert:read"), h.list)
 	protected.GET("/:id", requirePermission("alert:read"), h.get)
+	protected.GET("/:id/timeline", requirePermission("alert:read"), h.timeline)
 	protected.PATCH("/:id/lifecycle", requirePermission("alert:write"), h.updateLifecycle)
+	protected.POST("/:id/alert-groups", requirePermission("alert:write"), h.linkAlertGroup)
 	protected.POST("/:id/merge", requirePermission("alert:write"), h.merge)
 	protected.POST("/:id/close", requirePermission("alert:write"), h.close)
 }
@@ -75,6 +79,38 @@ func (h *Handler) updateLifecycle(c *gin.Context) {
 		RootCauseClass: req.RootCauseClass,
 		Postmortem:     req.Postmortem,
 		Audit:          auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) timeline(c *gin.Context) {
+	items, appErr := h.service.Timeline(c.Request.Context(), c.Param("id"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, items)
+}
+
+func (h *Handler) linkAlertGroup(c *gin.Context) {
+	var req struct {
+		AlertGroupID string   `json:"alertGroupId"`
+		AlertIDs     []string `json:"alertIds"`
+		Reason       string   `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, 400001, "invalid request body")
+		return
+	}
+	item, appErr := h.service.LinkAlertGroup(c.Request.Context(), c.Param("id"), LinkAlertGroupInput{
+		AlertGroupID: req.AlertGroupID,
+		AlertIDs:     req.AlertIDs,
+		Reason:       req.Reason,
+		Audit:        auditContext(c),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)

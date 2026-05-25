@@ -34,6 +34,7 @@ const statusOrder = ["online", "offline", "disabled", "registered", "upgrading"]
 export function AgentManagementPage() {
   const queryClient = useQueryClient();
   const t = useLanguageStore((state) => state.t);
+  const [tab, setTab] = useState<"overview" | "organization" | "operations">("overview");
   const [createForm, setCreateForm] = useState({
     maxUses: 1,
     expiresInSeconds: 3600,
@@ -269,11 +270,25 @@ export function AgentManagementPage() {
           <p className="eyebrow">Control Plane</p>
           <h1>{t("agents.title")}</h1>
         </div>
-        <button className="ghost-button" type="button" onClick={() => scanOfflineMutation.mutate()} disabled={scanOfflineMutation.isPending}>
-          {t("agents.scanOffline")}
-        </button>
+        <div className="page-tools">
+          <div className="segmented">
+            <button type="button" className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>
+              {t("metrics.overview")}
+            </button>
+            <button type="button" className={tab === "organization" ? "active" : ""} onClick={() => setTab("organization")}>
+              {t("agents.hostGroups")}
+            </button>
+            <button type="button" className={tab === "operations" ? "active" : ""} onClick={() => setTab("operations")}>
+              {t("agents.maintenance")}
+            </button>
+          </div>
+          <button className="ghost-button" type="button" onClick={() => scanOfflineMutation.mutate()} disabled={scanOfflineMutation.isPending}>
+            {t("agents.scanOffline")}
+          </button>
+        </div>
       </section>
 
+      {tab === "overview" ? (
       <section className="agent-summary">
         {statusOrder.slice(0, 3).map((status) => (
           <div className="panel agent-stat" key={status}>
@@ -282,7 +297,9 @@ export function AgentManagementPage() {
           </div>
         ))}
       </section>
+      ) : null}
 
+      {tab === "overview" ? (
       <section className="panel table-panel">
         <div className="panel-title">
           <h3>{t("agents.fleetInsights")}</h3>
@@ -304,7 +321,9 @@ export function AgentManagementPage() {
         </div>
         {fleetDistributionQuery.isError ? <p className="form-error">{String(fleetDistributionQuery.error.message)}</p> : null}
       </section>
+      ) : null}
 
+      {tab === "organization" ? (
       <section className="agent-grid">
         <section className="panel table-panel">
           <div className="panel-title">
@@ -438,7 +457,9 @@ export function AgentManagementPage() {
           {disableHostGroupAgentsMutation.isError ? <p className="form-error">{String(disableHostGroupAgentsMutation.error.message)}</p> : null}
         </section>
       </section>
+      ) : null}
 
+      {tab === "operations" ? (
       <section className="agent-grid">
         <section className="panel table-panel">
           <div className="panel-title">
@@ -556,7 +577,9 @@ export function AgentManagementPage() {
           {updateMaintenanceMutation.isError ? <p className="form-error">{String(updateMaintenanceMutation.error.message)}</p> : null}
         </section>
       </section>
+      ) : null}
 
+      {tab === "overview" ? (
       <section className="agent-grid">
         <section className="panel table-panel">
           <div className="panel-title">
@@ -786,6 +809,7 @@ export function AgentManagementPage() {
           ) : null}
         </section>
       </section>
+      ) : null}
     </main>
   );
 }

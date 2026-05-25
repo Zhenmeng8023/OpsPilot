@@ -99,7 +99,9 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	protected.GET("/agents", requirePermission("agent:read"), h.listAgents)
 	protected.GET("/agents/diagnostics", requirePermission("agent:read"), h.listDiagnostics)
 	protected.GET("/agents/fleet-distribution", requirePermission("agent:read"), h.fleetDistribution)
+	protected.GET("/agents/version-distribution", requirePermission("agent:read"), h.fleetDistribution)
 	protected.GET("/agents/diagnostics/diff", requirePermission("agent:read"), h.diagnosticDiff)
+	protected.GET("/agents/:id/diagnostics/diff", requirePermission("agent:read"), h.agentDiagnosticDiff)
 	protected.PUT("/agents/:id/tags", requirePermission("agent:write"), h.setAgentTags)
 	protected.GET("/tags", requirePermission("agent:read"), h.listTags)
 	protected.POST("/tags", requirePermission("agent:write"), h.createTag)
@@ -218,6 +220,15 @@ func (h *Handler) fleetDistribution(c *gin.Context) {
 
 func (h *Handler) diagnosticDiff(c *gin.Context) {
 	item, appErr := h.service.DiagnosticDiff(c.Request.Context(), c.Query("left"), c.Query("right"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *Handler) agentDiagnosticDiff(c *gin.Context) {
+	item, appErr := h.service.DiagnosticDiffForAgent(c.Request.Context(), c.Param("id"))
 	if appErr != nil {
 		writeAppError(c, appErr)
 		return

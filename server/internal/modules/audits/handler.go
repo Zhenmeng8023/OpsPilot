@@ -2,6 +2,8 @@ package audits
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"strconv"
 
@@ -75,6 +77,9 @@ func (h *Handler) export(c *gin.Context) {
 	}
 	c.Header("Content-Type", result.ContentType)
 	c.Header("Content-Disposition", `attachment; filename="`+result.FileName+`"`)
+	sum := sha256.Sum256(result.Content)
+	c.Header("X-OpsPilot-Export-Hash-Algorithm", "sha256")
+	c.Header("X-OpsPilot-Export-Hash", hex.EncodeToString(sum[:]))
 	c.Data(http.StatusOK, result.ContentType, result.Content)
 }
 

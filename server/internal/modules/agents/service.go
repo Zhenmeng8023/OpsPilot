@@ -277,8 +277,8 @@ type DiagnosticSnapshot struct {
 }
 
 type DiagnosticDiffResult struct {
-	Left        DiagnosticSnapshot   `json:"left"`
-	Right       DiagnosticSnapshot   `json:"right"`
+	Left        DiagnosticSnapshot    `json:"left"`
+	Right       DiagnosticSnapshot    `json:"right"`
 	Differences []DiagnosticFieldDiff `json:"differences"`
 }
 
@@ -296,16 +296,16 @@ type BatchPlanBatch struct {
 }
 
 type HostGroupBatchPlan struct {
-	GroupID        string           `json:"groupId"`
-	GroupName      string           `json:"groupName"`
-	BatchSize      int              `json:"batchSize"`
-	MaxBatches     int              `json:"maxBatches"`
-	StopOnFailure  bool             `json:"stopOnFailure"`
-	TotalAgents    int              `json:"totalAgents"`
-	TotalHosts     int              `json:"totalHosts"`
-	Truncated      bool             `json:"truncated"`
-	RemainingAgents int             `json:"remainingAgents,omitempty"`
-	Batches        []BatchPlanBatch `json:"batches"`
+	GroupID         string           `json:"groupId"`
+	GroupName       string           `json:"groupName"`
+	BatchSize       int              `json:"batchSize"`
+	MaxBatches      int              `json:"maxBatches"`
+	StopOnFailure   bool             `json:"stopOnFailure"`
+	TotalAgents     int              `json:"totalAgents"`
+	TotalHosts      int              `json:"totalHosts"`
+	Truncated       bool             `json:"truncated"`
+	RemainingAgents int              `json:"remainingAgents,omitempty"`
+	Batches         []BatchPlanBatch `json:"batches"`
 }
 
 type TagSummary struct {
@@ -1001,6 +1001,33 @@ func (s *Service) DiagnosticDiff(ctx context.Context, leftID, rightID string) (D
 	}, nil
 }
 
+func (s *Service) DiagnosticDiffForAgent(ctx context.Context, agentUID string) (DiagnosticDiffResult, *apperror.Error) {
+	agentUID = strings.TrimSpace(agentUID)
+	if agentUID == "" {
+		return DiagnosticDiffResult{}, apperror.New(http.StatusBadRequest, 400125, "agent id is required")
+	}
+	workspace, appErr := s.defaultWorkspaceForAPI(ctx)
+	if appErr != nil {
+		return DiagnosticDiffResult{}, appErr
+	}
+	var ids []string
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT d.uid
+		   FROM agent_diagnostics d
+		   JOIN agents a ON a.id = d.agent_id
+		  WHERE d.workspace_id = ? AND a.uid = ?
+		  ORDER BY d.reported_at DESC, d.id DESC
+		  LIMIT 2`,
+		workspace.ID, agentUID,
+	).Scan(&ids).Error; err != nil {
+		return DiagnosticDiffResult{}, apperror.Wrap(http.StatusInternalServerError, 500131, "load agent diagnostic snapshots failed", err)
+	}
+	if len(ids) < 2 {
+		return DiagnosticDiffResult{}, apperror.New(http.StatusNotFound, 404125, "agent needs at least two diagnostic snapshots")
+	}
+	return s.DiagnosticDiff(ctx, ids[1], ids[0])
+}
+
 func (s *Service) latestDiagnostics(ctx context.Context, db *gorm.DB, workspaceID uint64, hostGroupID uint64) ([]AgentDiagnosticSummary, error) {
 	args := []interface{}{workspaceID, workspaceID}
 	where := "WHERE d.workspace_id = ?"
@@ -1528,14 +1555,14 @@ func (s *Service) DisableHostGroupAgentsPlan(ctx context.Context, groupUID strin
 	}
 
 	plan := HostGroupBatchPlan{
-		GroupID:        group.UID,
-		GroupName:      group.Name,
-		BatchSize:      input.BatchSize,
-		MaxBatches:     input.MaxBatches,
-		StopOnFailure:  input.StopOnFailure,
-		TotalAgents:    len(agentIDs),
-		TotalHosts:     len(hostSet),
-		Batches:        make([]BatchPlanBatch, 0),
+		GroupID:       group.UID,
+		GroupName:     group.Name,
+		BatchSize:     input.BatchSize,
+		MaxBatches:    input.MaxBatches,
+		StopOnFailure: input.StopOnFailure,
+		TotalAgents:   len(agentIDs),
+		TotalHosts:    len(hostSet),
+		Batches:       make([]BatchPlanBatch, 0),
 	}
 	if len(agentIDs) == 0 {
 		return plan, nil

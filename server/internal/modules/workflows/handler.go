@@ -27,6 +27,7 @@ type ServiceContract interface {
 	RetryPlan(context.Context, RetryPlanInput) (RetryPlanResult, *apperror.Error)
 	ActionHistory(context.Context, string) ([]ActionHistoryItem, *apperror.Error)
 	DefinitionDiff(context.Context, string) (DefinitionDiffResult, *apperror.Error)
+	CancelReport(context.Context, string) (CancelReportResult, *apperror.Error)
 	CancelRun(context.Context, CancelInput) (RunDetail, *apperror.Error)
 	RetryRun(context.Context, RetryInput) (RunDetail, *apperror.Error)
 	RetryNode(context.Context, RetryNodeInput) (RunDetail, *apperror.Error)
@@ -52,6 +53,10 @@ type runRequest struct {
 
 type cancelRequest struct {
 	Reason string `json:"reason"`
+}
+
+type retryRequest struct {
+	IdempotencyKey string `json:"idempotencyKey"`
 }
 
 type copyRequest struct {
@@ -85,7 +90,9 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	runs.GET("/:id", requirePermission("workflow:read"), h.getRun)
 	runs.GET("/:id/retry-plan", requirePermission("workflow:execute"), h.retryPlan)
 	runs.GET("/:id/actions", requirePermission("workflow:read"), h.actionHistory)
+	runs.GET("/:id/action-history", requirePermission("workflow:read"), h.actionHistory)
 	runs.GET("/:id/definition-diff", requirePermission("workflow:read"), h.definitionDiff)
+	runs.GET("/:id/cancel-report", requirePermission("workflow:read"), h.cancelReport)
 	runs.POST("/:id/cancel", requirePermission("workflow:manage"), h.cancelRun)
 	runs.POST("/:id/retry", requirePermission("workflow:execute"), h.retryRun)
 	runs.POST("/:id/nodes/:nodeId/retry", requirePermission("workflow:execute"), h.retryNode)
@@ -267,6 +274,15 @@ func (h *Handler) definitionDiff(c *gin.Context) {
 	response.Success(c, item)
 }
 
+func (h *Handler) cancelReport(c *gin.Context) {
+	item, appErr := h.service.CancelReport(c.Request.Context(), c.Param("id"))
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, item)
+}
+
 func (h *Handler) cancelRun(c *gin.Context) {
 	var req cancelRequest
 	_ = c.ShouldBindJSON(&req)
@@ -283,9 +299,12 @@ func (h *Handler) cancelRun(c *gin.Context) {
 }
 
 func (h *Handler) retryRun(c *gin.Context) {
+	var req retryRequest
+	_ = c.ShouldBindJSON(&req)
 	item, appErr := h.service.RetryRun(c.Request.Context(), RetryInput{
-		ID:    c.Param("id"),
-		Audit: auditContext(c),
+		ID:             c.Param("id"),
+		IdempotencyKey: req.IdempotencyKey,
+		Audit:          auditContext(c),
 	})
 	if appErr != nil {
 		writeAppError(c, appErr)

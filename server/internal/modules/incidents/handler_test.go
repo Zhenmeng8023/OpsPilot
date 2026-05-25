@@ -110,6 +110,14 @@ func (s *captureIncidentService) Merge(_ context.Context, incidentID string, inp
 	return Detail{}, nil
 }
 
+func (s *captureIncidentService) Timeline(context.Context, string) ([]Event, *apperror.Error) {
+	return nil, nil
+}
+
+func (s *captureIncidentService) LinkAlertGroup(context.Context, string, LinkAlertGroupInput) (Detail, *apperror.Error) {
+	return Detail{}, nil
+}
+
 func (s *captureIncidentService) Close(_ context.Context, incidentID string, input CloseInput) (Detail, *apperror.Error) {
 	s.closeIncidentID = incidentID
 	s.closeInput = input
