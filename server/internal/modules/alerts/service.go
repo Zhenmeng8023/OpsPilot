@@ -2575,12 +2575,13 @@ func (s *Service) matchedAlertsByFilter(ctx context.Context, workspaceID uint64,
 		UID string
 	}
 	if err := s.db.WithContext(ctx).Raw(
-		`SELECT DISTINCT a.uid
+		`SELECT a.uid
 		   FROM alerts a
 		   LEFT JOIN alert_rules ar ON ar.id = a.alert_rule_id
 		   LEFT JOIN hosts h ON a.resource_type = 'host' AND h.id = a.resource_id
 		  `+where+`
-		  ORDER BY a.last_seen_at DESC
+		  GROUP BY a.id, a.uid
+		  ORDER BY MAX(a.last_seen_at) DESC
 		  LIMIT 20`,
 		baseArgs...,
 	).Scan(&sampleRows).Error; err != nil {
