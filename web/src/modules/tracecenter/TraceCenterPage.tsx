@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { searchTraceCenter } from "../../api/tracecenter";
+import { lookupTrace } from "../../api/tracecenter";
 import type { TraceCenterResult } from "../../api/types";
 import { useLanguageStore } from "../../i18n/language";
 import { DataTable } from "../../shared/components/DataTable";
@@ -36,7 +36,7 @@ export function TraceCenterPage() {
   const resultQuery = useQuery({
     queryKey: ["traceCenter", submitted],
     enabled: hasSubmittedQuery,
-    queryFn: () => searchTraceCenter(submitted)
+    queryFn: () => lookupTrace(submitted)
   });
   const result = resultQuery.data;
 

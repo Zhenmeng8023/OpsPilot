@@ -1936,6 +1936,17 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: Trace center timeline result }
+  /api/v1/traces/retention/run:
+    post:
+      summary: Run trace cache retention
+      description: Requires `traces:read`. Supports age-based cleanup using configured retention days or targeted cleanup by `traceId`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TraceRetentionPayload"
+      responses:
+        "200": { description: Trace retention result }
   /api/v1/traces/{id}:
     get:
       summary: Get trace summary
@@ -2229,6 +2240,14 @@ components:
       properties:
         detailDays: { type: integer, minimum: 1, default: 7 }
         rollupDays: { type: integer, minimum: 1, default: 90 }
+        dryRun: { type: boolean, default: true }
+    TraceRetentionPayload:
+      type: object
+      properties:
+        days: { type: integer, minimum: 1, default: 30 }
+        traceId:
+          type: string
+          description: Optional targeted cache cleanup for a single trace id.
         dryRun: { type: boolean, default: true }
     AlertRulePayload:
       type: object

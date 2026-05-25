@@ -8,11 +8,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
 	"opspilot/server/internal/config"
 	"opspilot/server/internal/shared/apperror"
+	sharedaudit "opspilot/server/internal/shared/audit"
 )
 
 type Service struct {
@@ -43,6 +45,31 @@ type SearchResult struct {
 	WorkflowRunID  string         `json:"workflowRunId,omitempty"`
 	WebhookEventID string         `json:"webhookEventId,omitempty"`
 	Timeline       []TimelineItem `json:"timeline"`
+}
+
+type RetentionInput struct {
+	Days    int
+	DryRun  bool
+	TraceID string
+	Audit   AuditContext
+}
+
+type RetentionResult struct {
+	CutoffAt string `json:"cutoffAt,omitempty"`
+	Days     int    `json:"days,omitempty"`
+	TraceID  string `json:"traceId,omitempty"`
+	Matched  int64  `json:"matched"`
+	Deleted  int64  `json:"deleted"`
+	DryRun   bool   `json:"dryRun"`
+}
+
+type AuditContext struct {
+	ActorUID      string
+	IP            string
+	UserAgent     string
+	TraceID       string
+	RequestMethod string
+	RequestPath   string
 }
 
 type workspaceRecord struct {
@@ -89,6 +116,89 @@ type webhookEventRecord struct {
 
 func NewService(db *gorm.DB, cfg config.Config) *Service {
 	return &Service{db: db, cfg: cfg}
+}
+
+func (s *Service) RunRetention(ctx context.Context, input RetentionInput) (RetentionResult, *apperror.Error) {
+	workspace, appErr := s.workspace(ctx)
+	if appErr != nil {
+		return RetentionResult{}, appErr
+	}
+	traceID := strings.TrimSpace(input.TraceID)
+	result := RetentionResult{
+		TraceID: traceID,
+		DryRun:  input.DryRun,
+	}
+	if traceID == "" {
+		days := input.Days
+		if days <= 0 {
+			days = s.cfg.Trace.RetentionDays
+		}
+		if days <= 0 {
+			days = 30
+		}
+		cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		result.Days = days
+		result.CutoffAt = cutoff.Format("2006-01-02 15:04:05")
+	}
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if traceID != "" {
+			if err := tx.WithContext(ctx).Raw(
+				"SELECT COUNT(*) FROM trace_events WHERE workspace_id = ? AND trace_id = ?",
+				workspace.ID, traceID,
+			).Scan(&result.Matched).Error; err != nil {
+				return err
+			}
+			if !input.DryRun && result.Matched > 0 {
+				exec := tx.WithContext(ctx).Exec(
+					"DELETE FROM trace_events WHERE workspace_id = ? AND trace_id = ?",
+					workspace.ID, traceID,
+				)
+				if exec.Error != nil {
+					return exec.Error
+				}
+				result.Deleted = exec.RowsAffected
+			}
+		} else {
+			cutoff := strings.TrimSpace(result.CutoffAt)
+			if err := tx.WithContext(ctx).Raw(
+				"SELECT COUNT(*) FROM trace_events WHERE workspace_id = ? AND occurred_at < ?",
+				workspace.ID, cutoff,
+			).Scan(&result.Matched).Error; err != nil {
+				return err
+			}
+			if !input.DryRun && result.Matched > 0 {
+				exec := tx.WithContext(ctx).Exec(
+					"DELETE FROM trace_events WHERE workspace_id = ? AND occurred_at < ?",
+					workspace.ID, cutoff,
+				)
+				if exec.Error != nil {
+					return exec.Error
+				}
+				result.Deleted = exec.RowsAffected
+			}
+		}
+		actorID, _ := sharedaudit.UserIDByUID(ctx, tx, input.Audit.ActorUID)
+		sharedaudit.Write(ctx, tx, sharedaudit.Event{
+			WorkspaceID:   workspace.ID,
+			ActorUserID:   actorID,
+			Action:        "trace.retention.run",
+			ResourceType:  "trace_event",
+			IP:            input.Audit.IP,
+			UserAgent:     input.Audit.UserAgent,
+			TraceID:       input.Audit.TraceID,
+			RequestMethod: input.Audit.RequestMethod,
+			RequestPath:   input.Audit.RequestPath,
+			Metadata:      result,
+		})
+		return nil
+	})
+	if txErr != nil {
+		return RetentionResult{}, apperror.Wrap(http.StatusInternalServerError, 500986, "run trace retention failed", txErr)
+	}
+	if input.DryRun {
+		result.Deleted = 0
+	}
+	return result, nil
 }
 
 func (s *Service) Search(ctx context.Context, input SearchInput) (SearchResult, *apperror.Error) {
@@ -164,6 +274,10 @@ func (s *Service) Search(ctx context.Context, input SearchInput) (SearchResult, 
 		}
 		workflow, task, webhook = wf, tk, wh
 	}
+	resolvedTraceID, traceErr := s.resolveTraceID(ctx, workspace.ID, input.TraceID, workflow, task, webhook)
+	if traceErr != nil {
+		return SearchResult{}, wrapErr(500984, "resolve trace id failed", traceErr)
+	}
 
 	timeline := make([]TimelineItem, 0, 64)
 	if workflow.ID != 0 {
@@ -194,11 +308,14 @@ func (s *Service) Search(ctx context.Context, input SearchInput) (SearchResult, 
 		}
 		timeline = append(timeline, items...)
 	}
-	items, queryErr := s.auditTimeline(ctx, workspace.ID, input.TraceID, workflow.ID, task.ID, webhook.ID)
+	items, queryErr := s.auditTimeline(ctx, workspace.ID, resolvedTraceID, workflow.ID, task.ID, webhook.ID)
 	if queryErr != nil {
 		return SearchResult{}, wrapErr(500981, "load audit timeline failed", queryErr)
 	}
 	timeline = append(timeline, items...)
+	if cacheErr := s.syncTraceCache(ctx, workspace.ID, resolvedTraceID, workflow, task, webhook, timeline); cacheErr != nil {
+		return SearchResult{}, wrapErr(500985, "sync trace cache failed", cacheErr)
+	}
 
 	sort.Slice(timeline, func(i, j int) bool {
 		if timeline[i].Time == timeline[j].Time {
@@ -211,7 +328,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) (SearchResult, 
 	})
 
 	return SearchResult{
-		TraceID:        input.TraceID,
+		TraceID:        resolvedTraceID,
 		TaskRunID:      task.UID,
 		WorkflowRunID:  workflow.UID,
 		WebhookEventID: webhook.UID,
@@ -270,6 +387,13 @@ func (s *Service) inferFromTrace(ctx context.Context, workspaceID uint64, traceI
 					webhook = record
 				}
 			}
+		}
+	}
+	if workflow.ID == 0 || task.ID == 0 || webhook.ID == 0 {
+		var err error
+		workflow, task, webhook, err = s.inferFromTraceCache(ctx, workspaceID, traceID, workflow, task, webhook)
+		if err != nil {
+			return workflow, task, webhook, err
 		}
 	}
 	return workflow, task, webhook, nil
@@ -520,13 +644,13 @@ func (s *Service) workflowTimeline(ctx context.Context, workflowRunID uint64) ([
 	}
 
 	var nodes []struct {
-		NodeID      string         `gorm:"column:node_id"`
-		NodeType    string         `gorm:"column:node_type"`
-		NodeName    sql.NullString `gorm:"column:node_name"`
-		Status      string         `gorm:"column:status"`
-		TaskRunUID  sql.NullString `gorm:"column:task_run_uid"`
-		Error       sql.NullString `gorm:"column:error_message"`
-		OccurredAt  string         `gorm:"column:occurred_at"`
+		NodeID     string         `gorm:"column:node_id"`
+		NodeType   string         `gorm:"column:node_type"`
+		NodeName   sql.NullString `gorm:"column:node_name"`
+		Status     string         `gorm:"column:status"`
+		TaskRunUID sql.NullString `gorm:"column:task_run_uid"`
+		Error      sql.NullString `gorm:"column:error_message"`
+		OccurredAt string         `gorm:"column:occurred_at"`
 	}
 	if err := s.db.WithContext(ctx).Raw(
 		`SELECT wrn.node_id, wrn.node_type, wrn.node_name, wrn.status, tr.uid AS task_run_uid, wrn.error_message,

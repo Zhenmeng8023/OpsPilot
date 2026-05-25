@@ -48,6 +48,19 @@ func TestLoadVersionEnvOverridesBuildInfo(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsTraceRetentionDays(t *testing.T) {
+	t.Setenv("APP_ENV", "local")
+	t.Setenv("TRACE_RETENTION_DAYS", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Trace.RetentionDays != 30 {
+		t.Fatalf("expected TRACE_RETENTION_DAYS fallback to 30, got %d", cfg.Trace.RetentionDays)
+	}
+}
+
 func TestLoadProdDisablesPublicRegistrationByDefault(t *testing.T) {
 	setProdBaselineEnv(t)
 	t.Setenv("AUTH_PUBLIC_REGISTRATION_ENABLED", "")

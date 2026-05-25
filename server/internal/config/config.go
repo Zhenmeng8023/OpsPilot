@@ -39,6 +39,7 @@ type Config struct {
 	Alert     AlertConfig
 	Metric    MetricConfig
 	Audit     AuditConfig
+	Trace     TraceConfig
 	Notify    NotificationConfig
 	Bootstrap BootstrapConfig
 }
@@ -118,6 +119,10 @@ type MetricConfig struct {
 }
 
 type AuditConfig struct {
+	RetentionDays int
+}
+
+type TraceConfig struct {
 	RetentionDays int
 }
 
@@ -210,6 +215,9 @@ func Load() (Config, error) {
 		Audit: AuditConfig{
 			RetentionDays: getEnvInt("AUDIT_RETENTION_DAYS", 180),
 		},
+		Trace: TraceConfig{
+			RetentionDays: getEnvInt("TRACE_RETENTION_DAYS", 30),
+		},
 		Notify: NotificationConfig{
 			DispatchInterval: getEnvDurationSeconds("NOTIFICATION_DISPATCH_INTERVAL_SECONDS", 15*time.Second),
 			HTTPTimeout:      getEnvDurationSeconds("NOTIFICATION_HTTP_TIMEOUT_SECONDS", 10*time.Second),
@@ -278,6 +286,9 @@ func Load() (Config, error) {
 	}
 	if cfg.Audit.RetentionDays <= 0 {
 		cfg.Audit.RetentionDays = 180
+	}
+	if cfg.Trace.RetentionDays <= 0 {
+		cfg.Trace.RetentionDays = 30
 	}
 	if cfg.Metric.DetailRetentionDays <= 0 {
 		cfg.Metric.DetailRetentionDays = 7

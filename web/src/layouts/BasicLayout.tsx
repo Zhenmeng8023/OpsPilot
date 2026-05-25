@@ -52,7 +52,7 @@ const navGroups: NavGroup[] = [
   {
     labelKey: "nav.group.audit",
     items: [
-      { to: "/trace-center", labelKey: "nav.traceCenter", permission: "traces:read", icon: <IconTrace /> },
+      { to: "/traces", labelKey: "nav.traceCenter", permission: "traces:read", icon: <IconTrace /> },
       { to: "/audit-logs", labelKey: "nav.auditLogs", permission: "audit.read", icon: <IconAudit /> },
       { to: "/security-review", labelKey: "nav.securityReview", permission: "security:review", icon: <IconRoles /> },
     ]

@@ -11,7 +11,7 @@ const routes = [
   "/webhooks",
   "/workflows",
   "/notifications",
-  "/trace-center",
+  "/traces",
   "/security-review",
   "/audit-logs"
 ];

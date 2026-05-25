@@ -8,16 +8,24 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"opspilot/server/internal/modules/auth"
 	"opspilot/server/internal/shared/apperror"
 	"opspilot/server/internal/shared/response"
 )
 
 type ServiceContract interface {
 	Search(context.Context, SearchInput) (SearchResult, *apperror.Error)
+	RunRetention(context.Context, RetentionInput) (RetentionResult, *apperror.Error)
 }
 
 type Handler struct {
 	service ServiceContract
+}
+
+type retentionRequest struct {
+	Days    int    `json:"days"`
+	DryRun  bool   `json:"dryRun"`
+	TraceID string `json:"traceId"`
 }
 
 func NewHandler(service ServiceContract) *Handler {
@@ -32,6 +40,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup, userAuth gin.HandlerFunc,
 	traces := api.Group("/traces")
 	traces.Use(userAuth)
 	traces.GET("/lookup", requirePermission("traces:read"), h.lookup)
+	traces.POST("/retention/run", requirePermission("traces:read"), h.runRetention)
 	traces.GET("/:id", requirePermission("traces:read"), h.getTrace)
 	traces.GET("/:id/events", requirePermission("traces:read"), h.getTraceEvents)
 }
@@ -109,6 +118,22 @@ func (h *Handler) lookup(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *Handler) runRetention(c *gin.Context) {
+	var req retentionRequest
+	_ = c.ShouldBindJSON(&req)
+	result, appErr := h.service.RunRetention(c.Request.Context(), RetentionInput{
+		Days:    req.Days,
+		DryRun:  req.DryRun,
+		TraceID: req.TraceID,
+		Audit:   auditContext(c),
+	})
+	if appErr != nil {
+		writeAppError(c, appErr)
+		return
+	}
+	response.Success(c, result)
+}
+
 func searchInput(c *gin.Context) SearchInput {
 	return SearchInput{
 		TraceID:        c.Query("traceId"),
@@ -128,4 +153,19 @@ func positiveInt(value string, fallback int) int {
 
 func writeAppError(c *gin.Context, appErr *apperror.Error) {
 	response.FailAppError(c, appErr)
+}
+
+func auditContext(c *gin.Context) AuditContext {
+	actorUID := ""
+	if claims, ok := auth.ClaimsFromContext(c); ok {
+		actorUID = claims.UserID
+	}
+	return AuditContext{
+		ActorUID:      actorUID,
+		IP:            c.ClientIP(),
+		UserAgent:     c.Request.UserAgent(),
+		TraceID:       c.GetString("traceId"),
+		RequestMethod: c.Request.Method,
+		RequestPath:   c.Request.URL.Path,
+	}
 }

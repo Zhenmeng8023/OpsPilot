@@ -183,9 +183,13 @@ export const router = createBrowserRouter([
             handle: { meta: { permission: "security:review", titleKey: "security.title", sectionKey: "audit.eyebrow" } }
           },
           {
-            path: "trace-center",
+            path: "traces",
             element: <LazyRoute><TraceCenterPage /></LazyRoute>,
             handle: { meta: { permission: "traces:read", titleKey: "traceCenter.title", sectionKey: "audit.eyebrow" } }
+          },
+          {
+            path: "trace-center",
+            element: <Navigate to="/traces" replace />
           }
         ]
       }

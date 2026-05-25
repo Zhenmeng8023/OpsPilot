@@ -6,7 +6,7 @@ Generated: 2026-05-25
 
 V1.1 release scope is now aligned to the three P0 epics:
 
-- OP-11-TRACE: Trace Center with `/api/v1/traces/:id`, `/api/v1/traces/:id/events`, `/api/v1/traces/lookup`, and the existing `/api/v1/trace-center` compatibility endpoint.
+- OP-11-TRACE: Trace Center with `/api/v1/traces/:id`, `/api/v1/traces/:id/events`, `/api/v1/traces/lookup`, rebuildable `trace_events` cache, and `/traces` as the primary UI route.
 - OP-11-WF-RELIABILITY: retry plan, retry, cancel, cancel propagation report, action history, definition diff, and node retry.
 - OP-11-UI-SMOKE: Playwright desktop/narrow smoke with JSON summary and screenshot/trace artifact paths under `artifacts/ui-smoke/latest`.
 
@@ -24,6 +24,7 @@ P0 API routes added or aligned:
 - `GET /api/v1/traces/:id`
 - `GET /api/v1/traces/:id/events`
 - `GET /api/v1/traces/lookup`
+- `POST /api/v1/traces/retention/run`
 - `GET /api/v1/workflow-runs/:id/action-history`
 - `GET /api/v1/workflow-runs/:id/cancel-report`
 
@@ -45,19 +46,17 @@ Latest local validation:
 ```powershell
 cd E:\Code\1108026_rust_go\OpsPilot\server
 go test ./...
+go vet ./...
 
 cd E:\Code\1108026_rust_go\OpsPilot\web
 npm run build
-
-cd E:\Code\1108026_rust_go\OpsPilot
-.\scripts\migration-check.ps1 -SkipExecution
-.\scripts\openapi-router-check.ps1
 ```
 
 UI smoke command:
 
 ```powershell
 cd E:\Code\1108026_rust_go\OpsPilot\web
+$env:SMOKE_BASE_URL='http://127.0.0.1:5176'
 npm run test:ui-smoke
 ```
 
@@ -65,8 +64,8 @@ Trace Center E2E command:
 
 ```powershell
 cd E:\Code\1108026_rust_go\OpsPilot\web
-$env:SMOKE_BASE_URL='http://127.0.0.1:5174'
-$env:SMOKE_API_BASE_URL='http://127.0.0.1:18889'
+$env:SMOKE_BASE_URL='http://127.0.0.1:5176'
+$env:SMOKE_API_BASE_URL='http://127.0.0.1:18890'
 npm run test:trace-e2e
 ```
 
@@ -87,22 +86,43 @@ artifacts/ui-smoke/latest/
   test-results/
 ```
 
-## Known Deviations
+Latest generated runtime logs used for this round:
 
-- `trace_events` remains optional. The implementation uses on-demand aggregation and should only introduce `trace_events` if p95 query latency exceeds the V1.1 target.
-- `workflow_run_actions` is not introduced as a separate table. Action history is derived from `audit_logs` and `workflow_run_events`, which keeps V1.0 data compatibility while preserving traceability.
-- `GET /api/v1/trace-center` remains as a compatibility endpoint for the existing UI; `/api/v1/traces/*` is now the plan-aligned API surface.
+```text
+artifacts/api-18890.out.log
+artifacts/web-5176.out.log
+```
+
+## Implementation Alignment
+
+- `trace_events` is now enabled as a rebuildable cache populated from workflow/task/webhook/notification/audit facts during trace lookups.
+- `trace_events` retention is now documented with `TRACE_RETENTION_DAYS=30`, and `POST /api/v1/traces/retention/run` provides dry-run plus targeted cleanup by `traceId`.
+- `workflow_run_actions` is now persisted as a dedicated action history table for retry/cancel/approval flows, while legacy runs still fall back to audit/event reconstruction.
+- `/traces` is now the primary UI route. `/trace-center` remains as a compatibility redirect.
+
+## UI Smoke Evidence
+
+Latest Playwright smoke (`artifacts/ui-smoke/latest/summary.json`) on 2026-05-25:
+
+- 2/2 projects passed (`desktop`, `narrow`), 0 unexpected, total duration `9199.56ms`.
+- Desktop screenshot: `artifacts/ui-smoke/latest/test-results/smoke-login-and-open-production-critical-pages-desktop/test-finished-1.png`
+- Narrow screenshot: `artifacts/ui-smoke/latest/test-results/smoke-login-and-open-production-critical-pages-narrow/test-finished-1.png`
+- HTML report: `artifacts/ui-smoke/latest/html-report/index.html`
 
 ## Trace Center E2E Evidence
 
-Latest local run:
+Latest local run (`artifacts/ui-smoke/latest/trace-center-e2e/summary.json`):
 
-- Created, published, and manually ran a generated workflow probe.
-- Workflow run completed with `status=success`.
-- Trace Center lookup by `workflowRunId` returned 6 timeline items.
+- Created, published, and manually ran workflow `6TQ7JZ2SCB364VHY43HC2ZS6Q9`; success run `BPCRGSR8MED89CHN70EZ4KSF2N` completed with `status=success`.
+- Trace Center lookup resolved `traceId=trc_dd3a13a33b94d23383b39b77` and returned 6 timeline items.
 - Timeline categories: audit, workflow, workflow-event, workflow-node.
-- 20 repeated Trace Center lookups reported p95 `5.85ms` against a `1000ms` threshold.
-- Browser opened `/trace-center`, searched the generated workflow run id, rendered results, and produced no actionable console errors or failed requests.
+- `GET /api/v1/traces/trc_dd3a13a33b94d23383b39b77/events?page=1&pageSize=2` returned 2 items from a 6-item cached timeline, verifying `/traces/:id/events`.
+- `POST /api/v1/traces/retention/run` with `{"dryRun":true,"traceId":"trc_dd3a13a33b94d23383b39b77"}` matched 6 cached rows and deleted 0, proving `trace_events` was materially populated and preview-cleanable.
+- Failure probe run `D3YPXK574T317EH0T8KG79FTQA` reached `status=failed`; retry created run `P3AD98CBFFNV89HA1DNA2MY321`.
+- `GET /api/v1/workflow-runs/D3YPXK574T317EH0T8KG79FTQA/action-history` returned `retry_requested`; `GET /api/v1/workflow-runs/P3AD98CBFFNV89HA1DNA2MY321/action-history` returned `retry_started`, providing live verification that `workflow_run_actions` persists action history for both source and retry runs.
+- 20 repeated Trace Center lookups reported p95 `13.53ms` against a `1000ms` threshold.
+- Browser opened `/traces`, searched the generated workflow run id, rendered results, and produced no actionable console errors or failed requests.
+- Trace Center screenshot: `artifacts/ui-smoke/latest/trace-center-e2e/trace-center-workflow-run.png`
 
 ## P1 Status
 

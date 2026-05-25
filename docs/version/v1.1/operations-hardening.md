@@ -60,6 +60,7 @@ npm audit --audit-level=high --omit=dev --registry=https://registry.npmjs.org
 ## 5) Retention + Audit Evidence
 
 - Metrics retention endpoint already supports `dryRun=true` and execution mode.
+- Trace cache retention defaults to `TRACE_RETENTION_DAYS=30`; use `POST /api/v1/traces/retention/run` with `dryRun=true` for preview, or pass `traceId` for targeted cache cleanup / verification.
 - Every retention execution should keep:
   - request payload,
   - response summary,

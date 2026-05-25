@@ -1,0 +1,8 @@
+SET NAMES utf8mb4;
+
+START TRANSACTION;
+
+DROP TABLE IF EXISTS trace_events;
+DROP TABLE IF EXISTS workflow_run_actions;
+
+COMMIT;

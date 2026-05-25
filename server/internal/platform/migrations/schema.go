@@ -18,6 +18,7 @@ var rootMigrations = []string{
 	"000004_v07_webhook_security.up.sql",
 	"000005_v10_productization_bundle.up.sql",
 	"000006_schema_migrations_governance.up.sql",
+	"000007_v11_trace_cache_and_actions.up.sql",
 }
 
 var requiredTables = []string{
@@ -29,9 +30,11 @@ var requiredTables = []string{
 	"task_runs",
 	"workflow_definitions",
 	"workflow_runs",
+	"workflow_run_actions",
 	"webhook_events",
 	"notifications",
 	"audit_logs",
+	"trace_events",
 }
 
 type Status struct {

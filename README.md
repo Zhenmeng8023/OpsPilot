@@ -135,9 +135,15 @@ METRIC_ROLLUP_INTERVAL_SECONDS=300
 METRIC_RETENTION_INTERVAL_SECONDS=86400
 METRIC_DETAIL_RETENTION_DAYS=7
 METRIC_ROLLUP_RETENTION_DAYS=90
+TRACE_RETENTION_DAYS=30
 NOTIFICATION_DISPATCH_INTERVAL_SECONDS=15
 NOTIFICATION_HTTP_TIMEOUT_SECONDS=10
 ```
+
+Trace Center 缓存治理说明：
+
+- `trace_events` 是可重建缓存表，不是唯一事实源；默认通过 `TRACE_RETENTION_DAYS` 控制按时间清理的保留天数。
+- 如需手工预演或定向清理某一条 trace 的缓存，可调用 `POST /api/v1/traces/retention/run`，支持 `dryRun=true` 和可选 `traceId`。
 
 如果数据库服务时区与 API 进程本地时区不同，不要继续使用 `loc=Local`。请将 DSN 中的 `loc` 改成与数据库一致的 IANA 时区，例如 `loc=Asia%2FShanghai`，否则 wait/schedule 等依赖时间比较的功能在 Docker 或跨时区环境下可能出现偏差。
 

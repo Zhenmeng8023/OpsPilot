@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -859,6 +858,34 @@ func (s *Service) RetryRun(ctx context.Context, input RetryInput) (RunDetail, *a
 			return err
 		}
 		retried = loaded
+		if err := recordWorkflowAction(
+			ctx,
+			tx,
+			run.ID,
+			input.Audit.TraceID,
+			"retry_requested",
+			"",
+			"created retry run "+runUID,
+			"success",
+			actorID,
+			map[string]interface{}{"sourceRunId": run.UID, "retryRunId": runUID},
+		); err != nil {
+			return err
+		}
+		if err := recordWorkflowAction(
+			ctx,
+			tx,
+			runID,
+			input.Audit.TraceID,
+			"retry_started",
+			"",
+			"retried from "+run.UID,
+			"queued",
+			actorID,
+			map[string]interface{}{"sourceRunId": run.UID},
+		); err != nil {
+			return err
+		}
 		audit.Write(ctx, tx, audit.Event{
 			WorkspaceID:   workspace.ID,
 			ActorUserID:   actorID,
@@ -1043,6 +1070,20 @@ func (s *Service) RetryNode(ctx context.Context, input RetryNodeInput) (RunDetai
 			return err
 		}
 		detail = loaded
+		if err := recordWorkflowAction(
+			ctx,
+			tx,
+			run.ID,
+			input.Audit.TraceID,
+			"node_retry_requested",
+			targetNodeID,
+			"reset nodes: "+strings.Join(resetIDs, ", "),
+			"queued",
+			actorID,
+			map[string]interface{}{"runId": run.UID, "nodeId": targetNodeID, "resetNodeIds": resetIDs},
+		); err != nil {
+			return err
+		}
 		audit.Write(ctx, tx, audit.Event{
 			WorkspaceID:   workspace.ID,
 			ActorUserID:   actorID,
@@ -1165,6 +1206,31 @@ func (s *Service) resolveApprovalNode(ctx context.Context, input ApprovalInput, 
 			return err
 		}
 		detail = loaded
+		actionType := "approval_rejected"
+		actionResult := "failed"
+		if approved {
+			actionType = "approval_approved"
+			actionResult = "success"
+		}
+		if err := recordWorkflowAction(
+			ctx,
+			tx,
+			run.ID,
+			input.Audit.TraceID,
+			actionType,
+			targetNodeID,
+			comment,
+			actionResult,
+			actorID,
+			map[string]interface{}{
+				"runId":    run.UID,
+				"nodeId":   targetNodeID,
+				"approved": approved,
+				"comment":  comment,
+			},
+		); err != nil {
+			return err
+		}
 		action := "workflow.node_reject"
 		if approved {
 			action = "workflow.node_approve"
@@ -1348,6 +1414,26 @@ func (s *Service) CancelRun(ctx context.Context, input CancelInput) (RunDetail, 
 			return err
 		}
 		canceled = loaded
+		if err := recordWorkflowAction(
+			ctx,
+			tx,
+			run.ID,
+			input.Audit.TraceID,
+			"cancel_completed",
+			"",
+			reason,
+			"success",
+			actorID,
+			map[string]interface{}{
+				"runId":          run.UID,
+				"reason":         reason,
+				"taskRunCount":   len(taskRunIDs),
+				"propagation":    cancelResults,
+				"unableToCancel": filterCancelFailures(cancelResults),
+			},
+		); err != nil {
+			return err
+		}
 		audit.Write(ctx, tx, audit.Event{
 			WorkspaceID:   workspace.ID,
 			ActorUserID:   actorID,
@@ -1481,6 +1567,14 @@ func (s *Service) ActionHistory(ctx context.Context, runUID string) ([]ActionHis
 		return nil, apperror.New(http.StatusNotFound, 404002, "workflow run not found")
 	}
 
+	items, err := loadWorkflowActionHistory(ctx, s.db, run.ID)
+	if err != nil {
+		return nil, apperror.Wrap(http.StatusInternalServerError, 501025, "load workflow action history failed", err)
+	}
+	if len(items) > 0 {
+		return items, nil
+	}
+
 	var audits []ActionHistoryItem
 	if err := s.db.WithContext(ctx).Raw(
 		`SELECT al.id, al.action, al.result, IFNULL(al.trace_id, '') AS trace_id,
@@ -1500,8 +1594,11 @@ func (s *Service) ActionHistory(ctx context.Context, runUID string) ([]ActionHis
 	).Scan(&audits).Error; err != nil {
 		return nil, apperror.Wrap(http.StatusInternalServerError, 501025, "load workflow audit history failed", err)
 	}
+	for index := range audits {
+		audits[index].Action = legacyActionName(audits[index].Action)
+	}
 
-	var events []struct {
+	var eventRows []struct {
 		ID        uint64         `gorm:"column:id"`
 		EventType string         `gorm:"column:event_type"`
 		Message   sql.NullString `gorm:"column:message"`
@@ -1522,43 +1619,33 @@ func (s *Service) ActionHistory(ctx context.Context, runUID string) ([]ActionHis
 		  ORDER BY wre.created_at DESC, wre.id DESC
 		  LIMIT 200`,
 		run.ID,
-	).Scan(&events).Error; err != nil {
+	).Scan(&eventRows).Error; err != nil {
 		return nil, apperror.Wrap(http.StatusInternalServerError, 501026, "load workflow event history failed", err)
 	}
 
-	items := make([]ActionHistoryItem, 0, len(audits)+len(events))
-	items = append(items, audits...)
-	for _, event := range events {
-		action := "workflow." + event.EventType
+	events := make([]ActionHistoryItem, 0, len(eventRows))
+	for _, event := range eventRows {
 		result := ""
 		switch event.EventType {
 		case "canceled":
-			action = "workflow.cancel"
+			result = "success"
 		case "node_retry":
-			action = "workflow.node_retry"
+			result = "queued"
 		case "node_success":
-			action = "workflow.node_approve"
 			result = "success"
 		case "node_failed":
-			action = "workflow.node_reject"
 			result = "failed"
 		}
-		items = append(items, ActionHistoryItem{
+		events = append(events, ActionHistoryItem{
 			ID:        1000000000 + event.ID,
-			Action:    action,
+			Action:    legacyActionName(event.EventType),
 			Actor:     event.Actor.String,
 			Detail:    event.Message.String,
 			Result:    result,
 			CreatedAt: event.CreatedAt,
 		})
 	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].CreatedAt == items[j].CreatedAt {
-			return items[i].ID > items[j].ID
-		}
-		return items[i].CreatedAt > items[j].CreatedAt
-	})
-	return items, nil
+	return mergeLegacyActionHistory(audits, events), nil
 }
 
 func (s *Service) DefinitionDiff(ctx context.Context, runUID string) (DefinitionDiffResult, *apperror.Error) {
